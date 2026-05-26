@@ -1,0 +1,6 @@
+export const RETURN_RESPONSIBILITY_MANAGEMENT_KEY = 'return_responsibility_management_enabled';
+export const PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY = 'picking_responsibility_flow_enabled';
+export const MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY = 'marketplace_payment_methods_enabled';
+export const MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY = 'marketplace_allowed_payment_method_ids';
+export const MARKETPLACE_INCLUDE_IGV_KEY = 'marketplace_include_igv_enabled';
+export const MARKETPLACE_AUTO_RESERVE_STOCK_KEY = 'marketplace_auto_reserve_stock_enabled';

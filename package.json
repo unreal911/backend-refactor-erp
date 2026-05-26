@@ -1,0 +1,53 @@
+{
+  "name": "backend-refactorizado",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch src/app.ts",
+    "build": "npm run db:generate && rimraf ./dist && tsc && node scripts/copy-public.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "start": "npm run db:migrate:deploy && node dist/app.js",
+    "start:rebuild": "npm run build && npm run start",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "seed": "tsx src/data/seed/index.ts",
+    "seed:prod": "node dist/data/seed/index.js",
+    "seed:build": "npm run build && npm run seed:prod",
+    "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
+    "bootstrap:admin:prod": "node dist/scripts/bootstrap-admin.js",
+    "db:clean:keep-users": "tsx src/data/clean-db-keep-users.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.20.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^1.37.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "env-var": "^7.5.0",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0",
+    "prisma": "^7.8.0"
+  }
+}

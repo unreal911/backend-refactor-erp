@@ -1,0 +1,15 @@
+
+
+
+
+
+
+
+mongo/
+postgres/
+node_modules/
+dist/
+build/
+coverage/
+/generated/prisma
+docs

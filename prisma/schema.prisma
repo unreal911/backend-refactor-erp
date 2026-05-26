@@ -1,0 +1,528 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  products Product[]
+}
+
+model Color {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  hex       String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  variants ProductVariant[]
+}
+
+model Size {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  variants ProductVariant[]
+}
+
+model Product {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // CATEGORY
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  // RELATIONS
+  variants ProductVariant[]
+  images   ProductImage[]
+}
+
+model ProductImage {
+  id Int @id @default(autoincrement())
+
+  url String
+
+  createdAt DateTime @default(now())
+
+  // RELATION
+  productId Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ProductVariant {
+  id Int @id @default(autoincrement())
+
+  sku     String  @unique
+  barcode String?
+
+  price Decimal @db.Decimal(10, 2)
+
+  imageUrl String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // PRODUCT
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  // COLOR
+
+  colorId Int
+  color   Color @relation(fields: [colorId], references: [id])
+
+  // SIZE
+
+  sizeId Int
+  size   Size @relation(fields: [sizeId], references: [id])
+
+  // INVENTORY
+
+  inventories Inventory[]
+
+  // TRANSFERS
+
+  transferItems StockTransferItem[]
+
+  // RESERVATIONS
+
+  reservations Reservation[]
+
+  // PICKING
+
+  pickingItems PickingItem[]
+
+  // ORDER ITEMS
+
+  orderItems OrderItem[]
+
+  @@unique([productId, colorId, sizeId])
+}
+
+enum InventoryMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+  RESERVED
+  UNRESERVED
+}
+
+enum TransferStatus {
+  PENDING
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  COMPLETED
+}
+
+enum ReturnResponsibilityStatus {
+  PENDING
+  ACCEPTED
+}
+
+enum PickingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  rolePermissions RolePermission[]
+}
+
+model Permission {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique
+  name        String
+  module      String
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id Int @id @default(autoincrement())
+
+  roleId Int
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  permissionId Int
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+}
+
+model User {
+  id Int @id @default(autoincrement())
+
+  firstName String
+  lastName  String
+
+  email    String @unique
+  password String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roleId Int
+  role   Role @relation(fields: [roleId], references: [id])
+
+  inventoryMovements InventoryMovement[]
+
+  createdTransfers  StockTransfer[] @relation("TransferCreatedBy")
+  receivedTransfers StockTransfer[] @relation("TransferReceivedBy")
+
+  reservations Reservation[]
+
+  pickingSessions PickingSession[]
+
+  // ORDER RESPONSIBILITIES
+  sellerOrders Order[] @relation("OrderSeller")
+  pickerOrders Order[] @relation("OrderPicker")
+  dispenserOrders Order[] @relation("OrderDispenser")
+  cancelledOrders Order[] @relation("OrderCancelledBy")
+  returnResponsibleOrders Order[] @relation("OrderReturnResponsible")
+  delegatedReturnOrders Order[] @relation("OrderReturnDelegatedBy")
+}
+
+enum StoreType {
+  STORE
+  WAREHOUSE
+}
+
+model Store {
+  id Int @id @default(autoincrement())
+
+  name String
+  code String @unique
+  type StoreType @default(STORE)
+  address String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventories Inventory[]
+
+  outgoingTransfers StockTransfer[] @relation("TransferFrom")
+  incomingTransfers StockTransfer[] @relation("TransferTo")
+
+  // ORDER RELATIONS
+  sourceOrders Order[] @relation("OrderSourceStore")
+  fulfillmentOrders Order[] @relation("OrderFulfillmentStore")
+}
+
+model Inventory {
+  id Int @id @default(autoincrement())
+
+  stock Int @default(0)
+
+  reservedStock Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  storeId Int
+  store   Store @relation(fields: [storeId], references: [id])
+
+  variantId Int
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  movements InventoryMovement[]
+
+  reservations Reservation[]
+
+  @@unique([storeId, variantId])
+}
+
+model InventoryMovement {
+  id Int @id @default(autoincrement())
+
+  type InventoryMovementType
+
+  quantity Int
+
+  previousStock Int
+  newStock      Int
+
+  note String?
+
+  createdAt DateTime @default(now())
+
+  responsibleUserId Int?
+  responsibleUser   User? @relation(fields: [responsibleUserId], references: [id])
+
+  inventoryId Int
+  inventory   Inventory @relation(fields: [inventoryId], references: [id])
+
+  transferId Int?
+  transfer   StockTransfer? @relation(fields: [transferId], references: [id])
+
+  reservationId Int?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+}
+
+model StockTransfer {
+  id Int @id @default(autoincrement())
+
+  code String @unique
+
+  status TransferStatus @default(PENDING)
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById Int?
+  createdBy   User? @relation("TransferCreatedBy", fields: [createdById], references: [id])
+
+  receivedById Int?
+  receivedBy   User? @relation("TransferReceivedBy", fields: [receivedById], references: [id])
+
+  fromStoreId Int
+  fromStore   Store @relation("TransferFrom", fields: [fromStoreId], references: [id])
+
+  toStoreId Int
+  toStore   Store @relation("TransferTo", fields: [toStoreId], references: [id])
+
+  orderId Int? @unique
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  items StockTransferItem[]
+
+  movements InventoryMovement[]
+}
+
+model StockTransferItem {
+  id Int @id @default(autoincrement())
+
+  quantity Int
+
+  createdAt DateTime @default(now())
+
+  transferId Int
+  transfer   StockTransfer @relation(fields: [transferId], references: [id])
+
+  variantId Int
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+}
+
+model Reservation {
+  id Int @id @default(autoincrement())
+
+  quantity Int
+
+  status ReservationStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventoryId Int
+  inventory   Inventory @relation(fields: [inventoryId], references: [id])
+
+  variantId Int
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  orderId Int?
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  reservedById Int?
+  reservedBy   User? @relation(fields: [reservedById], references: [id])
+
+  movements InventoryMovement[]
+}
+
+model PickingSession {
+  id Int @id @default(autoincrement())
+
+  status PickingStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderId Int? @unique
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  assignedUserId Int?
+  assignedUser   User? @relation(fields: [assignedUserId], references: [id])
+
+  items PickingItem[]
+}
+
+model PickingItem {
+  id Int @id @default(autoincrement())
+
+  quantity Int
+
+  pickedQuantity Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  sessionId Int
+  session   PickingSession @relation(fields: [sessionId], references: [id])
+
+  variantId Int
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+}
+
+// ORDER MANAGEMENT
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  WAITING_TRANSFER
+  PREPARING
+  READY
+  DELIVERED
+  RETURN_PENDING
+  CANCELLED
+  WAITING_STOCK
+}
+
+enum OrderItemStatus {
+  PENDING
+  PARTIAL
+  PICKED
+}
+
+model Order {
+  id Int @id @default(autoincrement())
+
+  code String @unique
+
+  status OrderStatus @default(PENDING)
+
+  clientName String?
+  clientEmail String?
+  clientPhone String?
+
+  subtotal Decimal @default(0) @db.Decimal(12, 2)
+  tax Decimal @default(0) @db.Decimal(12, 2)
+  total Decimal @default(0) @db.Decimal(12, 2)
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // STORE RELATIONS
+  sourceStoreId Int
+  sourceStore Store @relation("OrderSourceStore", fields: [sourceStoreId], references: [id])
+
+  fulfillmentStoreId Int?
+  fulfillmentStore Store? @relation("OrderFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
+
+  // USER RELATIONS (Responsibles)
+  sellerUserId Int?
+  sellerUser User? @relation("OrderSeller", fields: [sellerUserId], references: [id])
+
+  pickerUserId Int?
+  pickerUser User? @relation("OrderPicker", fields: [pickerUserId], references: [id])
+
+  dispenserUserId Int?
+  dispenserUser User? @relation("OrderDispenser", fields: [dispenserUserId], references: [id])
+
+  cancelledByUserId Int?
+  cancelledByUser User? @relation("OrderCancelledBy", fields: [cancelledByUserId], references: [id])
+
+  returnResponsibleUserId Int?
+  returnResponsibleUser User? @relation("OrderReturnResponsible", fields: [returnResponsibleUserId], references: [id])
+
+  returnResponsibilityDelegatedById Int?
+  returnResponsibilityDelegatedBy User? @relation("OrderReturnDelegatedBy", fields: [returnResponsibilityDelegatedById], references: [id])
+
+  returnResponsibilityStatus ReturnResponsibilityStatus?
+  returnRequestedAt DateTime?
+  returnResponsibilityAcceptedAt DateTime?
+  returnedAt DateTime?
+
+  // RELATIONS
+  items OrderItem[]
+  reservations Reservation[]
+  pickingSession PickingSession?
+  transfer StockTransfer?
+}
+
+model OrderItem {
+  id Int @id @default(autoincrement())
+
+  quantity Int
+  reserved Int @default(0)
+  picked Int @default(0)
+
+  unitPrice Decimal @db.Decimal(10, 2)
+  subtotal Decimal @db.Decimal(12, 2)
+
+  status OrderItemStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  orderId Int
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  variantId Int
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+}
+
+model PaymentMethod {
+  id Int @id @default(autoincrement())
+
+  name String @unique
+  code String @unique
+
+  displayOrder Int @default(0)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
