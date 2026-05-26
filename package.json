@@ -9,7 +9,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "start": "npm run db:migrate:deploy && node dist/app.js",
+    "start": "npm run db:migrate:deploy && npm run bootstrap:admin:prod && node dist/app.js",
     "start:rebuild": "npm run build && npm run start",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
