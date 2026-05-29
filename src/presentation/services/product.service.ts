@@ -14,7 +14,6 @@ import { cloudinary } from "../../config/cloudinary";
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
     sizeIds: number[];
-    colorImageUrlsByColorId?: Record<number, string>;
 };
 
 export class ProductService {
@@ -138,29 +137,11 @@ export class ProductService {
         return `${this.marketplaceVariantSettingKeyPrefix}${productId}`;
     }
 
-    private normalizeMarketplaceColorImageMap(rawMap: unknown): Record<number, string> {
-        if (!rawMap || typeof rawMap !== 'object') {
-            return {};
-        }
-
-        const normalized: Record<number, string> = {};
-        for (const [rawColorId, rawUrl] of Object.entries(rawMap as Record<string, unknown>)) {
-            const colorId = Number(rawColorId);
-            const url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
-            if (!Number.isInteger(colorId) || colorId < 1 || !url) {
-                continue;
-            }
-            normalized[colorId] = url;
-        }
-
-        return normalized;
-    }
-
     private parseMarketplaceSimpleVariantConfig(raw: string | null | undefined): MarketplaceSimpleVariantConfig | null {
         if (!raw) return null;
 
         try {
-            const parsed = JSON.parse(raw) as { colorIds?: unknown; sizeIds?: unknown; colorImageUrlsByColorId?: unknown };
+            const parsed = JSON.parse(raw) as { colorIds?: unknown; sizeIds?: unknown };
             const colorIds = Array.isArray(parsed?.colorIds)
                 ? parsed.colorIds
                     .map((id) => Number(id))
@@ -171,26 +152,14 @@ export class ProductService {
                     .map((id) => Number(id))
                     .filter((id) => Number.isInteger(id) && id > 0)
                 : [];
-            const colorImageUrlsByColorId = this.normalizeMarketplaceColorImageMap(parsed?.colorImageUrlsByColorId);
 
-            if (!colorIds.length) {
+            if (!colorIds.length || !sizeIds.length) {
                 return null;
-            }
-
-            const colorSet = new Set(colorIds);
-            const filteredColorImageUrlsByColorId: Record<number, string> = {};
-            for (const [rawColorId, url] of Object.entries(colorImageUrlsByColorId)) {
-                const colorId = Number(rawColorId);
-                if (!colorSet.has(colorId)) {
-                    continue;
-                }
-                filteredColorImageUrlsByColorId[colorId] = url;
             }
 
             return {
                 colorIds: Array.from(new Set(colorIds)),
                 sizeIds: Array.from(new Set(sizeIds)),
-                colorImageUrlsByColorId: filteredColorImageUrlsByColorId,
             };
         } catch {
             return null;
@@ -238,28 +207,16 @@ export class ProductService {
 
     private async upsertMarketplaceSimpleVariantConfig(productId: number, config: MarketplaceSimpleVariantConfig | null): Promise<void> {
         const key = this.buildMarketplaceVariantSettingKey(productId);
-        if (!config || !config.colorIds.length) {
+        if (!config || !config.colorIds.length || !config.sizeIds.length) {
             await prisma.$executeRaw(
                 Prisma.sql`DELETE FROM "SystemSetting" WHERE "key" = ${key}`,
             );
             return;
         }
 
-        const normalizedColorImageUrls = this.normalizeMarketplaceColorImageMap(config.colorImageUrlsByColorId);
-        const filteredColorImageUrls: Record<number, string> = {};
-        const colorSet = new Set(config.colorIds);
-        for (const [rawColorId, url] of Object.entries(normalizedColorImageUrls)) {
-            const colorId = Number(rawColorId);
-            if (!colorSet.has(colorId)) {
-                continue;
-            }
-            filteredColorImageUrls[colorId] = url;
-        }
-
         const payload = JSON.stringify({
             colorIds: Array.from(new Set(config.colorIds)),
             sizeIds: Array.from(new Set(config.sizeIds)),
-            colorImageUrlsByColorId: filteredColorImageUrls,
         });
 
         await prisma.$executeRaw(
@@ -271,69 +228,6 @@ export class ProductService {
                     "updatedAt" = CURRENT_TIMESTAMP
             `,
         );
-    }
-
-    private async uploadMarketplaceColorImage(
-        productId: number,
-        colorId: number,
-        imageFile: { filename: string; data: string },
-    ): Promise<string> {
-        const normalizedFilename = imageFile.filename.replace(/\.[^/.]+$/, '');
-        const publicId = `product_${productId}_mk_color_${colorId}_${normalizedFilename}`;
-        return this.uploadBase64Image(imageFile.data, publicId);
-    }
-
-    private async resolveMarketplaceColorImageUrls(
-        productId: number,
-        colorIds: number[],
-        marketplaceColorImages: Array<{ colorId: number; imageUrl?: string; imageFile?: { filename: string; data: string } }> = [],
-        existingUrlsByColorId: Record<number, string> = {},
-    ): Promise<Record<number, string>> {
-        const allowedColorIds = Array.from(new Set(colorIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)));
-        const allowedSet = new Set(allowedColorIds);
-        const currentUrls = this.normalizeMarketplaceColorImageMap(existingUrlsByColorId);
-
-        const incomingByColorId = new Map<number, { colorId: number; imageUrl?: string; imageFile?: { filename: string; data: string } }>();
-        for (const entry of marketplaceColorImages || []) {
-            const colorId = Number(entry?.colorId || 0);
-            if (!allowedSet.has(colorId)) {
-                continue;
-            }
-            incomingByColorId.set(colorId, entry);
-        }
-
-        const nextUrls: Record<number, string> = {};
-        for (const colorId of allowedColorIds) {
-            const incoming = incomingByColorId.get(colorId);
-            let nextUrl = '';
-
-            if (incoming?.imageFile) {
-                nextUrl = await this.uploadMarketplaceColorImage(productId, colorId, incoming.imageFile);
-            } else if (typeof incoming?.imageUrl === 'string') {
-                nextUrl = incoming.imageUrl.trim();
-            } else if (currentUrls[colorId]) {
-                nextUrl = currentUrls[colorId];
-            }
-
-            if (nextUrl) {
-                nextUrls[colorId] = nextUrl;
-            }
-        }
-
-        for (const [rawColorId, previousUrl] of Object.entries(currentUrls)) {
-            const colorId = Number(rawColorId);
-            if (!previousUrl) continue;
-
-            const colorWasRemoved = !allowedSet.has(colorId);
-            const colorWasUpdated = Boolean(incomingByColorId.get(colorId));
-            const nextUrl = nextUrls[colorId];
-
-            if ((colorWasRemoved || colorWasUpdated) && previousUrl !== nextUrl) {
-                await this.deleteCloudinaryUrl(previousUrl);
-            }
-        }
-
-        return nextUrls;
     }
 
     private mapVariantForResponse(variant: any) {
@@ -374,7 +268,6 @@ export class ProductService {
         reservedStock: number,
         colors: Array<{ id: number; name: string; hex?: string | null }>,
         sizes: Array<{ id: number; name: string }>,
-        colorImageUrlsByColorId: Record<number, string> = {},
     ) {
         const result: Array<{
             id: number;
@@ -392,23 +285,17 @@ export class ProductService {
             isVirtualMarketplaceVariant?: boolean;
         }> = [];
 
-        const effectiveSizes = sizes.length > 0 ? sizes : [null];
-
         for (const color of colors) {
-            for (const size of effectiveSizes) {
-                const sizeId = size?.id ?? 0;
-                const sizeName = size?.name ?? this.simpleSizeName;
-                const colorImage = colorImageUrlsByColorId[Number(color.id)];
-
+            for (const size of sizes) {
                 result.push({
-                    id: this.buildSyntheticMarketplaceVariantId(baseVariant.id, color.id, sizeId),
+                    id: this.buildSyntheticMarketplaceVariantId(baseVariant.id, color.id, size.id),
                     sourceVariantId: Number(baseVariant.id),
-                    sku: `${baseVariant.sku || `VAR-${baseVariant.id}`}-MK-${color.id}-${sizeId}`,
+                    sku: `${baseVariant.sku || `VAR-${baseVariant.id}`}-MK-${color.id}-${size.id}`,
                     barcode: baseVariant.barcode ?? null,
                     price: Number(baseVariant.price || 0),
-                    imageUrl: colorImage || baseVariant.imageUrl || null,
+                    imageUrl: baseVariant.imageUrl || null,
                     color: { id: color.id, name: color.name, hex: color.hex ?? null },
-                    size: size ? { id: sizeId, name: sizeName } : null,
+                    size: { id: size.id, name: size.name },
                     availableStock: Number(availableStock || 0),
                     reservedStock: Number(reservedStock || 0),
                     isSimpleVariant: false,
@@ -453,14 +340,12 @@ export class ProductService {
             return null;
         }
 
-        if (uniqueColorIds.length === 0) {
-            throw CustomError.badRequest('Para variantes marketplace en producto unico debes seleccionar al menos un color');
+        if (uniqueColorIds.length === 0 || uniqueSizeIds.length === 0) {
+            throw CustomError.badRequest('Para variantes marketplace en producto unico debes seleccionar color y talla');
         }
 
         await this.validateColors(uniqueColorIds);
-        if (uniqueSizeIds.length > 0) {
-            await this.validateSizes(uniqueSizeIds);
-        }
+        await this.validateSizes(uniqueSizeIds);
 
         return {
             colorIds: uniqueColorIds,
@@ -572,7 +457,6 @@ export class ProductService {
             imageUrls = [],
             imageFiles = [],
             variants = [],
-            marketplaceColorImages = [],
         } = createProductDto;
 
         console.log('Creando producto con datos:', {
@@ -584,8 +468,7 @@ export class ProductService {
             sizeIds,
             imageUrls,
             imageFilesCount: imageFiles.length,
-            variantsCount: variants.length,
-            marketplaceColorImagesCount: marketplaceColorImages.length,
+            variantsCount: variants.length
         });
 
         try {
@@ -735,21 +618,7 @@ export class ProductService {
                 },
             });
 
-            let simpleMarketplaceConfigToPersist = simpleMarketplaceConfig;
-            if (isSimpleMode && simpleMarketplaceConfigToPersist) {
-                const colorImageUrlsByColorId = await this.resolveMarketplaceColorImageUrls(
-                    product.id,
-                    simpleMarketplaceConfigToPersist.colorIds,
-                    marketplaceColorImages,
-                );
-
-                simpleMarketplaceConfigToPersist = {
-                    ...simpleMarketplaceConfigToPersist,
-                    colorImageUrlsByColorId,
-                };
-            }
-
-            await this.upsertMarketplaceSimpleVariantConfig(product.id, simpleMarketplaceConfigToPersist);
+            await this.upsertMarketplaceSimpleVariantConfig(product.id, simpleMarketplaceConfig);
 
             // Subir imágenes de producto a Cloudinary si se recibieron archivos
             const uploadedProductImageUrls = await this.uploadProductFiles(product.id, imageFiles);
@@ -791,9 +660,8 @@ export class ProductService {
                     variantCount: createdVariants.length,
                     imageCount: allImageUrls.length,
                     variantMode,
-                    marketplaceVariantColorIds: simpleMarketplaceConfigToPersist?.colorIds || [],
-                    marketplaceVariantSizeIds: simpleMarketplaceConfigToPersist?.sizeIds || [],
-                    marketplaceVariantColorImageUrls: simpleMarketplaceConfigToPersist?.colorImageUrlsByColorId || {},
+                    marketplaceVariantColorIds: simpleMarketplaceConfig?.colorIds || [],
+                    marketplaceVariantSizeIds: simpleMarketplaceConfig?.sizeIds || [],
                 },
                 variants: createdVariants.map(v => ProductVariantEntity.fromObject(v)),
                 images: allImageUrls,
@@ -898,7 +766,6 @@ export class ProductService {
                     variantMode: this.resolveProductVariantMode(product.variants || []),
                     marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                     marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
-                    marketplaceVariantColorImageUrls: marketplaceConfig?.colorImageUrlsByColorId || {},
                     variants: mappedVariants,
                     images: (product.images || []).map((i: any) => ProductImageEntity.fromObject(i)),
                 };
@@ -952,7 +819,6 @@ export class ProductService {
                 variantMode: this.resolveProductVariantMode(product.variants || []),
                 marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                 marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
-                marketplaceVariantColorImageUrls: marketplaceConfig?.colorImageUrlsByColorId || {},
                 variants: mappedVariants,
                 images: (product.images || []).map((i: any) => ProductImageEntity.fromObject(i)),
             };
@@ -1097,14 +963,13 @@ export class ProductService {
                     .map((id) => marketplaceSizeById.get(id))
                     .filter((size): size is { id: number; name: string } => Boolean(size));
 
-                if (baseVariant && configuredColors.length > 0) {
+                if (baseVariant && configuredColors.length > 0 && configuredSizes.length > 0) {
                     variants = this.buildPublicVariantsForSimpleMode(
                         baseVariant,
                         Number(baseVariant.availableStock || 0),
                         Number(baseVariant.reservedStock || 0),
                         configuredColors,
                         configuredSizes,
-                        marketplaceConfig.colorImageUrlsByColorId || {},
                     );
                 }
             }
@@ -1269,12 +1134,10 @@ export class ProductService {
                     where: { id: { in: marketplaceConfig.colorIds }, isActive: true },
                     select: { id: true, name: true, hex: true },
                 }),
-                marketplaceConfig.sizeIds.length > 0
-                    ? prisma.size.findMany({
-                        where: { id: { in: marketplaceConfig.sizeIds }, isActive: true },
-                        select: { id: true, name: true },
-                    })
-                    : Promise.resolve([]),
+                prisma.size.findMany({
+                    where: { id: { in: marketplaceConfig.sizeIds }, isActive: true },
+                    select: { id: true, name: true },
+                }),
             ]);
 
             const colorById = new Map(colorsFromConfig.map((color) => [Number(color.id), color]));
@@ -1287,14 +1150,13 @@ export class ProductService {
                 .filter((size): size is { id: number; name: string } => Boolean(size));
 
             const baseVariant = realVariants[0];
-            if (baseVariant && configuredColors.length > 0) {
+            if (baseVariant && configuredColors.length > 0 && configuredSizes.length > 0) {
                 variants = this.buildPublicVariantsForSimpleMode(
                     baseVariant,
                     Number(baseVariant.availableStock || 0),
                     Number(baseVariant.reservedStock || 0),
                     configuredColors,
                     configuredSizes,
-                    marketplaceConfig.colorImageUrlsByColorId || {},
                 );
             }
         }
@@ -1582,38 +1444,19 @@ export class ProductService {
                 await this.validateSizes(updateData.sizeIds);
             }
 
-            const existingSimpleMarketplaceConfig = await this.getMarketplaceSimpleVariantConfig(id);
             let simpleMarketplaceConfigToPersist: MarketplaceSimpleVariantConfig | null | undefined;
             const hasSimpleMarketplaceChanges =
                 updateData.variantMode !== undefined ||
                 updateData.colorIds !== undefined ||
-                updateData.sizeIds !== undefined ||
-                updateData.marketplaceColorImages !== undefined;
+                updateData.sizeIds !== undefined;
 
             if (hasSimpleMarketplaceChanges) {
                 if (isSimpleMode) {
-                    const configColorIds = updateData.colorIds ?? existingSimpleMarketplaceConfig?.colorIds ?? [];
-                    const configSizeIds = updateData.sizeIds ?? existingSimpleMarketplaceConfig?.sizeIds ?? [];
                     simpleMarketplaceConfigToPersist = await this.resolveSimpleMarketplaceConfig(
                         'SIMPLE',
-                        configColorIds,
-                        configSizeIds,
+                        updateData.colorIds ?? [],
+                        updateData.sizeIds ?? [],
                     );
-
-                    if (simpleMarketplaceConfigToPersist) {
-                        const existingColorImageUrls = existingSimpleMarketplaceConfig?.colorImageUrlsByColorId || {};
-                        const colorImageUrlsByColorId = await this.resolveMarketplaceColorImageUrls(
-                            id,
-                            simpleMarketplaceConfigToPersist.colorIds,
-                            updateData.marketplaceColorImages,
-                            existingColorImageUrls,
-                        );
-
-                        simpleMarketplaceConfigToPersist = {
-                            ...simpleMarketplaceConfigToPersist,
-                            colorImageUrlsByColorId,
-                        };
-                    }
                 } else {
                     simpleMarketplaceConfigToPersist = null;
                 }
@@ -1668,12 +1511,6 @@ export class ProductService {
             }
 
             if (simpleMarketplaceConfigToPersist !== undefined) {
-                if (simpleMarketplaceConfigToPersist === null) {
-                    const previousColorImageUrls = Object.values(existingSimpleMarketplaceConfig?.colorImageUrlsByColorId || {});
-                    for (const url of previousColorImageUrls) {
-                        await this.deleteCloudinaryUrl(url);
-                    }
-                }
                 await this.upsertMarketplaceSimpleVariantConfig(id, simpleMarketplaceConfigToPersist);
             }
 
@@ -1707,12 +1544,6 @@ export class ProductService {
 
             if (!product) {
                 throw CustomError.notFound(`El producto con ID ${id} no existe`);
-            }
-
-            const existingSimpleMarketplaceConfig = await this.getMarketplaceSimpleVariantConfig(id);
-            const colorImageUrls = Object.values(existingSimpleMarketplaceConfig?.colorImageUrlsByColorId || {});
-            for (const url of colorImageUrls) {
-                await this.deleteCloudinaryUrl(url);
             }
 
             await this.upsertMarketplaceSimpleVariantConfig(id, null);
