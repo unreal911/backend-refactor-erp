@@ -9,6 +9,12 @@ type UpdateVariantInput = {
     imageFile?: { filename: string; data: string };
 };
 
+type MarketplaceColorImageInput = {
+    colorId: number;
+    imageUrl?: string;
+    imageFile?: { filename: string; data: string };
+};
+
 export class UpdateProductDto {
     private constructor(
         public readonly name?: string,
@@ -21,6 +27,7 @@ export class UpdateProductDto {
         public readonly imageUrls?: string[],
         public readonly imageFiles?: Array<{ filename: string; data: string }>,
         public readonly variants?: UpdateVariantInput[],
+        public readonly marketplaceColorImages?: MarketplaceColorImageInput[],
     ) { }
 
     static create(object: { [key: string]: any }): [string | undefined, UpdateProductDto | undefined] {
@@ -35,6 +42,7 @@ export class UpdateProductDto {
             imageUrls,
             imageFiles,
             variants,
+            marketplaceColorImages,
         } = object;
 
         const normalizedVariantMode = typeof variantMode === 'string'
@@ -172,6 +180,36 @@ export class UpdateProductDto {
             }
         }
 
+        if (marketplaceColorImages !== undefined) {
+            if (!Array.isArray(marketplaceColorImages)) {
+                return ['marketplaceColorImages debe ser un array', undefined];
+            }
+
+            for (const entry of marketplaceColorImages as MarketplaceColorImageInput[]) {
+                if (!entry || typeof entry !== 'object') {
+                    return ['Cada imagen de color marketplace debe ser un objeto valido', undefined];
+                }
+
+                if (!entry.colorId || typeof entry.colorId !== 'number' || entry.colorId < 1) {
+                    return ['Cada imagen de color marketplace debe incluir un colorId valido', undefined];
+                }
+
+                if (entry.imageUrl !== undefined && typeof entry.imageUrl !== 'string') {
+                    return ['imageUrl en marketplaceColorImages debe ser una cadena valida', undefined];
+                }
+
+                if (entry.imageFile !== undefined) {
+                    if (
+                        typeof entry.imageFile !== 'object' ||
+                        typeof entry.imageFile.filename !== 'string' ||
+                        typeof entry.imageFile.data !== 'string'
+                    ) {
+                        return ['Cada imageFile en marketplaceColorImages debe incluir filename y data en base64', undefined];
+                    }
+                }
+            }
+        }
+
         return [undefined, new UpdateProductDto(
             name?.trim(),
             description?.trim(),
@@ -183,6 +221,7 @@ export class UpdateProductDto {
             imageUrls,
             imageFiles,
             variants as UpdateVariantInput[] | undefined,
+            marketplaceColorImages as MarketplaceColorImageInput[] | undefined,
         )];
     }
 }
