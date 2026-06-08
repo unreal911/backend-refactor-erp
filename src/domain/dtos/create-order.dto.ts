@@ -11,6 +11,7 @@
             variantId: number;
             quantity: number;
             unitPrice: number;
+            fulfillmentStoreId?: number;
         }> = [],
         public readonly note?: string,
     ) {}
@@ -47,6 +48,11 @@
             }
             if (item.unitPrice === undefined || typeof item.unitPrice !== 'number' || item.unitPrice < 0) {
                 return ['Cada item debe tener un precio vÃ¡lido', undefined];
+            }
+            if (item.fulfillmentStoreId !== undefined && item.fulfillmentStoreId !== null) {
+                if (typeof item.fulfillmentStoreId !== 'number' || item.fulfillmentStoreId < 1) {
+                    return ['La tienda de fulfillment de cada item debe ser un numero valido', undefined];
+                }
             }
         }
 

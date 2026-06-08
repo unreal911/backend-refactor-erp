@@ -260,6 +260,7 @@ model Store {
   // ORDER RELATIONS
   sourceOrders Order[] @relation("OrderSourceStore")
   fulfillmentOrders Order[] @relation("OrderFulfillmentStore")
+  fulfillmentOrderItems OrderItem[] @relation("OrderItemFulfillmentStore")
 }
 
 model Inventory {
@@ -512,6 +513,9 @@ model OrderItem {
 
   variantId Int
   variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  fulfillmentStoreId Int?
+  fulfillmentStore Store? @relation("OrderItemFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
 }
 
 model PaymentMethod {
