@@ -14,6 +14,13 @@ import { cloudinary } from "../../config/cloudinary";
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
     sizeIds: number[];
+    colorImages?: Array<{ colorId: number; imageUrl: string }>;
+};
+
+type MarketplaceColorImageInput = {
+    colorId: number;
+    imageUrl?: string;
+    imageFile?: { filename: string; data: string };
 };
 
 export class ProductService {
@@ -141,7 +148,7 @@ export class ProductService {
         if (!raw) return null;
 
         try {
-            const parsed = JSON.parse(raw) as { colorIds?: unknown; sizeIds?: unknown };
+            const parsed = JSON.parse(raw) as { colorIds?: unknown; sizeIds?: unknown; colorImages?: unknown };
             const colorIds = Array.isArray(parsed?.colorIds)
                 ? parsed.colorIds
                     .map((id) => Number(id))
@@ -152,6 +159,14 @@ export class ProductService {
                     .map((id) => Number(id))
                     .filter((id) => Number.isInteger(id) && id > 0)
                 : [];
+            const colorImages = Array.isArray(parsed?.colorImages)
+                ? parsed.colorImages
+                    .map((item: any) => ({
+                        colorId: Number(item?.colorId || 0),
+                        imageUrl: String(item?.imageUrl || '').trim(),
+                    }))
+                    .filter((item) => Number.isInteger(item.colorId) && item.colorId > 0 && item.imageUrl)
+                : [];
 
             if (!colorIds.length || !sizeIds.length) {
                 return null;
@@ -160,6 +175,7 @@ export class ProductService {
             return {
                 colorIds: Array.from(new Set(colorIds)),
                 sizeIds: Array.from(new Set(sizeIds)),
+                colorImages: colorImages.length ? colorImages : [],
             };
         } catch {
             return null;
@@ -217,6 +233,12 @@ export class ProductService {
         const payload = JSON.stringify({
             colorIds: Array.from(new Set(config.colorIds)),
             sizeIds: Array.from(new Set(config.sizeIds)),
+            colorImages: (config.colorImages || [])
+                .filter((item) => config.colorIds.includes(Number(item.colorId)) && String(item.imageUrl || '').trim())
+                .map((item) => ({
+                    colorId: Number(item.colorId),
+                    imageUrl: String(item.imageUrl).trim(),
+                })),
         });
 
         await prisma.$executeRaw(
@@ -268,7 +290,13 @@ export class ProductService {
         reservedStock: number,
         colors: Array<{ id: number; name: string; hex?: string | null }>,
         sizes: Array<{ id: number; name: string }>,
+        colorImages: Array<{ colorId: number; imageUrl: string }> = [],
     ) {
+        const imageByColorId = new Map(
+            colorImages
+                .filter((item) => Number.isInteger(Number(item.colorId)) && String(item.imageUrl || '').trim())
+                .map((item) => [Number(item.colorId), String(item.imageUrl).trim()]),
+        );
         const result: Array<{
             id: number;
             sourceVariantId: number;
@@ -293,7 +321,7 @@ export class ProductService {
                     sku: `${baseVariant.sku || `VAR-${baseVariant.id}`}-MK-${color.id}-${size.id}`,
                     barcode: baseVariant.barcode ?? null,
                     price: Number(baseVariant.price || 0),
-                    imageUrl: baseVariant.imageUrl || null,
+                    imageUrl: imageByColorId.get(Number(color.id)) || baseVariant.imageUrl || null,
                     color: { id: color.id, name: color.name, hex: color.hex ?? null },
                     size: { id: size.id, name: size.name },
                     availableStock: Number(availableStock || 0),
@@ -443,6 +471,41 @@ export class ProductService {
         return variant.imageUrl ? variant.imageUrl : null;
     }
 
+    private async resolveMarketplaceColorImages(
+        productId: number,
+        colorIds: number[],
+        images: MarketplaceColorImageInput[] = [],
+    ): Promise<Array<{ colorId: number; imageUrl: string }>> {
+        const allowedColorIds = new Set(
+            (colorIds || [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isInteger(id) && id > 0),
+        );
+        const byColor = new Map<number, string>();
+
+        for (const image of images || []) {
+            const colorId = Number(image?.colorId || 0);
+            if (!allowedColorIds.has(colorId)) {
+                continue;
+            }
+
+            let imageUrl = String(image.imageUrl || '').trim();
+            if (image.imageFile) {
+                const filename = image.imageFile.filename.replace(/\.[^/.]+$/, '');
+                imageUrl = await this.uploadBase64Image(
+                    image.imageFile.data,
+                    `product_${productId}_marketplace_color_${colorId}_${filename}`,
+                );
+            }
+
+            if (imageUrl) {
+                byColor.set(colorId, imageUrl);
+            }
+        }
+
+        return Array.from(byColor.entries()).map(([colorId, imageUrl]) => ({ colorId, imageUrl }));
+    }
+
     /**
      * Crear un nuevo producto con variantes e imágenes
      */
@@ -457,6 +520,7 @@ export class ProductService {
             imageUrls = [],
             imageFiles = [],
             variants = [],
+            marketplaceColorImages = [],
         } = createProductDto;
 
         console.log('Creando producto con datos:', {
@@ -618,7 +682,12 @@ export class ProductService {
                 },
             });
 
-            await this.upsertMarketplaceSimpleVariantConfig(product.id, simpleMarketplaceConfig);
+            const marketplaceColorImageConfig = simpleMarketplaceConfig
+                ? await this.resolveMarketplaceColorImages(product.id, simpleMarketplaceConfig.colorIds, marketplaceColorImages)
+                : [];
+            await this.upsertMarketplaceSimpleVariantConfig(product.id, simpleMarketplaceConfig
+                ? { ...simpleMarketplaceConfig, colorImages: marketplaceColorImageConfig }
+                : null);
 
             // Subir imágenes de producto a Cloudinary si se recibieron archivos
             const uploadedProductImageUrls = await this.uploadProductFiles(product.id, imageFiles);
@@ -662,6 +731,7 @@ export class ProductService {
                     variantMode,
                     marketplaceVariantColorIds: simpleMarketplaceConfig?.colorIds || [],
                     marketplaceVariantSizeIds: simpleMarketplaceConfig?.sizeIds || [],
+                    marketplaceColorImages: marketplaceColorImageConfig,
                 },
                 variants: createdVariants.map(v => ProductVariantEntity.fromObject(v)),
                 images: allImageUrls,
@@ -766,6 +836,7 @@ export class ProductService {
                     variantMode: this.resolveProductVariantMode(product.variants || []),
                     marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                     marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
+                    marketplaceColorImages: marketplaceConfig?.colorImages || [],
                     variants: mappedVariants,
                     images: (product.images || []).map((i: any) => ProductImageEntity.fromObject(i)),
                 };
@@ -819,6 +890,7 @@ export class ProductService {
                 variantMode: this.resolveProductVariantMode(product.variants || []),
                 marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                 marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
+                marketplaceColorImages: marketplaceConfig?.colorImages || [],
                 variants: mappedVariants,
                 images: (product.images || []).map((i: any) => ProductImageEntity.fromObject(i)),
             };
@@ -970,6 +1042,7 @@ export class ProductService {
                         Number(baseVariant.reservedStock || 0),
                         configuredColors,
                         configuredSizes,
+                        marketplaceConfig.colorImages || [],
                     );
                 }
             }
@@ -1157,6 +1230,7 @@ export class ProductService {
                     Number(baseVariant.reservedStock || 0),
                     configuredColors,
                     configuredSizes,
+                    marketplaceConfig.colorImages || [],
                 );
             }
         }
@@ -1448,15 +1522,30 @@ export class ProductService {
             const hasSimpleMarketplaceChanges =
                 updateData.variantMode !== undefined ||
                 updateData.colorIds !== undefined ||
-                updateData.sizeIds !== undefined;
+                updateData.sizeIds !== undefined ||
+                updateData.marketplaceColorImages !== undefined;
 
             if (hasSimpleMarketplaceChanges) {
                 if (isSimpleMode) {
+                    const currentMarketplaceConfig = await this.getMarketplaceSimpleVariantConfig(id);
+                    const nextColorIds = updateData.colorIds ?? currentMarketplaceConfig?.colorIds ?? [];
+                    const nextSizeIds = updateData.sizeIds ?? currentMarketplaceConfig?.sizeIds ?? [];
                     simpleMarketplaceConfigToPersist = await this.resolveSimpleMarketplaceConfig(
                         'SIMPLE',
-                        updateData.colorIds ?? [],
-                        updateData.sizeIds ?? [],
+                        nextColorIds,
+                        nextSizeIds,
                     );
+                    if (simpleMarketplaceConfigToPersist) {
+                        const incomingColorImages = updateData.marketplaceColorImages;
+                        const colorImages = incomingColorImages !== undefined
+                            ? await this.resolveMarketplaceColorImages(id, simpleMarketplaceConfigToPersist.colorIds, incomingColorImages)
+                            : (currentMarketplaceConfig?.colorImages || [])
+                                .filter((image) => simpleMarketplaceConfigToPersist?.colorIds.includes(Number(image.colorId)));
+                        simpleMarketplaceConfigToPersist = {
+                            ...simpleMarketplaceConfigToPersist,
+                            colorImages,
+                        };
+                    }
                 } else {
                     simpleMarketplaceConfigToPersist = null;
                 }

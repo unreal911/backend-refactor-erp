@@ -26,11 +26,22 @@ export class Server {
     }
     async start() {
 
-        this.app.use(express.json({ limit: '15mb' }));
+        const requestBodyLimit = '100mb';
+
         this.app.use(cors({
             exposedHeaders: ['x-access-token'],
         }));
-        this.app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+        this.app.use(express.json({ limit: requestBodyLimit }));
+        this.app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
+        this.app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+            if (err?.type === 'entity.too.large' || err?.status === 413) {
+                return res.status(413).json({
+                    message: `El contenido enviado supera el limite permitido de ${requestBodyLimit}. Reduce el peso de las imagenes o sube menos archivos por vez.`,
+                });
+            }
+
+            return next(err);
+        });
         this.app.use(AuditLogMiddleware.capture(new AuditLogService()));
 
         const publicDir = path.isAbsolute(this.publicPath)

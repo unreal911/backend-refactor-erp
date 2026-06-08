@@ -1,5 +1,12 @@
 import { prisma } from './prisma';
 import {
+    COMPANY_ADDRESS_KEY,
+    COMPANY_EMAIL_KEY,
+    COMPANY_LEGAL_NAME_KEY,
+    COMPANY_LOGO_URL_KEY,
+    COMPANY_NAME_KEY,
+    COMPANY_PHONE_KEY,
+    COMPANY_RUC_KEY,
     MARKETPLACE_AUTO_RESERVE_STOCK_KEY,
     MARKETPLACE_INCLUDE_IGV_KEY,
     MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY,
@@ -27,6 +34,13 @@ const DEFAULT_SYSTEM_SETTINGS: Array<{ key: string; value: string }> = [
     { key: MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY, value: '[]' },
     { key: MARKETPLACE_INCLUDE_IGV_KEY, value: 'true' },
     { key: MARKETPLACE_AUTO_RESERVE_STOCK_KEY, value: 'false' },
+    { key: COMPANY_NAME_KEY, value: 'B2B Marketplace' },
+    { key: COMPANY_LEGAL_NAME_KEY, value: '' },
+    { key: COMPANY_RUC_KEY, value: '' },
+    { key: COMPANY_ADDRESS_KEY, value: '' },
+    { key: COMPANY_PHONE_KEY, value: '' },
+    { key: COMPANY_EMAIL_KEY, value: '' },
+    { key: COMPANY_LOGO_URL_KEY, value: '' },
 ];
 
 export async function ensureSystemConfigSchema(): Promise<void> {

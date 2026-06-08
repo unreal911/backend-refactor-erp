@@ -1,7 +1,15 @@
 import { Prisma } from '@prisma/client';
+import { cloudinary } from '../../config/cloudinary';
 import { prisma } from '../../data/prisma';
 import { UpdateOrderWorkflowSettingsDto } from '../../domain/dtos/update-order-workflow-settings.dto';
 import {
+    COMPANY_ADDRESS_KEY,
+    COMPANY_EMAIL_KEY,
+    COMPANY_LEGAL_NAME_KEY,
+    COMPANY_LOGO_URL_KEY,
+    COMPANY_NAME_KEY,
+    COMPANY_PHONE_KEY,
+    COMPANY_RUC_KEY,
     MARKETPLACE_AUTO_RESERVE_STOCK_KEY,
     MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY,
     MARKETPLACE_INCLUDE_IGV_KEY,
@@ -39,6 +47,10 @@ export class SystemConfigService {
         }
 
         return this.normalizeIds(String(rawValue).split(','));
+    }
+
+    private parseText(rawValue: string | null | undefined): string {
+        return String(rawValue || '').trim();
     }
 
     private safeParseJsonArray(rawValue: string): unknown[] | null {
@@ -80,6 +92,25 @@ export class SystemConfigService {
         );
     }
 
+    private async uploadCompanyLogo(file: { filename: string; data: string }): Promise<string> {
+        const filenameBase = file.filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const payload = file.data.startsWith('data:') ? file.data : `data:image/jpeg;base64,${file.data}`;
+
+        try {
+            const uploadResult = await cloudinary.uploader.upload(payload, {
+                folder: 'company_assets',
+                public_id: `company_logo_${filenameBase || 'logo'}`,
+                overwrite: true,
+                resource_type: 'image',
+            });
+
+            return uploadResult.secure_url;
+        } catch (error) {
+            console.error('Error subiendo logo de empresa a Cloudinary:', error);
+            throw CustomError.internal('Error al subir el logo de la empresa');
+        }
+    }
+
     private async getActivePaymentMethodIds(): Promise<number[]> {
         const rows = await prisma.$queryRaw<PaymentMethodIdRow[]>(
             Prisma.sql`
@@ -96,13 +127,35 @@ export class SystemConfigService {
     }
 
     async getOrderWorkflowSettings() {
-        const [returnResponsibilityRaw, pickingResponsibilityFlowRaw, marketplacePaymentsRaw, marketplacePaymentIdsRaw, marketplaceIncludeIgvRaw, marketplaceAutoReserveStockRaw, activeMethodIds] = await Promise.all([
+        const [
+            returnResponsibilityRaw,
+            pickingResponsibilityFlowRaw,
+            marketplacePaymentsRaw,
+            marketplacePaymentIdsRaw,
+            marketplaceIncludeIgvRaw,
+            marketplaceAutoReserveStockRaw,
+            companyNameRaw,
+            companyLegalNameRaw,
+            companyRucRaw,
+            companyAddressRaw,
+            companyPhoneRaw,
+            companyEmailRaw,
+            companyLogoUrlRaw,
+            activeMethodIds,
+        ] = await Promise.all([
             this.getSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY),
             this.getSettingValue(PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY),
             this.getSettingValue(MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY),
             this.getSettingValue(MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY),
             this.getSettingValue(MARKETPLACE_INCLUDE_IGV_KEY),
             this.getSettingValue(MARKETPLACE_AUTO_RESERVE_STOCK_KEY),
+            this.getSettingValue(COMPANY_NAME_KEY),
+            this.getSettingValue(COMPANY_LEGAL_NAME_KEY),
+            this.getSettingValue(COMPANY_RUC_KEY),
+            this.getSettingValue(COMPANY_ADDRESS_KEY),
+            this.getSettingValue(COMPANY_PHONE_KEY),
+            this.getSettingValue(COMPANY_EMAIL_KEY),
+            this.getSettingValue(COMPANY_LOGO_URL_KEY),
             this.getActivePaymentMethodIds(),
         ]);
 
@@ -118,6 +171,13 @@ export class SystemConfigService {
             marketplacePaymentMethodIds: fallbackIds,
             marketplaceIncludeIgv: this.parseBoolean(marketplaceIncludeIgvRaw, true),
             marketplaceAutoReserveStock: this.parseBoolean(marketplaceAutoReserveStockRaw, false),
+            companyName: this.parseText(companyNameRaw) || 'B2B Marketplace',
+            companyLegalName: this.parseText(companyLegalNameRaw),
+            companyRuc: this.parseText(companyRucRaw),
+            companyAddress: this.parseText(companyAddressRaw),
+            companyPhone: this.parseText(companyPhoneRaw),
+            companyEmail: this.parseText(companyEmailRaw),
+            companyLogoUrl: this.parseText(companyLogoUrlRaw),
         };
     }
 
@@ -136,6 +196,15 @@ export class SystemConfigService {
             ?? currentSettings.marketplaceIncludeIgv;
         const marketplaceAutoReserveStock = dto.marketplaceAutoReserveStock
             ?? currentSettings.marketplaceAutoReserveStock;
+        const companyName = dto.companyName ?? currentSettings.companyName;
+        const companyLegalName = dto.companyLegalName ?? currentSettings.companyLegalName;
+        const companyRuc = dto.companyRuc ?? currentSettings.companyRuc;
+        const companyAddress = dto.companyAddress ?? currentSettings.companyAddress;
+        const companyPhone = dto.companyPhone ?? currentSettings.companyPhone;
+        const companyEmail = dto.companyEmail ?? currentSettings.companyEmail;
+        const companyLogoUrl = dto.companyLogoFile
+            ? await this.uploadCompanyLogo(dto.companyLogoFile)
+            : (dto.companyLogoUrl ?? currentSettings.companyLogoUrl);
 
         const incomingIds = dto.marketplacePaymentMethodIds ?? currentSettings.marketplacePaymentMethodIds;
         const sanitizedIds = this.normalizeIds(incomingIds).filter((id) => activeIdSet.has(id));
@@ -169,6 +238,13 @@ export class SystemConfigService {
             MARKETPLACE_AUTO_RESERVE_STOCK_KEY,
             marketplaceAutoReserveStock ? 'true' : 'false',
         );
+        await this.upsertSettingValue(COMPANY_NAME_KEY, companyName);
+        await this.upsertSettingValue(COMPANY_LEGAL_NAME_KEY, companyLegalName);
+        await this.upsertSettingValue(COMPANY_RUC_KEY, companyRuc);
+        await this.upsertSettingValue(COMPANY_ADDRESS_KEY, companyAddress);
+        await this.upsertSettingValue(COMPANY_PHONE_KEY, companyPhone);
+        await this.upsertSettingValue(COMPANY_EMAIL_KEY, companyEmail);
+        await this.upsertSettingValue(COMPANY_LOGO_URL_KEY, companyLogoUrl);
 
         return this.getOrderWorkflowSettings();
     }

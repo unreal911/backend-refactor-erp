@@ -307,6 +307,8 @@ export class OrderService {
         const sanitizedItems = Array.isArray(order?.items)
             ? order.items.map((item: any, index: number) => ({
                 ...item,
+                fulfillmentStoreId: item?.fulfillmentStoreId || order?.fulfillmentStoreId || order?.sourceStoreId || null,
+                fulfillmentStore: item?.fulfillmentStore || order?.fulfillmentStore || order?.sourceStore || null,
                 variant: this.applyGuideToVariant(
                     this.sanitizeVariantForPresentation(item?.variant),
                     guideItems[index],
@@ -1372,6 +1374,22 @@ export class OrderService {
                 : sanitizedOrder.dispenserUser
                     ? 'DISPENSER'
                     : null;
+        const returnFallbackUser = sanitizedOrder.returnResponsibleUser
+            || sanitizedOrder.cancelledByUser
+            || sanitizedOrder.dispenserUser
+            || sanitizedOrder.pickerUser
+            || sanitizedOrder.sellerUser
+            || null;
+        const returnCancelledByUser = sanitizedOrder.cancelledByUser || returnFallbackUser;
+        const hasReturnDelegation = Boolean(sanitizedOrder.returnResponsibilityDelegatedById || sanitizedOrder.returnResponsibilityDelegatedBy);
+        const rawReturnStatus = sanitizedOrder.returnResponsibilityStatus || null;
+        const shouldTreatInitialReturnAsAccepted = (sanitizedOrder.status as OrderStatusEnum) === OrderStatusEnum.RETURN_PENDING
+            && !hasReturnDelegation
+            && returnFallbackUser
+            && (!rawReturnStatus || rawReturnStatus === 'PENDING');
+        const returnAcceptanceStatus = shouldTreatInitialReturnAsAccepted
+            ? 'ACCEPTED'
+            : rawReturnStatus;
 
         const baseMappedOrder = {
             ...sanitizedOrder,
@@ -1384,14 +1402,15 @@ export class OrderService {
                     role: responsibleRole,
                 }
                 : null,
-            returnWorkflow: sanitizedOrder.returnRequestedAt || sanitizedOrder.returnResponsibleUserId || sanitizedOrder.returnResponsibilityStatus
+            returnWorkflow: sanitizedOrder.returnRequestedAt || returnFallbackUser || returnAcceptanceStatus
                 ? {
                     requestedAt: sanitizedOrder.returnRequestedAt || null,
                     returnedAt: sanitizedOrder.returnedAt || null,
-                    acceptanceStatus: sanitizedOrder.returnResponsibilityStatus || null,
-                    acceptedAt: sanitizedOrder.returnResponsibilityAcceptedAt || null,
-                    cancelledBy: this.mapSimpleUser(sanitizedOrder.cancelledByUser),
-                    responsible: this.mapSimpleUser(sanitizedOrder.returnResponsibleUser),
+                    acceptanceStatus: returnAcceptanceStatus,
+                    acceptedAt: sanitizedOrder.returnResponsibilityAcceptedAt
+                        || (shouldTreatInitialReturnAsAccepted ? sanitizedOrder.returnRequestedAt || sanitizedOrder.updatedAt || null : null),
+                    cancelledBy: this.mapSimpleUser(returnCancelledByUser),
+                    responsible: this.mapSimpleUser(returnFallbackUser),
                     delegatedBy: this.mapSimpleUser(sanitizedOrder.returnResponsibilityDelegatedBy),
                 }
                 : null,
@@ -1419,7 +1438,10 @@ export class OrderService {
 
     private readonly orderDetailInclude = {
         items: {
-            include: { variant: { include: { product: true, color: true, size: true } } },
+            include: {
+                fulfillmentStore: true,
+                variant: { include: { product: true, color: true, size: true } },
+            },
             orderBy: { id: 'asc' as const },
         },
         sourceStore: true,
@@ -1603,7 +1625,7 @@ export class OrderService {
         }
 
         // Validar que todos los productos/variantes existen
-        const variantIds = dto.items.map((item) => item.variantId);
+        const variantIds = Array.from(new Set(dto.items.map((item) => item.variantId)));
         const variants = await prisma.productVariant.findMany({
             where: { id: { in: variantIds } },
             include: { product: true },
@@ -1613,21 +1635,59 @@ export class OrderService {
             throw CustomError.badRequest('Una o mÃ¡s variantes seleccionadas no existen');
         }
 
-        // Validar stock disponible para cada variante
-        const storeToUse = dto.fulfillmentStoreId || dto.sourceStoreId;
+        const itemFulfillmentStoreIds = Array.from(new Set(
+            dto.items
+                .map((item) => item.fulfillmentStoreId)
+                .filter((storeId): storeId is number => typeof storeId === 'number' && Number.isInteger(storeId) && storeId > 0)
+        ));
+        if (itemFulfillmentStoreIds.length > 0) {
+            const stores = await prisma.store.findMany({
+                where: { id: { in: itemFulfillmentStoreIds } },
+                select: { id: true },
+            });
+            if (stores.length !== itemFulfillmentStoreIds.length) {
+                throw CustomError.badRequest('Una o mas tiendas de fulfillment de los items no existen');
+            }
+        }
+
+        const resolveItemFulfillmentStoreId = (item: { fulfillmentStoreId?: number | null }) => (
+            item.fulfillmentStoreId || dto.fulfillmentStoreId || dto.sourceStoreId
+        );
+        const resolvedFulfillmentStoreIds = dto.items.map((item) => resolveItemFulfillmentStoreId(item));
+        const uniqueFulfillmentStoreIds = Array.from(new Set(resolvedFulfillmentStoreIds));
+        const orderFulfillmentStoreId = uniqueFulfillmentStoreIds.length === 1
+            ? uniqueFulfillmentStoreIds[0] ?? null
+            : dto.fulfillmentStoreId ?? null;
+        const isPosOrder = this.detectSalesChannel(dto.note) === 'POS';
+        const hasRemoteFulfillment = resolvedFulfillmentStoreIds.some((storeId) => Number(storeId) !== Number(dto.sourceStoreId));
+        const shouldConsumeDirectStock = isPosOrder && !hasRemoteFulfillment;
+
+        // Validar stock disponible por variante y tienda de fulfillment
+        const requestedByStoreAndVariant = new Map<string, { storeId: number; variantId: number; quantity: number }>();
         for (const item of dto.items) {
+            const storeId = resolveItemFulfillmentStoreId(item);
+            const key = `${storeId}:${item.variantId}`;
+            const current = requestedByStoreAndVariant.get(key);
+            requestedByStoreAndVariant.set(key, {
+                storeId,
+                variantId: item.variantId,
+                quantity: (current?.quantity || 0) + item.quantity,
+            });
+        }
+
+        for (const request of requestedByStoreAndVariant.values()) {
             const inventory = await prisma.inventory.findUnique({
                 where: {
                     storeId_variantId: {
-                        storeId: storeToUse,
-                        variantId: item.variantId,
+                        storeId: request.storeId,
+                        variantId: request.variantId,
                     },
                 },
             });
 
             const availableStock = (inventory?.stock ?? 0) - (inventory?.reservedStock ?? 0);
-            if (availableStock < item.quantity) {
-                const variant = variants.find((v) => v.id === item.variantId);
+            if (availableStock < request.quantity) {
+                const variant = variants.find((v) => v.id === request.variantId);
                 throw CustomError.badRequest(
                     `Stock insuficiente para ${variant?.product.name}. Disponible: ${availableStock}`
                 );
@@ -1643,12 +1703,16 @@ export class OrderService {
         const total = subtotal + tax;
 
         // Crear pedido con items
-        const order = await prisma.order.create({
+        const order: any = await prisma.order.create({
             data: {
                 code: this.generateOrderCode(),
-                status: OrderStatusEnum.PENDING,
+                status: shouldConsumeDirectStock
+                    ? OrderStatusEnum.DELIVERED
+                    : hasRemoteFulfillment
+                        ? OrderStatusEnum.WAITING_TRANSFER
+                        : OrderStatusEnum.PENDING,
                 sourceStoreId: dto.sourceStoreId,
-                fulfillmentStoreId: dto.fulfillmentStoreId ?? null,
+                fulfillmentStoreId: orderFulfillmentStoreId,
                 sellerUserId: dto.sellerUserId ?? null,
                 clientName: dto.clientName ?? null,
                 clientEmail: dto.clientEmail ?? null,
@@ -1662,15 +1726,20 @@ export class OrderService {
                         variantId: item.variantId,
                         quantity: item.quantity,
                         reserved: item.quantity,
-                        picked: 0,
+                        picked: shouldConsumeDirectStock ? item.quantity : 0,
                         unitPrice: item.unitPrice,
                         subtotal: item.quantity * item.unitPrice,
+                        fulfillmentStoreId: resolveItemFulfillmentStoreId(item),
+                        status: shouldConsumeDirectStock ? 'PICKED' : 'PENDING',
                     })),
                 },
             },
             include: {
                 items: {
-                    include: { variant: { include: { product: true, color: true, size: true } } },
+                    include: {
+                        fulfillmentStore: true,
+                        variant: { include: { product: true, color: true, size: true } },
+                    },
                 },
                 sourceStore: true,
                 fulfillmentStore: true,
@@ -1680,11 +1749,41 @@ export class OrderService {
 
         // Crear reservas automÃ¡ticamente para cada item
         for (const item of order.items) {
+            const storeToUse = item.fulfillmentStoreId || order.fulfillmentStoreId || order.sourceStoreId;
+            const inventory = await this.getOrCreateInventory(storeToUse, item.variantId);
+
+            if (shouldConsumeDirectStock) {
+                const previousStock = Number(inventory.stock || 0);
+                const newStock = previousStock - item.quantity;
+
+                await prisma.inventory.update({
+                    where: { id: inventory.id },
+                    data: {
+                        stock: {
+                            decrement: item.quantity,
+                        },
+                    },
+                });
+
+                await prisma.inventoryMovement.create({
+                    data: {
+                        type: 'OUT',
+                        quantity: item.quantity,
+                        previousStock,
+                        newStock,
+                        note: `Stock consumido por venta POS ${order.code}`,
+                        responsibleUserId: dto.sellerUserId ?? null,
+                        inventoryId: inventory.id,
+                    },
+                });
+                continue;
+            }
+
             await prisma.reservation.create({
                 data: {
                     quantity: item.quantity,
                     status: 'ACTIVE',
-                    inventoryId: (await this.getOrCreateInventory(storeToUse, item.variantId)).id,
+                    inventoryId: inventory.id,
                     variantId: item.variantId,
                     orderId: order.id,
                     reservedById: dto.sellerUserId ?? null,
@@ -1693,16 +1792,19 @@ export class OrderService {
         }
 
         // Actualizar stock reservado en inventario
-        for (const item of order.items) {
-            const inventory = await this.getOrCreateInventory(storeToUse, item.variantId);
-            await prisma.inventory.update({
-                where: { id: inventory.id },
-                data: {
-                    reservedStock: {
-                        increment: item.quantity,
+        if (!shouldConsumeDirectStock) {
+            for (const item of order.items) {
+                const storeToUse = item.fulfillmentStoreId || order.fulfillmentStoreId || order.sourceStoreId;
+                const inventory = await this.getOrCreateInventory(storeToUse, item.variantId);
+                await prisma.inventory.update({
+                    where: { id: inventory.id },
+                    data: {
+                        reservedStock: {
+                            increment: item.quantity,
+                        },
                     },
-                },
-            });
+                });
+            }
         }
 
         return order;
@@ -1730,7 +1832,7 @@ export class OrderService {
             }
         }
 
-        const variantIds = dto.items.map((item) => item.variantId);
+        const variantIds = Array.from(new Set(dto.items.map((item) => item.variantId)));
         const uniqueVariantIds = Array.from(new Set(variantIds));
         const variants = await prisma.productVariant.findMany({
             where: {
@@ -2218,6 +2320,7 @@ export class OrderService {
                 OR: [
                     { sourceStoreId: dto.storeId },
                     { fulfillmentStoreId: dto.storeId },
+                    { items: { some: { fulfillmentStoreId: dto.storeId } } },
                 ],
             });
         }
@@ -2473,7 +2576,13 @@ export class OrderService {
                 let actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
 
                 if (returnResponsibilityManagementEnabled) {
-                    const expectedResponsibleUserId = Number(order.returnResponsibleUserId || 0);
+                    const expectedResponsibleUserId = this.resolvePreferredResponsibleUserId(
+                        order.returnResponsibleUserId,
+                        order.cancelledByUserId,
+                        order.dispenserUserId,
+                        order.pickerUserId,
+                        order.sellerUserId,
+                    );
 
                     if (!expectedResponsibleUserId) {
                         throw CustomError.badRequest('El pedido no tiene responsable de devolucion asignado');
@@ -2487,8 +2596,14 @@ export class OrderService {
                         throw CustomError.forbidden('Solo el responsable de devolucion puede cerrar la cancelacion');
                     }
 
-                    if (order.returnResponsibilityStatus !== 'ACCEPTED') {
+                    if (order.returnResponsibilityStatus !== 'ACCEPTED' && order.returnResponsibilityDelegatedById) {
                         throw CustomError.badRequest('La responsabilidad de devolucion debe estar aceptada antes de finalizar');
+                    }
+
+                    if (order.returnResponsibilityStatus !== 'ACCEPTED') {
+                        orderUpdateData.returnResponsibleUserId = expectedResponsibleUserId;
+                        orderUpdateData.returnResponsibilityStatus = 'ACCEPTED';
+                        orderUpdateData.returnResponsibilityAcceptedAt = order.returnResponsibilityAcceptedAt || new Date();
                     }
                 } else {
                     actorUserId = this.resolvePreferredResponsibleUserId(
@@ -3394,7 +3509,15 @@ export class OrderService {
             throw CustomError.badRequest(`El usuario con ID ${dto.userId} no existe`);
         }
 
-        const canDelegate = actorId === Number(order.returnResponsibleUserId || 0)
+        const currentReturnResponsibleId = this.resolvePreferredResponsibleUserId(
+            order.returnResponsibleUserId,
+            order.cancelledByUserId,
+            order.dispenserUserId,
+            order.pickerUserId,
+            order.sellerUserId,
+        );
+
+        const canDelegate = actorId === Number(currentReturnResponsibleId || 0)
             || actorId === Number(order.cancelledByUserId || 0);
 
         if (!canDelegate) {
@@ -3446,13 +3569,22 @@ export class OrderService {
             throw CustomError.badRequest('Solo pedidos en devolucion pendiente permiten aceptar responsabilidad');
         }
 
-        if (Number(order.returnResponsibleUserId || 0) !== actorId) {
+        const expectedResponsibleUserId = this.resolvePreferredResponsibleUserId(
+            order.returnResponsibleUserId,
+            order.cancelledByUserId,
+            order.dispenserUserId,
+            order.pickerUserId,
+            order.sellerUserId,
+        );
+
+        if (Number(expectedResponsibleUserId || 0) !== actorId) {
             throw CustomError.forbidden('Solo el responsable asignado puede aceptar la devolucion');
         }
 
         const updatedOrder = await prisma.order.update({
             where: { id: orderId },
             data: {
+                returnResponsibleUserId: actorId,
                 returnResponsibilityStatus: 'ACCEPTED',
                 returnResponsibilityAcceptedAt: new Date(),
                 updatedAt: new Date(),
