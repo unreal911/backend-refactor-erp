@@ -10,6 +10,7 @@ import { paymentMethodRoute } from "./payment-method/router";
 import { systemConfigRoute } from "./system-config/router";
 import { auditLogRoute } from "./audit-log/router";
 import { userActivityRoute } from "./user-activity/router";
+import { AdminEventsRoute } from "./admin-events/router";
 import { SeedRoute } from "./seed/router";
 import { envs } from "../config/envs";
 import { registerAuthModuleRoutes } from "../modules/auth";
@@ -36,6 +37,7 @@ export class AppRouter {
         registerInventoryModuleRoutes(router);
         router.use("/api/stores", AuthMiddleware.validateJWT, storeRoute.router);
         registerOrdersModuleRoutes(router);
+        router.use("/api/admin-events", AuthMiddleware.validateJWT, AdminEventsRoute.router);
         router.use("/api/payment-methods", AuthMiddleware.validateJWT, paymentMethodRoute.router);
         router.use("/api/system-config", AuthMiddleware.validateJWT, systemConfigRoute.router);
         router.use("/api/audit-logs", AuthMiddleware.validateJWT, auditLogRoute.router);
