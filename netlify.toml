@@ -1,0 +1,21 @@
+[build]
+  command = "npm run build:netlify"
+  publish = "dist/public"
+  functions = "dist/netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NODE_ENV = "production"
+  PUBLIC_PATH = "public"
+  SEED_ENDPOINT_ENABLED = "false"
+  SEED_INCLUDE_DEMO_USERS = "false"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
