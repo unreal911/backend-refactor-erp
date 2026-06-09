@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/app.ts",
     "build": "npm run db:generate && rimraf ./dist && tsc && node scripts/copy-public.mjs",
+    "build:netlify": "npm run db:migrate:deploy && npm run build && npm run bootstrap:admin:prod",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -48,6 +49,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.20.0",
-    "prisma": "^7.8.0"
+    "prisma": "^7.8.0",
+    "serverless-http": "^4.0.0"
   }
 }
