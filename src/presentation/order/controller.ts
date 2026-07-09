@@ -22,12 +22,13 @@ export class OrderController {
         private readonly userActivityService: UserActivityService = new UserActivityService(),
     ) {}
 
-    private detectSalesChannel(note: unknown): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
+    private detectSalesChannel(note: unknown, code?: unknown): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
         const text = String(note || '').toUpperCase();
+        const orderCode = String(code || '').trim().toUpperCase();
         if (text.includes('POS-') || text.includes('METODO DE PAGO')) {
             return 'POS';
         }
-        if (text.includes('ECOMMERCE')) {
+        if (text.includes('ECOMMERCE') || orderCode.startsWith('MK-')) {
             return 'ECOMMERCE';
         }
         return 'INTERNAL';
@@ -130,7 +131,7 @@ export class OrderController {
 
         try {
             const order = await this.orderService.createOrder(dto!);
-            const salesChannel = this.detectSalesChannel(order?.note ?? dto?.note ?? null);
+            const salesChannel = this.detectSalesChannel(order?.note ?? dto?.note ?? null, order?.code);
 
             this.registerUserActivity(req, {
                 module: salesChannel === 'POS' ? 'POS' : 'ORDERS',
@@ -1061,12 +1062,58 @@ export class OrderController {
     };
 
     /**
+     * Separar de una sola vez todo lo disponible del pedido (1 transaccion).
+     * PATCH /api/orders/:id/picking/pick-all
+     */
+    pickAllOrderPicking = async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID invalido' });
+        }
+
+        try {
+            const picking = await this.orderService.pickAllAvailableForOrder(Number(id), req.user?.id);
+
+            this.registerUserActivity(req, {
+                module: 'PICKING',
+                actionType: 'PICKING_ORDER_ITEM_UPDATED',
+                actionLabel: 'Separado todo lo disponible',
+                entityType: 'ORDER',
+                entityId: Number(picking?.orderId || id) || null,
+                entityCode: picking?.orderCode ? String(picking.orderCode) : null,
+                description: `Separado todo lo disponible en orden ${picking?.orderCode || id}`,
+                products: this.mapProductsFromOrderItems((picking?.items || []).map((item: any) => ({
+                    variantId: item.variantId,
+                    quantity: item.pickedQuantity,
+                    variant: item.variant,
+                }))),
+                context: {
+                    resultingProgress: Number(picking?.summary?.progress || 0),
+                },
+            });
+            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+
+            res.status(200).json({
+                success: true,
+                data: picking,
+                message: 'Separado todo lo disponible exitosamente',
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
      * Reservar stock remoto
      * POST /api/orders/:id/reserve-remote
      */
     reserveRemoteStock = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const { sourceStoreId, variantId, quantity } = req.body;
+        const { sourceStoreId, variantId, quantity, orderItemId } = req.body;
 
         if (!id || isNaN(Number(id))) {
             return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -1081,7 +1128,9 @@ export class OrderController {
                 Number(id),
                 Number(sourceStoreId),
                 Number(variantId),
-                Number(quantity)
+                Number(quantity),
+                req.user?.id,
+                orderItemId ? Number(orderItemId) : null,
             );
 
             this.registerUserActivity(req, {
@@ -1099,6 +1148,311 @@ export class OrderController {
                     sourceStoreId: Number(sourceStoreId),
                     variantId: Number(variantId),
                     quantity: Number(quantity),
+                    orderItemId: orderItemId ? Number(orderItemId) : null,
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Reservar de una vez todo lo pendiente con la tienda recomendada (1 tx).
+     * POST /api/orders/:id/reserve-all-recommended
+     */
+    reserveAllRecommended = async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+
+        try {
+            const result = await this.orderService.reserveAllRecommendedForOrder(Number(id), req.user?.id);
+
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'REMOTE_STOCK_RESERVED',
+                actionLabel: 'Reserva masiva (tienda recomendada)',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Reserva masiva en orden ${id}: ${Number(result?.reservedUnits || 0)} und.`,
+                products: [],
+                context: {
+                    reservedUnits: Number(result?.reservedUnits || 0),
+                    reservedLines: Number(result?.reservedLines || 0),
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Liberar la reserva de stock de un item (inverso de reserve-remote)
+     * POST /api/orders/:id/items/:itemId/release-remote
+     */
+    releaseRemoteStock = async (req: AuthRequest, res: Response) => {
+        const { id, itemId } = req.params;
+        const { quantity, sourceStoreId } = req.body || {};
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+        if (!itemId || isNaN(Number(itemId))) {
+            return res.status(400).json({ error: 'ID de item inválido' });
+        }
+
+        try {
+            const result = await this.orderService.releaseRemoteStock(
+                Number(id),
+                Number(itemId),
+                req.user?.id,
+                quantity != null ? Number(quantity) : null,
+                sourceStoreId != null ? Number(sourceStoreId) : null,
+            );
+
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'REMOTE_STOCK_RELEASED',
+                actionLabel: 'Reserva de stock liberada',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Reserva liberada del item ${itemId} en orden ${id}`,
+                products: [{
+                    variantId: Number(result.variantId),
+                    quantity: Number(result.releasedQuantity),
+                }],
+                context: {
+                    orderItemId: Number(itemId),
+                    releasedQuantity: result.releasedQuantity,
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Agregar un producto (nueva linea) a una proforma ecommerce abierta
+     * POST /api/orders/:id/items
+     */
+    addOrderItem = async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+        const { variantId, quantity, colorName, sizeName, displayVariantId } = req.body || {};
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+        if (!variantId || isNaN(Number(variantId)) || Number(variantId) < 1) {
+            return res.status(400).json({ error: 'variantId inválido' });
+        }
+        if (quantity == null || isNaN(Number(quantity)) || Number(quantity) < 1) {
+            return res.status(400).json({ error: 'quantity inválido' });
+        }
+
+        try {
+            const result = await this.orderService.addOrderItem(
+                Number(id),
+                Number(variantId),
+                Number(quantity),
+                req.user?.id,
+                {
+                    colorName: typeof colorName === 'string' ? colorName : undefined,
+                    sizeName: typeof sizeName === 'string' ? sizeName : undefined,
+                    displayVariantId: displayVariantId != null ? Number(displayVariantId) : undefined,
+                },
+            );
+
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'ORDER_ITEM_ADDED',
+                actionLabel: 'Producto agregado a la proforma',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Producto agregado (variante ${result.variantId} x${result.quantity}) al pedido ${id}`,
+                products: [{
+                    variantId: Number(result.variantId),
+                    quantity: Number(result.quantity),
+                }],
+                context: {
+                    orderItemId: result.orderItemId,
+                    unitPrice: result.unitPrice,
+                    total: result.total,
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(201).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Eliminar (soft-delete) un producto de una proforma ecommerce
+     * POST /api/orders/:id/items/:itemId/remove
+     */
+    removeOrderItem = async (req: AuthRequest, res: Response) => {
+        const { id, itemId } = req.params;
+        const { reason, note } = req.body || {};
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+        if (!itemId || isNaN(Number(itemId))) {
+            return res.status(400).json({ error: 'ID de item inválido' });
+        }
+
+        try {
+            const result = await this.orderService.removeOrderItem(
+                Number(id),
+                Number(itemId),
+                typeof reason === 'string' ? reason : null,
+                typeof note === 'string' ? note : null,
+                req.user?.id,
+            );
+
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'ORDER_ITEM_REMOVED',
+                actionLabel: 'Producto eliminado de la proforma',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Producto (item ${itemId}) eliminado del pedido ${id}`,
+                context: {
+                    orderItemId: Number(itemId),
+                    total: result.total,
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Restaurar un producto previamente eliminado de una proforma ecommerce
+     * POST /api/orders/:id/items/:itemId/restore
+     */
+    restoreOrderItem = async (req: AuthRequest, res: Response) => {
+        const { id, itemId } = req.params;
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+        if (!itemId || isNaN(Number(itemId))) {
+            return res.status(400).json({ error: 'ID de item inválido' });
+        }
+
+        try {
+            const result = await this.orderService.restoreOrderItem(
+                Number(id),
+                Number(itemId),
+                req.user?.id,
+            );
+
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'ORDER_ITEM_RESTORED',
+                actionLabel: 'Producto restaurado en la proforma',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Producto (item ${itemId}) restaurado en el pedido ${id}`,
+                context: {
+                    orderItemId: Number(itemId),
+                    total: result.total,
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Marcar (o limpiar) faltante de un item de la proforma ecommerce
+     * POST /api/orders/:id/items/:itemId/shortage
+     */
+    markOrderItemShortage = async (req: AuthRequest, res: Response) => {
+        const { id, itemId } = req.params;
+        const { quantity } = req.body || {};
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+        if (!itemId || isNaN(Number(itemId))) {
+            return res.status(400).json({ error: 'ID de item inválido' });
+        }
+
+        try {
+            const result = await this.orderService.markOrderItemShortage(
+                Number(id),
+                Number(itemId),
+                quantity === undefined || quantity === null ? null : Number(quantity),
+                req.user?.id,
+            );
+
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'ORDER_ITEM_SHORTAGE_MARKED',
+                actionLabel: 'Faltante marcado en item',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Faltante ${result.shortageQuantity} en item ${itemId} del pedido ${id}`,
+                context: {
+                    orderItemId: Number(itemId),
+                    shortageQuantity: result.shortageQuantity,
+                    orderStatus: result.orderStatus,
                 },
             });
             this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);

@@ -337,6 +337,49 @@ export class ProductService {
     }
 
     /**
+     * Construye las variantes virtuales de marketplace (color/talla) para un producto
+     * en modo SIMPLE, reutilizando la misma logica que el catalogo publico. Devuelve []
+     * si el producto no aplica. El stock no importa aqui (catalogo admin) -> 0/0.
+     */
+    private buildMarketplaceVariantsForAdmin(
+        product: any,
+        marketplaceConfig: MarketplaceSimpleVariantConfig | undefined | null,
+        colorById: Map<number, { id: number; name: string; hex?: string | null }>,
+        sizeById: Map<number, { id: number; name: string }>,
+    ): any[] {
+        if (!marketplaceConfig) return [];
+        const variantMode = this.resolveProductVariantMode(product?.variants || []);
+        if (variantMode !== 'SIMPLE') return [];
+
+        const baseRaw = (product?.variants || [])[0];
+        if (!baseRaw) return [];
+        const baseVariant = {
+            id: baseRaw.id,
+            sku: baseRaw.sku,
+            barcode: baseRaw.barcode ?? null,
+            price: Number(baseRaw.price || 0),
+            imageUrl: baseRaw.imageUrl ?? null,
+        };
+
+        const configuredColors = marketplaceConfig.colorIds
+            .map((id) => colorById.get(Number(id)))
+            .filter((color): color is { id: number; name: string; hex?: string | null } => Boolean(color));
+        const configuredSizes = marketplaceConfig.sizeIds
+            .map((id) => sizeById.get(Number(id)))
+            .filter((size): size is { id: number; name: string } => Boolean(size));
+        if (configuredColors.length === 0 || configuredSizes.length === 0) return [];
+
+        return this.buildPublicVariantsForSimpleMode(
+            baseVariant,
+            0,
+            0,
+            configuredColors,
+            configuredSizes,
+            marketplaceConfig.colorImages || [],
+        );
+    }
+
+    /**
      * Generar todas las combinaciones posibles de variantes (producto cartesiano)
      */
     private generateVariantCombinations(
@@ -823,6 +866,23 @@ export class ProductService {
             const marketplaceConfigByProductId = await this.getMarketplaceSimpleVariantConfigs(
                 products.map((product) => Number(product.id)),
             );
+            // Nombres de colores/tallas configurados para variantes marketplace (batch).
+            const allMarketplaceColorIds = Array.from(new Set(
+                Array.from(marketplaceConfigByProductId.values()).flatMap((config) => config.colorIds),
+            ));
+            const allMarketplaceSizeIds = Array.from(new Set(
+                Array.from(marketplaceConfigByProductId.values()).flatMap((config) => config.sizeIds),
+            ));
+            const [marketplaceColors, marketplaceSizes] = await Promise.all([
+                allMarketplaceColorIds.length > 0
+                    ? prisma.color.findMany({ where: { id: { in: allMarketplaceColorIds }, isActive: true }, select: { id: true, name: true, hex: true } })
+                    : Promise.resolve([]),
+                allMarketplaceSizeIds.length > 0
+                    ? prisma.size.findMany({ where: { id: { in: allMarketplaceSizeIds }, isActive: true }, select: { id: true, name: true } })
+                    : Promise.resolve([]),
+            ]);
+            const marketplaceColorById = new Map(marketplaceColors.map((color) => [Number(color.id), color]));
+            const marketplaceSizeById = new Map(marketplaceSizes.map((size) => [Number(size.id), size]));
 
             // Mapear a entidades
             const mappedProducts = products.map((product: any) => {
@@ -837,6 +897,7 @@ export class ProductService {
                     marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                     marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
                     marketplaceColorImages: marketplaceConfig?.colorImages || [],
+                    marketplaceVariants: this.buildMarketplaceVariantsForAdmin(product, marketplaceConfig, marketplaceColorById, marketplaceSizeById),
                     variants: mappedVariants,
                     images: (product.images || []).map((i: any) => ProductImageEntity.fromObject(i)),
                 };
@@ -881,6 +942,16 @@ export class ProductService {
 
             const mappedVariants = (product.variants || []).map((variant: any) => this.mapVariantForResponse(variant));
             const marketplaceConfig = await this.getMarketplaceSimpleVariantConfig(id);
+            const [mkColors, mkSizes] = await Promise.all([
+                (marketplaceConfig?.colorIds?.length || 0) > 0
+                    ? prisma.color.findMany({ where: { id: { in: marketplaceConfig!.colorIds }, isActive: true }, select: { id: true, name: true, hex: true } })
+                    : Promise.resolve([]),
+                (marketplaceConfig?.sizeIds?.length || 0) > 0
+                    ? prisma.size.findMany({ where: { id: { in: marketplaceConfig!.sizeIds }, isActive: true }, select: { id: true, name: true } })
+                    : Promise.resolve([]),
+            ]);
+            const mkColorById = new Map(mkColors.map((color) => [Number(color.id), color]));
+            const mkSizeById = new Map(mkSizes.map((size) => [Number(size.id), size]));
 
             return {
                 ...ProductEntity.fromObject(product),
@@ -891,6 +962,7 @@ export class ProductService {
                 marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                 marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
                 marketplaceColorImages: marketplaceConfig?.colorImages || [],
+                marketplaceVariants: this.buildMarketplaceVariantsForAdmin(product, marketplaceConfig, mkColorById, mkSizeById),
                 variants: mappedVariants,
                 images: (product.images || []).map((i: any) => ProductImageEntity.fromObject(i)),
             };

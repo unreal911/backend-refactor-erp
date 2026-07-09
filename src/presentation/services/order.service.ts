@@ -45,6 +45,20 @@ type MarketplaceGuideItem = {
     displayVariantId?: number;
 };
 
+type OrderItemReservationSuggestion = {
+    inventoryId: number;
+    storeId: number;
+    storeName: string;
+    storeCode?: string | null;
+    storeType?: string | null;
+    stock: number;
+    reservedStock: number;
+    availableStock: number;
+    recommendedQuantity: number;
+    isCurrentFulfillmentStore: boolean;
+    isSourceStore: boolean;
+};
+
 type PickingSharedResponsibilityRow = {
     id: number;
     orderId: number;
@@ -215,28 +229,46 @@ export class OrderService {
     }
 
     private encodeMarketplaceGuideItems(items: Array<{
-        colorName?: string;
-        sizeName?: string;
-        displayVariantId?: number;
-    }>): string | null {
-        const normalized = items
+        colorName?: string | undefined;
+        sizeName?: string | undefined;
+        displayVariantId?: number | undefined;
+    }>, keepEmpty = false): string | null {
+        const mapped = items
             .map((item) => ({
                 colorName: typeof item.colorName === 'string' ? item.colorName.trim() : '',
                 sizeName: typeof item.sizeName === 'string' ? item.sizeName.trim() : '',
                 displayVariantId: Number(item.displayVariantId || 0),
-            }))
-            .filter((item) => item.colorName.length > 0 || item.sizeName.length > 0)
+            }));
+        // keepEmpty preserva la alineacion posicional (indice = posicion del item en
+        // el pedido). Sin el, se descartan las entradas vacias (comportamiento original
+        // al crear el pedido desde marketplace, donde todos los items traen guide).
+        const normalized = (keepEmpty ? mapped : mapped.filter((item) => item.colorName.length > 0 || item.sizeName.length > 0))
             .map((item) => ({
                 colorName: item.colorName || undefined,
                 sizeName: item.sizeName || undefined,
                 displayVariantId: item.displayVariantId > 0 ? item.displayVariantId : undefined,
             }));
 
-        if (!normalized.length) {
+        if (!normalized.length || (!keepEmpty && normalized.every((item) => !item.colorName && !item.sizeName))) {
             return null;
         }
 
         return Buffer.from(JSON.stringify(normalized), 'utf8').toString('base64');
+    }
+
+    /**
+     * Reescribe (o inserta) el token MKT_GUIDE_ITEMS: dentro del `note` del pedido,
+     * conservando el resto de metadatos. Devuelve el note actualizado.
+     */
+    private upsertMarketplaceGuideItemsInNote(note: string | null | undefined, encoded: string | null): string {
+        const parts = String(note || '')
+            .split('|')
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0 && !part.startsWith(this.marketplaceGuideItemsNotePrefix));
+        if (encoded) {
+            parts.push(`${this.marketplaceGuideItemsNotePrefix}${encoded}`);
+        }
+        return parts.join(' | ');
     }
 
     private decodeMarketplaceGuideItems(note?: string | null): MarketplaceGuideItem[] {
@@ -368,12 +400,13 @@ export class OrderService {
         return null;
     }
 
-    private detectSalesChannel(note?: string | null): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
+    private detectSalesChannel(note?: string | null, code?: string | null): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
         const text = (note || '').toUpperCase();
+        const orderCode = String(code || '').trim().toUpperCase();
         if (text.includes('POS-') || text.includes('METODO DE PAGO')) {
             return 'POS';
         }
-        if (text.includes('ECOMMERCE')) {
+        if (text.includes('ECOMMERCE') || orderCode.startsWith('MK-')) {
             return 'ECOMMERCE';
         }
         return 'INTERNAL';
@@ -1207,9 +1240,9 @@ export class OrderService {
         return selectedMethod;
     }
 
-    private mapPublicOrderStatus(status: OrderStatusEnum): 'Pedido recibido' | 'En revision' | 'Esperando stock' | 'Confirmado' | 'En preparacion' | 'Listo para entrega' | 'Entregado' | 'Cancelado pendiente de devolucion' | 'Cancelado' {
-        const map: Record<OrderStatusEnum, 'Pedido recibido' | 'En revision' | 'Esperando stock' | 'Confirmado' | 'En preparacion' | 'Listo para entrega' | 'Entregado' | 'Cancelado pendiente de devolucion' | 'Cancelado'> = {
-            [OrderStatusEnum.PENDING]: 'En revision',
+    private mapPublicOrderStatus(status: OrderStatusEnum): 'Proforma recibida' | 'En revision' | 'Esperando stock' | 'Confirmado' | 'En preparacion' | 'Listo para entrega' | 'Entregado' | 'Cancelado pendiente de devolucion' | 'Cancelado' {
+        const map: Record<OrderStatusEnum, 'Proforma recibida' | 'En revision' | 'Esperando stock' | 'Confirmado' | 'En preparacion' | 'Listo para entrega' | 'Entregado' | 'Cancelado pendiente de devolucion' | 'Cancelado'> = {
+            [OrderStatusEnum.PENDING]: 'Proforma recibida',
             [OrderStatusEnum.CONFIRMED]: 'Confirmado',
             [OrderStatusEnum.WAITING_TRANSFER]: 'Esperando stock',
             [OrderStatusEnum.PREPARING]: 'En preparacion',
@@ -1326,7 +1359,10 @@ export class OrderService {
     }
 
     private mapOrderWithPickingSummary(order: any) {
-        const items = Array.isArray(order?.items) ? order.items : [];
+        const allItems = Array.isArray(order?.items) ? order.items : [];
+        // Los items eliminados (soft-delete) NO forman parte del pedido operativo:
+        // se excluyen de items/totales/picking y se exponen aparte en removedItems.
+        const items = allItems.filter((item: any) => !item.removedAt);
         const totalRequested = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
         const totalPicked = items.reduce((sum: number, item: any) => {
             const pickedQuantity = this.resolvePickedQuantity(item, order);
@@ -1334,28 +1370,54 @@ export class OrderService {
         }, 0);
 
         const progress = totalRequested > 0 ? Math.round((totalPicked / totalRequested) * 100) : 0;
+        const mapItem = (item: any) => {
+            const requestedQuantity = Number(item.quantity || 0);
+            const reservedQuantity = Number(item.reserved || 0);
+            const pendingStockQuantity = Math.max(0, requestedQuantity - reservedQuantity);
+            const pickedQuantity = this.resolvePickedQuantity(item, order);
+            const maxPickableQuantity = Math.max(0, Math.min(requestedQuantity, reservedQuantity));
+            const pendingPickingQuantity = Math.max(0, requestedQuantity - pickedQuantity);
+            const storedUnitPrice = Number(item.unitPrice || 0);
+            const variantPrice = Number(item?.variant?.price || 0);
+            const unitPrice = storedUnitPrice > 0 ? storedUnitPrice : Math.max(0, variantPrice);
+            const storedSubtotal = Number(item.subtotal || 0);
+            const subtotal = storedSubtotal > 0 ? storedSubtotal : requestedQuantity * unitPrice;
+
+            return {
+                ...item,
+                unitPrice,
+                subtotal,
+                requestedQuantity,
+                reservedQuantity,
+                maxPickableQuantity,
+                pendingStockQuantity,
+                pickedQuantity,
+                pendingQuantity: pendingPickingQuantity,
+                pendingPickingQuantity,
+                pickingStatus: this.mapPickingItemStatus(pickedQuantity, requestedQuantity),
+                removed: Boolean(item.removedAt),
+            };
+        };
+        const mappedItems = items.map(mapItem);
+        const removedMappedItems = allItems
+            .filter((item: any) => item.removedAt)
+            .map(mapItem);
+        const computedSubtotal = mappedItems
+            .reduce((sum: number, item: any) => sum + Number(item.subtotal || 0), 0);
+        const orderSubtotal = Number(order?.subtotal || 0);
+        const orderTax = Number(order?.tax || 0);
+        const orderTotal = Number(order?.total || 0);
+        const subtotal = orderSubtotal > 0 ? orderSubtotal : computedSubtotal;
+        const tax = orderTax > 0 ? orderTax : 0;
+        const total = orderTotal > 0 ? orderTotal : subtotal + tax;
 
         return {
             ...order,
-            items: items.map((item: any) => {
-                const requestedQuantity = Number(item.quantity || 0);
-                const reservedQuantity = Number(item.reserved || 0);
-                const pendingStockQuantity = Math.max(0, requestedQuantity - reservedQuantity);
-                const pickedQuantity = this.resolvePickedQuantity(item, order);
-                const maxPickableQuantity = Math.max(0, Math.min(requestedQuantity, reservedQuantity));
-                const pendingPickingQuantity = Math.max(0, requestedQuantity - pickedQuantity);
-                return {
-                    ...item,
-                    requestedQuantity,
-                    reservedQuantity,
-                    maxPickableQuantity,
-                    pendingStockQuantity,
-                    pickedQuantity,
-                    pendingQuantity: pendingPickingQuantity,
-                    pendingPickingQuantity,
-                    pickingStatus: this.mapPickingItemStatus(pickedQuantity, requestedQuantity),
-                };
-            }),
+            subtotal,
+            tax,
+            total,
+            items: mappedItems,
+            removedItems: removedMappedItems,
             pickingSummary: {
                 totalRequested,
                 totalPicked,
@@ -1393,7 +1455,7 @@ export class OrderService {
 
         const baseMappedOrder = {
             ...sanitizedOrder,
-            salesChannel: this.detectSalesChannel(sanitizedOrder.note),
+            salesChannel: this.detectSalesChannel(sanitizedOrder.note, sanitizedOrder.code),
             primaryResponsible: responsible
                 ? {
                     id: responsible.id,
@@ -1540,6 +1602,35 @@ export class OrderService {
             }
         }
 
+        return allocations;
+    }
+
+    /**
+     * Reservado por linea para la vista de picking. La VERDAD es `OrderItem.reserved`
+     * (reserve/release lo mantienen atomico por item, y es lo que valida
+     * `reserveRemoteStock`). Con variante compartida NO se debe repartir el total de
+     * forma voraz: eso "adelantaba" la reserva a las primeras filas y pintaba las
+     * ultimas como pendientes aunque estuvieran llenas (=> el error al pulsar +).
+     * Solo si NO hay tracking por linea (todo 0 pero existen reservas legacy) se
+     * cae al reparto voraz como respaldo.
+     */
+    private resolveReservedByOrderItem(variantOrderItems: any[], totalReservedForVariant: number): Map<number, number> {
+        const sumPerItem = variantOrderItems.reduce(
+            (sum: number, item: any) => sum + Math.max(0, Number(item?.reserved || 0)),
+            0,
+        );
+
+        if (sumPerItem === 0 && Number(totalReservedForVariant || 0) > 0) {
+            return this.allocateQuantityAcrossOrderItems(variantOrderItems, totalReservedForVariant);
+        }
+
+        const allocations = new Map<number, number>();
+        for (const item of variantOrderItems) {
+            const orderItemId = Number(item?.id || 0);
+            if (orderItemId > 0) {
+                allocations.set(orderItemId, Math.max(0, Number(item?.reserved || 0)));
+            }
+        }
         return allocations;
     }
 
@@ -1871,7 +1962,7 @@ export class OrderService {
             let totalRequested = 0;
             let totalReserved = 0;
             let totalPending = 0;
-            const autoReserveStock = marketplaceSettings.autoReserveStock === true;
+            const autoReserveStock = false;
             const availableStockByVariant = new Map<number, number>();
             const inventoryIdByVariant = new Map<number, number>();
 
@@ -1912,7 +2003,10 @@ export class OrderService {
                     ? Math.max(0, Math.min(requestedQuantity, availableStock))
                     : 0;
                 const pendingQuantity = Math.max(0, requestedQuantity - reservedQuantity);
-                const unitPrice = Number(item.unitPrice ?? variant.price ?? 0);
+                const unitPrice = Number(variant.price || 0);
+                if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+                    throw CustomError.badRequest(`La variante ${item.variantId} no tiene precio valido`);
+                }
                 const lineSubtotal = requestedQuantity * unitPrice;
                 if (autoReserveStock) {
                     availableStockByVariant.set(item.variantId, Math.max(0, availableStock - reservedQuantity));
@@ -1953,8 +2047,8 @@ export class OrderService {
                     note: this.buildMarketplaceNote(
                         dto,
                         autoReserveStock
-                            ? 'RESERVA: automatica segun stock disponible. Pedido sujeto a validacion interna'
-                            : 'RESERVA: no automatica. Pedido sujeto a validacion interna',
+                            ? 'RESERVA: automatica segun stock disponible. Proforma sujeta a validacion interna'
+                            : 'RESERVA: no automatica. Proforma sujeta a validacion interna',
                         selectedPaymentMethod,
                     ),
                     items: {
@@ -2051,7 +2145,7 @@ export class OrderService {
         return {
             ...this.mapOrderWithPresentationData(summary.order),
             stockSummary: summary.metrics,
-            reviewMessage: 'Pedido sujeto a confirmacion de disponibilidad',
+            reviewMessage: 'Proforma sujeta a confirmacion de disponibilidad',
         };
     }
 
@@ -2092,7 +2186,7 @@ export class OrderService {
                 unitPrice: Number(item.unitPrice || 0),
                 subtotal: Number(item.subtotal || 0),
             })),
-            reviewMessage: 'Pedido recibido. Nuestro equipo revisara disponibilidad y te contactara.',
+            reviewMessage: 'Proforma recibida. Nuestro equipo revisara disponibilidad y te contactara.',
         };
     }
 
@@ -2136,8 +2230,8 @@ export class OrderService {
             items,
             hasPending,
             reviewMessage: hasPending
-                ? 'Pedido en revision: hay cantidades pendientes por confirmar'
-                : 'Pedido confirmado para preparacion',
+                ? 'Proforma en revision: hay cantidades pendientes por confirmar'
+                : 'Proforma confirmada para preparacion',
         };
     }
 
@@ -2240,8 +2334,8 @@ export class OrderService {
                 pendingUnits,
                 hasPending,
                 reviewMessage: hasPending
-                    ? 'Pedido en revision: hay cantidades pendientes por confirmar'
-                    : 'Pedido confirmado para preparacion',
+                    ? 'Proforma en revision: hay cantidades pendientes por confirmar'
+                    : 'Proforma confirmada para preparacion',
             };
         });
     }
@@ -2288,6 +2382,163 @@ export class OrderService {
         return inventory;
     }
 
+    private async reserveMarketplaceGuideForConfirmation(order: any, dbClient: any, responsibleUserId?: number | null) {
+        if (this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+            return;
+        }
+
+        const items = Array.isArray(order?.items) ? order.items : [];
+        if (items.length === 0) {
+            throw CustomError.badRequest('La proforma ecommerce no tiene productos para confirmar');
+        }
+
+        for (const item of items) {
+            const quantity = Math.max(0, Number(item?.quantity || 0));
+            const variantId = Number(item?.variantId || 0);
+            const reservedQuantity = Math.max(0, Number(item?.reserved || 0));
+
+            if (quantity <= 0 || !Number.isInteger(variantId) || variantId < 1) {
+                throw CustomError.badRequest('La proforma ecommerce tiene productos invalidos');
+            }
+
+            if (reservedQuantity < quantity) {
+                const productLabel = item?.variant?.product?.name
+                    ? `${item.variant.product.name} (${item?.variant?.color?.name || '-'} - ${item?.variant?.size?.name || '-'})`
+                    : `variante ${variantId}`;
+                throw CustomError.badRequest(
+                    `Antes de confirmar, genera reservas desde las sugerencias de stock para ${productLabel}. Reservado: ${reservedQuantity}, solicitado: ${quantity}`,
+                );
+            }
+        }
+    }
+
+    private async attachReservationSuggestions(order: any, dbClient: any = prisma) {
+        if (!order || this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+            return order;
+        }
+
+        const items = Array.isArray(order?.items) ? order.items : [];
+        if (items.length === 0) {
+            return order;
+        }
+
+        const variantIds = Array.from(new Set(
+            items
+                .map((item: any) => Number(item?.variantId || 0))
+                .filter((variantId: number) => Number.isInteger(variantId) && variantId > 0),
+        ));
+        if (variantIds.length === 0) {
+            return order;
+        }
+
+        const inventories = await dbClient.inventory.findMany({
+            where: {
+                variantId: { in: variantIds },
+                store: { isActive: true },
+            },
+            include: {
+                store: true,
+            },
+        });
+
+        const suggestionsByVariant = new Map<number, OrderItemReservationSuggestion[]>();
+        for (const inventory of inventories) {
+            const availableStock = Math.max(0, Number(inventory.stock || 0) - Number(inventory.reservedStock || 0));
+            if (availableStock <= 0) {
+                continue;
+            }
+
+            const rows = suggestionsByVariant.get(Number(inventory.variantId)) || [];
+            rows.push({
+                inventoryId: Number(inventory.id),
+                storeId: Number(inventory.storeId),
+                storeName: String(inventory.store?.name || `Tienda ${inventory.storeId}`),
+                storeCode: inventory.store?.code || null,
+                storeType: inventory.store?.type || null,
+                stock: Number(inventory.stock || 0),
+                reservedStock: Number(inventory.reservedStock || 0),
+                availableStock,
+                recommendedQuantity: 0,
+                isCurrentFulfillmentStore: false,
+                isSourceStore: false,
+            });
+            suggestionsByVariant.set(Number(inventory.variantId), rows);
+        }
+
+        // Ledger por tienda por item (desde backend, multi-dispositivo): agrupa
+        // las reservas ACTIVE ancladas a cada linea por tienda. Reemplaza el
+        // espejo local en localStorage cuando esta presente. Las reservas legacy
+        // (orderItemId null) no se atribuyen aqui y el front cae a su fallback.
+        const reservedByOrderItemId = new Map<number, Map<number, { storeId: number; storeName: string; quantity: number }>>();
+        for (const reservation of (Array.isArray(order?.reservations) ? order.reservations : [])) {
+            if (String(reservation?.status || '').toUpperCase() !== 'ACTIVE') {
+                continue;
+            }
+            const reservationOrderItemId = Number(reservation?.orderItemId || 0);
+            const storeId = Number(reservation?.inventory?.storeId || 0);
+            const reservationQuantity = Math.max(0, Number(reservation?.quantity || 0));
+            if (reservationOrderItemId <= 0 || storeId <= 0 || reservationQuantity <= 0) {
+                continue;
+            }
+            const bucket = reservedByOrderItemId.get(reservationOrderItemId) || new Map<number, { storeId: number; storeName: string; quantity: number }>();
+            const existing = bucket.get(storeId) || {
+                storeId,
+                storeName: String(reservation?.inventory?.store?.name || `Tienda ${storeId}`),
+                quantity: 0,
+            };
+            existing.quantity += reservationQuantity;
+            bucket.set(storeId, existing);
+            reservedByOrderItemId.set(reservationOrderItemId, bucket);
+        }
+
+        const sourceStoreId = Number(order?.sourceStoreId || order?.sourceStore?.id || 0);
+        const mappedItems = items.map((item: any) => {
+            const requestedQuantity = Math.max(0, Number(item?.requestedQuantity ?? item?.quantity ?? 0));
+            const reservedQuantity = Math.max(0, Number(item?.reservedQuantity ?? item?.reserved ?? 0));
+            const pendingStockQuantity = Math.max(0, requestedQuantity - reservedQuantity);
+            const currentFulfillmentStoreId = Number(item?.fulfillmentStoreId || order?.fulfillmentStoreId || sourceStoreId || 0);
+            const suggestions = (suggestionsByVariant.get(Number(item?.variantId || 0)) || [])
+                .map((suggestion) => ({
+                    ...suggestion,
+                    recommendedQuantity: Math.max(0, Math.min(pendingStockQuantity, suggestion.availableStock)),
+                    isCurrentFulfillmentStore: Number(suggestion.storeId) === currentFulfillmentStoreId,
+                    isSourceStore: Number(suggestion.storeId) === sourceStoreId,
+                }))
+                .filter((suggestion) => suggestion.recommendedQuantity > 0)
+                .sort((a, b) => {
+                    if (a.isCurrentFulfillmentStore !== b.isCurrentFulfillmentStore) {
+                        return a.isCurrentFulfillmentStore ? -1 : 1;
+                    }
+                    if (a.isSourceStore !== b.isSourceStore) {
+                        return a.isSourceStore ? -1 : 1;
+                    }
+                    return b.availableStock - a.availableStock;
+                });
+
+            const reservedByStore = Array.from((reservedByOrderItemId.get(Number(item?.id || 0)) || new Map()).values())
+                .filter((row: any) => Number(row?.quantity || 0) > 0);
+
+            return {
+                ...item,
+                pendingStockQuantity,
+                reservationSuggestions: suggestions,
+                reservedByStore,
+            };
+        });
+
+        return {
+            ...order,
+            items: mappedItems,
+            reservationSuggestionSummary: {
+                totalItemsWithPendingStock: mappedItems.filter((item: any) => Number(item.pendingStockQuantity || 0) > 0).length,
+                totalSuggestions: mappedItems.reduce(
+                    (sum: number, item: any) => sum + (Array.isArray(item.reservationSuggestions) ? item.reservationSuggestions.length : 0),
+                    0,
+                ),
+            },
+        };
+    }
+
     /**
      * Obtener pedido por ID
      */
@@ -2302,7 +2553,8 @@ export class OrderService {
         }
 
         const mapped = this.mapOrderWithPresentationData(order);
-        return this.attachPickingResponsibilityData(mapped);
+        const withSuggestions = await this.attachReservationSuggestions(mapped);
+        return this.attachPickingResponsibilityData(withSuggestions);
     }
 
     /**
@@ -2438,7 +2690,12 @@ export class OrderService {
         const order: any = await prisma.order.findUnique({
             where: { id: orderId },
             include: {
-                items: true,
+                items: {
+                    include: {
+                        fulfillmentStore: true,
+                        variant: { include: { product: true, color: true, size: true } },
+                    },
+                },
                 reservations: { include: { inventory: true } },
             },
         });
@@ -2449,6 +2706,10 @@ export class OrderService {
 
         const currentStatus = order.status as OrderStatusEnum;
         const targetStatus = dto.status as OrderStatusEnum;
+        const isEcommerceGuideConfirmationRetry = currentStatus === OrderStatusEnum.CONFIRMED
+            && targetStatus === OrderStatusEnum.CONFIRMED
+            && this.detectSalesChannel(order?.note, order?.code) === 'ECOMMERCE'
+            && !order.reservations.some((reservation: any) => reservation.status === 'ACTIVE');
 
         // Validar transicion de estados
         const validTransitions: Record<OrderStatusEnum, OrderStatusEnum[]> = {
@@ -2463,7 +2724,7 @@ export class OrderService {
             [OrderStatusEnum.CANCELLED]: [],
         };
 
-        if (!validTransitions[currentStatus].includes(targetStatus)) {
+        if (!validTransitions[currentStatus].includes(targetStatus) && !isEcommerceGuideConfirmationRetry) {
             throw CustomError.badRequest(`No se puede cambiar de ${order.status} a ${dto.status}`);
         }
 
@@ -2495,6 +2756,10 @@ export class OrderService {
                     where: { orderId },
                     data: { assignedUserId: confirmedByUserId },
                 });
+            }
+
+            if (targetStatus === OrderStatusEnum.CONFIRMED) {
+                await this.reserveMarketplaceGuideForConfirmation(order, tx, responsibleUserId);
             }
 
             const releaseActiveReservations = async (actorUserId: number | null, note: string) => {
@@ -3695,7 +3960,7 @@ export class OrderService {
         const reservedAllocationByOrderItemId = new Map<number, number>();
         for (const [variantId, variantOrderItems] of orderItemsByVariant.entries()) {
             const totalReservedForVariant = this.getReservedQuantityForVariant(order, variantId);
-            const reservedAllocations = this.allocateQuantityAcrossOrderItems(variantOrderItems, totalReservedForVariant);
+            const reservedAllocations = this.resolveReservedByOrderItem(variantOrderItems, totalReservedForVariant);
             reservedAllocations.forEach((quantity, orderItemId) => {
                 reservedAllocationByOrderItemId.set(orderItemId, quantity);
             });
@@ -4075,6 +4340,27 @@ export class OrderService {
             );
 
         await prisma.$transaction(async (tx) => {
+            // Total del grupo ANTES de nuestro write, leido dentro de la tx: base
+            // fiable para acreditar la contribucion del actor (no la lectura stale
+            // de fuera de la tx, que bajo concurrencia sobre-acreditaria).
+            let groupBeforeInTx = currentGroupPickedQuantity;
+            if (pickingItemId > 0) {
+                const groupBeforeRows = await tx.$queryRaw<Array<{ quantity: number | bigint }>>(
+                    Prisma.sql`
+                        SELECT COALESCE(SUM("pickedQuantity"), 0) AS "quantity"
+                        FROM "PickingOrderItemDetail"
+                        WHERE "pickingItemId" = ${pickingItemId}
+                    `,
+                );
+                groupBeforeInTx = Math.max(0, Number(groupBeforeRows?.[0]?.quantity || 0));
+            }
+
+            // Escritura atomica anti-carrera (delta, no valor absoluto): dos
+            // operadores del flujo de responsabilidad separando la MISMA linea no
+            // se pisan. El cliente envia un objetivo absoluto calculado sobre su
+            // lectura; aqui se aplica su INTENCION (rowDelta) sobre el valor real
+            // bajo el lock de fila del ON CONFLICT, acotando a [0, rowLimit]. Asi
+            // dos "+1" concurrentes suman +2 en vez de perder uno (last-writer-wins).
             await tx.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "PickingOrderItemDetail" (
@@ -4096,7 +4382,7 @@ export class OrderService {
                         "orderId" = EXCLUDED."orderId",
                         "pickingItemId" = EXCLUDED."pickingItemId",
                         "variantId" = EXCLUDED."variantId",
-                        "pickedQuantity" = EXCLUDED."pickedQuantity",
+                        "pickedQuantity" = GREATEST(0, LEAST(${rowLimit}, "PickingOrderItemDetail"."pickedQuantity" + ${rowDelta})),
                         "updatedAt" = CURRENT_TIMESTAMP
                 `,
             );
@@ -4111,7 +4397,7 @@ export class OrderService {
                     pickingItemId,
                     tx,
                 );
-                const groupDelta = nextGroupPickedQuantity - currentGroupPickedQuantity;
+                const groupDelta = nextGroupPickedQuantity - groupBeforeInTx;
                 if (pickingResponsibilityFlowEnabled && actorUserId && groupDelta !== 0) {
                     await this.updatePickingItemUserContribution(
                         order.id,
@@ -4400,6 +4686,152 @@ export class OrderService {
         return this.getOrderById(orderId);
     }
 
+    /**
+     * Separa de una sola vez TODO lo disponible del pedido (cada fila a su limite
+     * = min(solicitado, reservado)) en UNA transaccion. Pensado para tiendas
+     * rapidas: en vez de N clicks "+", un solo request atomico. La escritura por
+     * fila es un "techo" idempotente (LEAST(limite, ...)), asi que reintentos o
+     * concurrencia no sobre-separan. Solo toca filas donde falta separar.
+     */
+    async pickAllAvailableForOrder(orderId: number, responsibleUserId?: number) {
+        if (!Number.isInteger(orderId) || orderId < 1) {
+            throw CustomError.badRequest('El ID de la orden es invalido');
+        }
+
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: this.orderDetailInclude,
+        });
+        if (!order) {
+            throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
+        }
+        if (!order.pickingSession) {
+            throw CustomError.badRequest('La orden no tiene una sesion de picking iniciada');
+        }
+
+        const validStatuses = [
+            OrderStatusEnum.CONFIRMED,
+            OrderStatusEnum.PREPARING,
+            OrderStatusEnum.WAITING_TRANSFER,
+            OrderStatusEnum.READY,
+        ];
+        if (!validStatuses.includes(order.status as OrderStatusEnum)) {
+            throw CustomError.badRequest('La orden no permite actualizar picking en su estado actual');
+        }
+
+        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        if (pickingResponsibilityFlowEnabled) {
+            if (!actorUserId) {
+                throw CustomError.unauthorized('No se pudo identificar al usuario que actualiza picking');
+            }
+            const canOperate = await this.canUserOperatePicking(
+                order.id,
+                actorUserId,
+                order.pickerUserId ?? order.pickingSession.assignedUserId ?? null,
+            );
+            if (!canOperate) {
+                throw CustomError.forbidden('No tienes responsabilidad asignada para actualizar este picking');
+            }
+        }
+
+        const detailMap = await this.syncPickingOrderItemDetailsForOrder(order, prisma);
+        const orderItems = Array.isArray(order.items)
+            ? [...order.items].sort((a: any, b: any) => Number(a?.id || 0) - Number(b?.id || 0))
+            : [];
+
+        // Solo las filas donde falta separar (picked < limite disponible).
+        const pendingRows = orderItems
+            .map((orderItem: any) => {
+                const orderItemId = Number(orderItem?.id || 0);
+                const detail = detailMap.get(orderItemId);
+                return {
+                    orderItemId,
+                    variantId: Number(orderItem?.variantId || 0),
+                    pickingItemId: Number(detail?.pickingItemId || 0),
+                    current: Math.max(0, Number(detail?.pickedQuantity || 0)),
+                    limit: this.getOrderItemMaxPickableQuantity(order, orderItem),
+                };
+            })
+            .filter((row) => row.orderItemId > 0 && row.limit > row.current);
+
+        if (pendingRows.length === 0) {
+            return this.getOrderPicking(orderId);
+        }
+
+        const currentSessionAssignedUserId = order.pickingSession.assignedUserId ?? null;
+        const pickingSessionId = Number(order.pickingSession.id);
+        const nextPickerUserId = this.resolvePreferredResponsibleUserId(
+            order.pickerUserId,
+            currentSessionAssignedUserId,
+            pickingResponsibilityFlowEnabled ? actorUserId : responsibleUserId,
+        );
+
+        await prisma.$transaction(async (tx) => {
+            // Totales por grupo ANTES del write (contribucion exacta del actor).
+            const affectedPickingItemIds = Array.from(new Set(
+                pendingRows.map((row) => row.pickingItemId).filter((id) => id > 0),
+            ));
+            const groupBefore = new Map<number, number>();
+            for (const pickingItemId of affectedPickingItemIds) {
+                const rows = await tx.$queryRaw<Array<{ quantity: number | bigint }>>(
+                    Prisma.sql`
+                        SELECT COALESCE(SUM("pickedQuantity"), 0) AS "quantity"
+                        FROM "PickingOrderItemDetail"
+                        WHERE "pickingItemId" = ${pickingItemId}
+                    `,
+                );
+                groupBefore.set(pickingItemId, Math.max(0, Number(rows?.[0]?.quantity || 0)));
+            }
+
+            // Separar TODO lo disponible: fija cada fila a su limite (techo atomico).
+            for (const row of pendingRows) {
+                await tx.$executeRaw(
+                    Prisma.sql`
+                        INSERT INTO "PickingOrderItemDetail" (
+                            "orderId","orderItemId","pickingItemId","variantId","pickedQuantity"
+                        ) VALUES (
+                            ${orderId},
+                            ${row.orderItemId},
+                            ${row.pickingItemId > 0 ? row.pickingItemId : null},
+                            ${row.variantId},
+                            ${row.limit}
+                        )
+                        ON CONFLICT ("orderItemId")
+                        DO UPDATE SET
+                            "orderId" = EXCLUDED."orderId",
+                            "pickingItemId" = EXCLUDED."pickingItemId",
+                            "variantId" = EXCLUDED."variantId",
+                            "pickedQuantity" = LEAST(${row.limit}, GREATEST("PickingOrderItemDetail"."pickedQuantity", ${row.limit})),
+                            "updatedAt" = CURRENT_TIMESTAMP
+                    `,
+                );
+            }
+
+            const refreshedDetailRows = await this.listPickingOrderItemDetailRows(orderId, tx);
+            const refreshedDetailMap = this.buildPickingOrderItemDetailMap(refreshedDetailRows);
+            await this.syncOrderItemsFromPickingOrderItemDetailMap(order, refreshedDetailMap, tx);
+
+            for (const pickingItemId of affectedPickingItemIds) {
+                const nextGroup = await this.recalculatePickingItemPickedQuantityFromDetails(orderId, pickingItemId, tx);
+                const delta = nextGroup - (groupBefore.get(pickingItemId) || 0);
+                if (pickingResponsibilityFlowEnabled && actorUserId && delta !== 0) {
+                    await this.updatePickingItemUserContribution(order.id, pickingItemId, Number(actorUserId), delta, tx);
+                }
+            }
+
+            if (nextPickerUserId !== currentSessionAssignedUserId) {
+                await tx.pickingSession.update({ where: { id: pickingSessionId }, data: { assignedUserId: nextPickerUserId } });
+            }
+            if (nextPickerUserId !== (order.pickerUserId ?? null)) {
+                await tx.order.update({ where: { id: order.id }, data: { pickerUserId: nextPickerUserId } });
+            }
+        });
+
+        await this.syncPickingAndOrderStatus(orderId);
+        return this.getOrderPicking(orderId);
+    }
+
     async updateOrderPicking(orderId: number, dto: UpdateOrderPickingDto, responsibleUserId?: number) {
         await this.startOrderPicking(orderId, responsibleUserId);
         const currentPicking = await this.getOrderPicking(orderId);
@@ -4428,51 +4860,853 @@ export class OrderService {
     /**
      * Reservar stock remoto
      */
-    async reserveRemoteStock(orderId: number, sourceStoreId: number, variantId: number, quantity: number) {
-        const order = await this.getOrderById(orderId);
+    async reserveRemoteStock(
+        orderId: number,
+        sourceStoreId: number,
+        variantId: number,
+        quantity: number,
+        responsibleUserId?: number | null,
+        orderItemId?: number | null,
+    ) {
+        const normalizedQuantity = Math.max(0, Math.round(Number(quantity || 0)));
+        if (!Number.isInteger(normalizedQuantity) || normalizedQuantity < 1) {
+            throw CustomError.badRequest('La cantidad a reservar debe ser mayor a 0');
+        }
 
-        // Validar inventario remoto
-        const remoteInventory = await prisma.inventory.findUnique({
-            where: {
-                storeId_variantId: {
-                    storeId: sourceStoreId,
+        const result = await prisma.$transaction(async (tx) => {
+            const order: any = await tx.order.findUnique({
+                where: { id: orderId },
+                include: {
+                    items: {
+                        orderBy: { id: 'asc' },
+                        include: {
+                            fulfillmentStore: true,
+                            variant: { include: { product: true, color: true, size: true } },
+                        },
+                    },
+                    reservations: { include: { inventory: true } },
+                },
+            });
+
+            if (!order) {
+                throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
+            }
+
+            const status = String(order.status || '').toUpperCase();
+            if (status === OrderStatusEnum.CANCELLED || status === OrderStatusEnum.DELIVERED || status === OrderStatusEnum.RETURN_PENDING) {
+                throw CustomError.badRequest('No se puede reservar stock para un pedido cerrado o en devolucion');
+            }
+
+            const matchingItems = (order.items || []).filter((item: any) => {
+                if (Number(item.variantId) !== Number(variantId)) {
+                    return false;
+                }
+                if (Number(orderItemId || 0) > 0) {
+                    return Number(item.id) === Number(orderItemId);
+                }
+                return Number(item.reserved || 0) < Number(item.quantity || 0);
+            });
+            const targetItem = matchingItems[0];
+            if (!targetItem) {
+                throw CustomError.badRequest('No se encontro un item pendiente para reservar esta variante');
+            }
+
+            const requestedQuantity = Math.max(0, Number(targetItem.quantity || 0));
+            const reservedQuantity = Math.max(0, Number(targetItem.reserved || 0));
+            const pendingQuantity = Math.max(0, requestedQuantity - reservedQuantity);
+            if (pendingQuantity <= 0) {
+                throw CustomError.badRequest('El item ya tiene toda su cantidad reservada');
+            }
+            if (normalizedQuantity > pendingQuantity) {
+                throw CustomError.badRequest(`La cantidad supera el pendiente por reservar. Pendiente: ${pendingQuantity}`);
+            }
+
+            const remoteInventory = await tx.inventory.findUnique({
+                where: {
+                    storeId_variantId: {
+                        storeId: sourceStoreId,
+                        variantId,
+                    },
+                },
+                include: { store: true },
+            });
+
+            if (!remoteInventory) {
+                throw CustomError.badRequest('El inventario seleccionado no existe');
+            }
+
+            // Reserva atomica anti-carrera: update condicional a nivel de fila.
+            // El WHERE "stock - reservedStock >= qty" se re-evalua bajo el lock de
+            // fila, asi dos reservas concurrentes no sobre-reservan (la 2da bloquea
+            // hasta el commit de la 1ra y re-verifica el disponible ya actualizado).
+            const inventoryUpdated = await tx.$executeRaw`
+                UPDATE "Inventory"
+                SET "reservedStock" = "reservedStock" + ${normalizedQuantity}
+                WHERE "id" = ${remoteInventory.id}
+                  AND "stock" - "reservedStock" >= ${normalizedQuantity}
+            `;
+            if (inventoryUpdated === 0) {
+                const currentAvailable = Math.max(0, Number(remoteInventory.stock || 0) - Number(remoteInventory.reservedStock || 0));
+                throw CustomError.badRequest(`Stock insuficiente en ${remoteInventory.store?.name || 'la tienda seleccionada'}. Disponible: ${currentAvailable}`);
+            }
+
+            // Reserva atomica a nivel item: no permitir reservar mas que lo solicitado.
+            // fulfillmentStoreId solo se fija si esta vacio (la 1ra reserva define la
+            // tienda primaria; no se pisa en reservas multi-tienda posteriores).
+            const itemUpdated = await tx.$executeRaw`
+                UPDATE "OrderItem"
+                SET "reserved" = "reserved" + ${normalizedQuantity},
+                    "status" = 'PENDING',
+                    "fulfillmentStoreId" = COALESCE("fulfillmentStoreId", ${sourceStoreId})
+                WHERE "id" = ${targetItem.id}
+                  AND "reserved" + ${normalizedQuantity} <= "quantity"
+            `;
+            if (itemUpdated === 0) {
+                throw CustomError.badRequest('El item ya tiene toda su cantidad reservada por otra operacion. Refresca el pedido e intenta de nuevo.');
+            }
+
+            const reservation = await tx.reservation.create({
+                data: {
+                    quantity: normalizedQuantity,
+                    status: 'ACTIVE',
+                    inventoryId: remoteInventory.id,
                     variantId,
+                    orderId,
+                    // Ledger por tienda por item: se ancla a la linea concreta.
+                    orderItemId: targetItem.id,
+                    reservedById: this.resolvePreferredResponsibleUserId(responsibleUserId),
+                },
+            });
+
+            await tx.inventoryMovement.create({
+                data: {
+                    type: 'RESERVED',
+                    quantity: normalizedQuantity,
+                    previousStock: Number(remoteInventory.stock || 0),
+                    newStock: Number(remoteInventory.stock || 0),
+                    note: `Reserva creada desde detalle de pedido ${order.code}`,
+                    responsibleUserId: this.resolvePreferredResponsibleUserId(responsibleUserId),
+                    inventoryId: remoteInventory.id,
+                    reservationId: reservation.id,
+                },
+            });
+
+            const refreshedItems = await tx.orderItem.findMany({
+                where: { orderId },
+                select: { reserved: true, quantity: true },
+            });
+            const allRequestedReserved = refreshedItems.every((item) => (
+                Number(item.reserved || 0) >= Number(item.quantity || 0)
+            ));
+
+            // Fulfillment a nivel orden: solo si no esta fijado o apunta al origen.
+            if (!order.fulfillmentStoreId || Number(order.fulfillmentStoreId) === Number(order.sourceStoreId)) {
+                await tx.order.update({
+                    where: { id: orderId },
+                    data: { fulfillmentStoreId: sourceStoreId },
+                });
+            }
+
+            return {
+                reservationId: reservation.id,
+                orderItemId: targetItem.id,
+                storeId: sourceStoreId,
+                storeName: remoteInventory.store?.name || null,
+                variantId,
+                quantity: normalizedQuantity,
+                pendingQuantityAfterReservation: Math.max(0, pendingQuantity - normalizedQuantity),
+                allRequestedReserved,
+            };
+        });
+
+        return {
+            success: true,
+            message: 'Stock reservado exitosamente',
+            ...result,
+        };
+    }
+
+    /**
+     * Reserva de una sola vez TODO lo pendiente del pedido usando la tienda
+     * recomendada (mayor disponibilidad) por variante, en UNA transaccion.
+     * Greedy: reparte entre tiendas (recomendada primero) hasta cubrir lo
+     * solicitado o agotar stock. Cada reserva usa la misma guarda atomica
+     * condicional que `reserveRemoteStock` (no sobre-reserva bajo concurrencia).
+     */
+    async reserveAllRecommendedForOrder(orderId: number, responsibleUserId?: number | null) {
+        const reservedById = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        const result = await prisma.$transaction(async (tx) => {
+            const order: any = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: { orderBy: { id: 'asc' }, include: { variant: true } } },
+            });
+            if (!order) {
+                throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
+            }
+            const status = String(order.status || '').toUpperCase();
+            if (status === OrderStatusEnum.CANCELLED || status === OrderStatusEnum.DELIVERED || status === OrderStatusEnum.RETURN_PENDING) {
+                throw CustomError.badRequest('No se puede reservar stock para un pedido cerrado o en devolucion');
+            }
+
+            const pendingItems = (order.items || []).filter((item: any) => (
+                !item.removedAt && Number(item.reserved || 0) < Number(item.quantity || 0)
+            ));
+            if (pendingItems.length === 0) {
+                return { reservedUnits: 0, reservedLines: 0 };
+            }
+
+            const variantIds: number[] = Array.from(new Set(
+                pendingItems
+                    .map((item: any) => Number(item.variantId || 0))
+                    .filter((id: number) => id > 0),
+            ));
+            const inventories = await tx.inventory.findMany({
+                where: { variantId: { in: variantIds }, store: { isActive: true } },
+                include: { store: true },
+            });
+            const inventoriesByVariant = new Map<number, any[]>();
+            for (const inventory of inventories) {
+                const arr = inventoriesByVariant.get(Number(inventory.variantId)) || [];
+                arr.push(inventory);
+                inventoriesByVariant.set(Number(inventory.variantId), arr);
+            }
+            // Recomendada = mayor disponibilidad primero.
+            for (const arr of inventoriesByVariant.values()) {
+                arr.sort((a, b) => (
+                    (Number(b.stock || 0) - Number(b.reservedStock || 0)) - (Number(a.stock || 0) - Number(a.reservedStock || 0))
+                ));
+            }
+
+            let reservedUnits = 0;
+            let reservedLines = 0;
+            let firstReservedStoreId = 0;
+
+            for (const item of pendingItems) {
+                let remaining = Math.max(0, Number(item.quantity || 0) - Number(item.reserved || 0));
+                const variantInventories = inventoriesByVariant.get(Number(item.variantId || 0)) || [];
+                let lineReserved = 0;
+
+                for (const inventory of variantInventories) {
+                    if (remaining <= 0) {
+                        break;
+                    }
+                    // Re-lee disponible dentro de la tx (pudo bajar por reservas
+                    // previas sobre la misma variante/tienda).
+                    const fresh = await tx.inventory.findUnique({ where: { id: inventory.id } });
+                    const available = Math.max(0, Number(fresh?.stock || 0) - Number(fresh?.reservedStock || 0));
+                    if (available <= 0) {
+                        continue;
+                    }
+                    const take = Math.min(remaining, available);
+
+                    const inventoryUpdated = await tx.$executeRaw`
+                        UPDATE "Inventory"
+                        SET "reservedStock" = "reservedStock" + ${take}
+                        WHERE "id" = ${inventory.id}
+                          AND "stock" - "reservedStock" >= ${take}
+                    `;
+                    if (inventoryUpdated === 0) {
+                        continue;
+                    }
+
+                    const itemUpdated = await tx.$executeRaw`
+                        UPDATE "OrderItem"
+                        SET "reserved" = "reserved" + ${take},
+                            "status" = 'PENDING',
+                            "fulfillmentStoreId" = COALESCE("fulfillmentStoreId", ${inventory.storeId})
+                        WHERE "id" = ${item.id}
+                          AND "reserved" + ${take} <= "quantity"
+                    `;
+                    if (itemUpdated === 0) {
+                        // Revertir el incremento de inventario si la linea ya se lleno.
+                        await tx.$executeRaw`
+                            UPDATE "Inventory"
+                            SET "reservedStock" = GREATEST(0, "reservedStock" - ${take})
+                            WHERE "id" = ${inventory.id}
+                        `;
+                        continue;
+                    }
+
+                    const reservation = await tx.reservation.create({
+                        data: {
+                            quantity: take,
+                            status: 'ACTIVE',
+                            inventoryId: inventory.id,
+                            variantId: Number(item.variantId || 0),
+                            orderId,
+                            orderItemId: Number(item.id),
+                            reservedById,
+                        },
+                    });
+                    await tx.inventoryMovement.create({
+                        data: {
+                            type: 'RESERVED',
+                            quantity: take,
+                            previousStock: Number(fresh?.stock || 0),
+                            newStock: Number(fresh?.stock || 0),
+                            note: `Reserva masiva (tienda recomendada) pedido ${order.code}`,
+                            responsibleUserId: reservedById,
+                            inventoryId: inventory.id,
+                            reservationId: reservation.id,
+                        },
+                    });
+
+                    remaining -= take;
+                    lineReserved += take;
+                    reservedUnits += take;
+                    if (firstReservedStoreId <= 0) {
+                        firstReservedStoreId = Number(inventory.storeId);
+                    }
+                }
+
+                if (lineReserved > 0) {
+                    reservedLines += 1;
+                }
+            }
+
+            // Fulfillment a nivel orden si aun no esta fijado.
+            if (firstReservedStoreId > 0 && (!order.fulfillmentStoreId || Number(order.fulfillmentStoreId) === Number(order.sourceStoreId))) {
+                await tx.order.update({ where: { id: orderId }, data: { fulfillmentStoreId: firstReservedStoreId } });
+            }
+
+            return { reservedUnits, reservedLines };
+        });
+
+        return {
+            success: true,
+            message: result.reservedUnits > 0
+                ? `Reservadas ${result.reservedUnits} unidad(es) en ${result.reservedLines} linea(s).`
+                : 'No habia stock disponible para reservar.',
+            ...result,
+        };
+    }
+
+    /**
+     * Libera la reserva de stock de un item (inverso de reserveRemoteStock).
+     * Una reserva nunca es definitiva: el operador puede rectificar o el pedido
+     * puede cancelarse. Revierte Inventory.reservedStock, OrderItem.reserved y
+     * marca las Reservation ACTIVE de esa variante como RELEASED (o las reduce).
+     */
+    async releaseRemoteStock(
+        orderId: number,
+        orderItemId: number,
+        responsibleUserId?: number | null,
+        quantity?: number | null,
+        sourceStoreId?: number | null,
+    ) {
+        const result = await prisma.$transaction(async (tx) => {
+            const order: any = await tx.order.findUnique({
+                where: { id: orderId },
+                include: {
+                    items: { orderBy: { id: 'asc' } },
+                    reservations: { include: { inventory: true } },
+                },
+            });
+
+            if (!order) {
+                throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
+            }
+
+            const status = String(order.status || '').toUpperCase();
+            if (status === OrderStatusEnum.DELIVERED || status === OrderStatusEnum.RETURN_PENDING) {
+                throw CustomError.badRequest('No se puede liberar stock de un pedido entregado o en devolucion');
+            }
+
+            const targetItem = (order.items || []).find((item: any) => Number(item.id) === Number(orderItemId));
+            if (!targetItem) {
+                throw CustomError.notFound('El item indicado no existe en el pedido');
+            }
+
+            const reservedQuantity = Math.max(0, Number(targetItem.reserved || 0));
+            if (reservedQuantity <= 0) {
+                throw CustomError.badRequest('El item no tiene stock reservado por liberar');
+            }
+
+            // Liberacion parcial opcional: si viene `quantity` se libera solo esa cantidad
+            // (tope = reservado de la linea); si viene `sourceStoreId` se limita a las
+            // reservas de esa tienda. Sin ambos, se libera todo (comportamiento por defecto).
+            const normalizedStoreId = Number(sourceStoreId || 0) > 0 ? Number(sourceStoreId) : null;
+            const requestedRelease = Number(quantity || 0) > 0
+                ? Math.min(Math.round(Number(quantity)), reservedQuantity)
+                : reservedQuantity;
+
+            const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+            const activeReservations = (order.reservations || [])
+                .filter((reservation: any) => (
+                    reservation.status === 'ACTIVE'
+                    && Number(reservation.variantId) === Number(targetItem.variantId)
+                    && (normalizedStoreId === null || Number(reservation.inventory?.storeId) === normalizedStoreId)
+                    // Ledger por item: solo reservas de ESTA linea, o legacy sin
+                    // ancla (orderItemId null) para compatibilidad. Asi, cuando
+                    // varias lineas comparten variante, liberar una no consume la
+                    // reserva de otra.
+                    && (
+                        reservation.orderItemId == null
+                        || Number(reservation.orderItemId) === Number(targetItem.id)
+                    )
+                ))
+                .sort((a: any, b: any) => {
+                    // Prioriza las reservas ancladas a esta linea; legacy despues.
+                    const aOwn = Number(a.orderItemId) === Number(targetItem.id) ? 0 : 1;
+                    const bOwn = Number(b.orderItemId) === Number(targetItem.id) ? 0 : 1;
+                    if (aOwn !== bOwn) {
+                        return aOwn - bOwn;
+                    }
+                    return Number(b.id) - Number(a.id);
+                });
+
+            let remaining = requestedRelease;
+            for (const reservation of activeReservations) {
+                if (remaining <= 0) {
+                    break;
+                }
+                const reservationQuantity = Math.max(0, Number(reservation.quantity || 0));
+                const take = Math.min(remaining, reservationQuantity);
+                if (take <= 0) {
+                    continue;
+                }
+                const previousStock = Number(reservation.inventory?.stock || 0);
+
+                await tx.$executeRaw`
+                    UPDATE "Inventory"
+                    SET "reservedStock" = GREATEST(0, "reservedStock" - ${take})
+                    WHERE "id" = ${reservation.inventoryId}
+                `;
+
+                if (take >= reservationQuantity) {
+                    await tx.reservation.update({ where: { id: reservation.id }, data: { status: 'RELEASED' } });
+                } else {
+                    await tx.reservation.update({ where: { id: reservation.id }, data: { quantity: reservationQuantity - take } });
+                }
+
+                await tx.inventoryMovement.create({
+                    data: {
+                        type: 'UNRESERVED',
+                        quantity: take,
+                        previousStock,
+                        newStock: previousStock,
+                        note: `Reserva liberada desde detalle de pedido ${order.code}`,
+                        responsibleUserId: actorUserId,
+                        inventoryId: reservation.inventoryId,
+                        reservationId: reservation.id,
+                    },
+                });
+                remaining -= take;
+            }
+
+            const released = requestedRelease - remaining;
+            if (released <= 0) {
+                throw CustomError.badRequest('No se encontro reserva por liberar para la tienda indicada');
+            }
+            await tx.$executeRaw`
+                UPDATE "OrderItem"
+                SET "reserved" = GREATEST(0, "reserved" - ${released}),
+                    "status" = 'PENDING'
+                WHERE "id" = ${targetItem.id}
+            `;
+
+            return {
+                orderItemId: targetItem.id,
+                variantId: Number(targetItem.variantId),
+                releasedQuantity: released,
+            };
+        });
+
+        return {
+            success: true,
+            message: 'Reserva liberada exitosamente',
+            ...result,
+        };
+    }
+
+    /**
+     * Marca (o limpia) la cantidad faltante de un item de una proforma ecommerce.
+     * quantity = cantidad a declarar como faltante; 0 limpia el faltante.
+     * Si queda algun faltante, el pedido pasa a WAITING_STOCK; al limpiar todos, vuelve a PENDING.
+     */
+    async markOrderItemShortage(
+        orderId: number,
+        orderItemId: number,
+        quantity: number | null | undefined,
+        responsibleUserId?: number | null,
+    ) {
+        const result = await prisma.$transaction(async (tx) => {
+            const order: any = await tx.order.findUnique({
+                where: { id: orderId },
+                include: {
+                    items: {
+                        orderBy: { id: 'asc' },
+                        include: { variant: { include: { product: true, color: true, size: true } } },
+                    },
+                    pickingSession: { select: { id: true } },
+                },
+            });
+
+            if (!order) {
+                throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
+            }
+            if (this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+                throw CustomError.badRequest('Solo se puede marcar faltante en proformas ecommerce');
+            }
+
+            const status = String(order.status || '').toUpperCase();
+            if (status === OrderStatusEnum.CANCELLED || status === OrderStatusEnum.DELIVERED || status === OrderStatusEnum.RETURN_PENDING) {
+                throw CustomError.badRequest('No se puede marcar faltante en un pedido cerrado o en devolucion');
+            }
+            if (order.pickingSession?.id) {
+                throw CustomError.badRequest('No se puede marcar faltante con el picking ya iniciado');
+            }
+
+            const targetItem = (order.items || []).find((item: any) => Number(item.id) === Number(orderItemId));
+            if (!targetItem) {
+                throw CustomError.badRequest('No se encontro el item indicado en el pedido');
+            }
+
+            const requestedQuantity = Math.max(0, Number(targetItem.quantity || 0));
+            const reservedQuantity = Math.max(0, Number(targetItem.reserved || 0));
+            const pendingQuantity = Math.max(0, requestedQuantity - reservedQuantity);
+
+            const requested = Number(quantity);
+            const normalizedShortage = Number.isFinite(requested) && requested >= 0
+                ? Math.min(pendingQuantity, Math.round(requested))
+                : pendingQuantity;
+
+            const nextItemStatus = normalizedShortage > 0
+                ? 'MISSING'
+                : (reservedQuantity > 0 ? (reservedQuantity >= requestedQuantity ? 'PENDING' : 'PARTIAL') : 'PENDING');
+
+            await tx.orderItem.update({
+                where: { id: targetItem.id },
+                data: {
+                    shortageQuantity: normalizedShortage,
+                    status: nextItemStatus as any,
+                },
+            });
+
+            const anyShortage = (order.items || []).some((item: any) => (
+                Number(item.id) === Number(targetItem.id)
+                    ? normalizedShortage > 0
+                    : Number(item.shortageQuantity || 0) > 0
+            ));
+
+            let nextOrderStatus = status;
+            if (anyShortage && (status === OrderStatusEnum.PENDING || status === OrderStatusEnum.CONFIRMED)) {
+                nextOrderStatus = OrderStatusEnum.WAITING_STOCK;
+            } else if (!anyShortage && status === OrderStatusEnum.WAITING_STOCK) {
+                nextOrderStatus = OrderStatusEnum.PENDING;
+            }
+            if (nextOrderStatus !== status) {
+                await tx.order.update({ where: { id: orderId }, data: { status: nextOrderStatus as any } });
+            }
+
+            return {
+                orderItemId: targetItem.id,
+                variantId: Number(targetItem.variantId),
+                shortageQuantity: normalizedShortage,
+                itemStatus: nextItemStatus,
+                orderStatus: nextOrderStatus,
+                pendingQuantity,
+            };
+        });
+
+        return {
+            success: true,
+            message: result.shortageQuantity > 0 ? 'Faltante registrado' : 'Faltante eliminado',
+            ...result,
+        };
+    }
+
+    /**
+     * Recalcula subtotal/IGV/total de un pedido sumando solo los OrderItem NO
+     * eliminados (`removedAt = null`). Los eliminados quedan en BD pero fuera de
+     * la ecuacion. IGV segun la configuracion del sistema (marketplace
+     * includeIgv). Persiste en la orden.
+     */
+    private async recomputeOrderTotals(
+        tx: any,
+        orderId: number,
+    ): Promise<{ subtotal: number; tax: number; total: number }> {
+        const items = await tx.orderItem.findMany({
+            where: { orderId, removedAt: null },
+            select: { subtotal: true },
+        });
+
+        const subtotal = (items || []).reduce(
+            (sum: number, it: any) => sum + Number(it.subtotal || 0),
+            0,
+        );
+
+        const settings = await this.getMarketplacePaymentSettings(tx);
+        const tax = this.resolveTaxAmount(subtotal, settings.includeIgv);
+        const total = subtotal + tax;
+
+        await tx.order.update({
+            where: { id: orderId },
+            data: { subtotal, tax, total },
+        });
+
+        return { subtotal, tax, total };
+    }
+
+    /** Valida que el pedido sea una proforma ecommerce editable (sin picking). */
+    private assertEcommerceProformaOpen(order: any, action: string): string {
+        if (!order) {
+            throw CustomError.notFound('El pedido no existe');
+        }
+        if (this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+            throw CustomError.badRequest(`Solo se puede ${action} en proformas ecommerce`);
+        }
+        const status = String(order.status || '').toUpperCase();
+        // Editable en pre-picking Y durante el picking en curso (el cliente cambia
+        // de opinion "en caliente"). Solo se bloquea en estados finales: cerrado,
+        // en devolucion o con el picking ya finalizado (READY/DELIVERED).
+        if (
+            status === OrderStatusEnum.CANCELLED
+            || status === OrderStatusEnum.DELIVERED
+            || status === OrderStatusEnum.RETURN_PENDING
+            || status === OrderStatusEnum.READY
+        ) {
+            throw CustomError.badRequest(`No se puede ${action} en un pedido cerrado, finalizado o en devolucion`);
+        }
+        return status;
+    }
+
+    /**
+     * Agrega una nueva linea (OrderItem) a una proforma ecommerce abierta.
+     * Uso: el cliente pidio un producto de reemplazo tras quitar un faltante.
+     * Precio = precio actual de la variante. Recalcula subtotal/IGV/total
+     * (los eliminados quedan fuera). Solo marketplace y sin picking iniciado.
+     */
+    async addOrderItem(
+        orderId: number,
+        variantId: number,
+        quantity: number,
+        userId?: number | null,
+        marketplaceGuide?: { colorName?: string | undefined; sizeName?: string | undefined; displayVariantId?: number | undefined },
+    ) {
+        void userId;
+        const normalizedQuantity = Math.round(Number(quantity));
+        if (!Number.isFinite(normalizedQuantity) || normalizedQuantity < 1) {
+            throw CustomError.badRequest('La cantidad debe ser un entero mayor o igual a 1');
+        }
+        const guideColorName = String(marketplaceGuide?.colorName || '').trim();
+        const guideSizeName = String(marketplaceGuide?.sizeName || '').trim();
+        const guideDisplayVariantId = Number(marketplaceGuide?.displayVariantId || 0);
+        const hasGuide = guideColorName.length > 0 || guideSizeName.length > 0;
+
+        const result = await prisma.$transaction(async (tx) => {
+            const order: any = await tx.order.findUnique({
+                where: { id: orderId },
+                include: {
+                    pickingSession: { select: { id: true } },
+                    items: { select: { id: true }, orderBy: { id: 'asc' as const } },
+                },
+            });
+            const status = this.assertEcommerceProformaOpen(order, 'agregar productos');
+
+            const variant = await tx.productVariant.findFirst({
+                where: { id: variantId, isActive: true, product: { isActive: true } },
+                select: { id: true, price: true },
+            });
+            if (!variant) {
+                throw CustomError.badRequest('La variante seleccionada no existe o esta inactiva');
+            }
+            const unitPrice = Number(variant.price || 0);
+            if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+                throw CustomError.badRequest('La variante seleccionada no tiene precio valido');
+            }
+
+            const lineSubtotal = normalizedQuantity * unitPrice;
+
+            const createdItem = await tx.orderItem.create({
+                data: {
+                    orderId,
+                    variantId,
+                    quantity: normalizedQuantity,
+                    unitPrice,
+                    subtotal: lineSubtotal,
+                },
+                select: { id: true },
+            });
+
+            // Si es una variante virtual marketplace (color/talla), persiste el guide
+            // posicional: el item nuevo queda al final (mayor id) => ultimo indice.
+            if (hasGuide) {
+                const existingItems: Array<{ id: number }> = Array.isArray(order?.items) ? order.items : [];
+                const decoded = this.decodeMarketplaceGuideItems(order?.note);
+                const rebuilt: Array<{ colorName?: string | undefined; sizeName?: string | undefined; displayVariantId?: number | undefined }> =
+                    existingItems.map((_item, index) => decoded[index] || {});
+                rebuilt.push({
+                    colorName: guideColorName || undefined,
+                    sizeName: guideSizeName || undefined,
+                    displayVariantId: guideDisplayVariantId > 0 ? guideDisplayVariantId : undefined,
+                });
+                const encoded = this.encodeMarketplaceGuideItems(rebuilt, true);
+                const nextNote = this.upsertMarketplaceGuideItemsInNote(order?.note, encoded);
+                await tx.order.update({ where: { id: orderId }, data: { note: nextNote } });
+            }
+
+            const totals = await this.recomputeOrderTotals(tx, orderId);
+
+            return {
+                orderItemId: createdItem.id,
+                variantId,
+                quantity: normalizedQuantity,
+                unitPrice,
+                ...totals,
+                orderStatus: status,
+            };
+        });
+
+        return {
+            success: true,
+            message: 'Producto agregado a la proforma',
+            ...result,
+        };
+    }
+
+    /**
+     * Elimina (soft-delete) una linea de una proforma ecommerce: la marca como
+     * eliminada, libera su reserva si tenia y recalcula el total (queda fuera).
+     * Restaurable con `restoreOrderItem`.
+     */
+    async removeOrderItem(
+        orderId: number,
+        orderItemId: number,
+        reason?: string | null,
+        note?: string | null,
+        userId?: number | null,
+    ) {
+        const normalizedReason = String(reason || '').trim().slice(0, 200) || 'Sin motivo';
+        const normalizedNote = String(note || '').trim().slice(0, 500) || null;
+
+        const pre: any = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: {
+                id: true,
+                note: true,
+                code: true,
+                status: true,
+                pickingSession: { select: { id: true } },
+                items: {
+                    where: { id: orderItemId },
+                    select: { id: true, reserved: true, picked: true, removedAt: true },
                 },
             },
         });
+        this.assertEcommerceProformaOpen(pre, 'eliminar productos');
 
-        if (!remoteInventory) {
-            throw CustomError.badRequest('El inventario remoto no existe');
+        const target = pre.items?.[0];
+        if (!target) {
+            throw CustomError.badRequest('No se encontro el item indicado en el pedido');
+        }
+        if (target.removedAt) {
+            throw CustomError.badRequest('El producto ya esta eliminado del pedido');
         }
 
-        const availableStock = remoteInventory.stock - remoteInventory.reservedStock;
-        if (availableStock < quantity) {
-            throw CustomError.badRequest(`Stock remoto insuficiente. Disponible: ${availableStock}`);
+        // Si el cliente cambia de opinion en caliente y el item ya fue pickeado,
+        // revertir el picked primero (des-pickear) para que la reserva quede
+        // liberable de forma consistente antes de liberarla y marcar eliminado.
+        if (pre.pickingSession?.id && Number(target.picked || 0) > 0) {
+            await this.updatePickingOrderItem(orderId, orderItemId, 0, userId ?? undefined);
         }
 
-        // Actualizar fulfillmentStoreId
-        await prisma.order.update({
-            where: { id: orderId },
-            data: { fulfillmentStoreId: sourceStoreId },
+        // Liberar la reserva (en su propia transaccion) antes de marcar eliminado.
+        if (Number(target.reserved || 0) > 0) {
+            await this.releaseRemoteStock(orderId, orderItemId, userId ?? undefined);
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            let removedByName: string | null = null;
+            if (userId) {
+                const remover = await tx.user.findUnique({
+                    where: { id: Number(userId) },
+                    select: { firstName: true, lastName: true },
+                });
+                if (remover) {
+                    removedByName = `${remover.firstName || ''} ${remover.lastName || ''}`.trim() || null;
+                }
+            }
+
+            await tx.orderItem.update({
+                where: { id: orderItemId },
+                data: {
+                    removedAt: new Date(),
+                    removedReason: normalizedReason,
+                    removedNote: normalizedNote,
+                    removedById: userId ?? null,
+                    removedByName,
+                },
+            });
+
+            const totals = await this.recomputeOrderTotals(tx, orderId);
+            return { orderStatus: String(pre.status || '').toUpperCase(), ...totals };
         });
 
-        // Reservar stock en tienda remota
-        await prisma.inventory.update({
-            where: { id: remoteInventory.id },
-            data: { reservedStock: { increment: quantity } },
+        return {
+            success: true,
+            message: 'Producto eliminado de la proforma',
+            orderItemId,
+            ...result,
+        };
+    }
+
+    /**
+     * Restaura una linea previamente eliminada de una proforma ecommerce: limpia
+     * las marcas de eliminacion y recalcula el total (vuelve a contar). No re-
+     * reserva stock; la linea queda pendiente y editable.
+     */
+    async restoreOrderItem(
+        orderId: number,
+        orderItemId: number,
+        userId?: number | null,
+    ) {
+        void userId;
+        const result = await prisma.$transaction(async (tx) => {
+            const order: any = await tx.order.findUnique({
+                where: { id: orderId },
+                select: {
+                    id: true,
+                    note: true,
+                    code: true,
+                    status: true,
+                    pickingSession: { select: { id: true } },
+                    items: {
+                        where: { id: orderItemId },
+                        select: { id: true, removedAt: true },
+                    },
+                },
+            });
+            const status = this.assertEcommerceProformaOpen(order, 'restaurar productos');
+
+            const target = order.items?.[0];
+            if (!target) {
+                throw CustomError.badRequest('No se encontro el item indicado en el pedido');
+            }
+            if (!target.removedAt) {
+                throw CustomError.badRequest('El producto no esta eliminado');
+            }
+
+            await tx.orderItem.update({
+                where: { id: orderItemId },
+                data: {
+                    removedAt: null,
+                    removedReason: null,
+                    removedNote: null,
+                    removedById: null,
+                    removedByName: null,
+                },
+            });
+
+            const totals = await this.recomputeOrderTotals(tx, orderId);
+            return { orderStatus: status, ...totals };
         });
 
-        // Crear reserva
-        await prisma.reservation.create({
-            data: {
-                quantity,
-                status: 'ACTIVE',
-                inventoryId: remoteInventory.id,
-                variantId,
-                orderId,
-            },
-        });
-
-        return { success: true, message: 'Stock remoto reservado exitosamente' };
+        return {
+            success: true,
+            message: 'Producto restaurado en la proforma',
+            orderItemId,
+            ...result,
+        };
     }
 }

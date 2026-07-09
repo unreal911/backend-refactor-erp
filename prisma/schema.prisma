@@ -378,6 +378,12 @@ model Reservation {
   orderId Int?
   order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  // Linea concreta del pedido que originó la reserva. Permite el "ledger" por
+  // tienda por item desde el backend (multi-dispositivo) sin depender de
+  // localStorage. Nullable por compatibilidad con reservas legacy (variante).
+  orderItemId Int?
+  orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
   reservedById Int?
   reservedBy   User? @relation(fields: [reservedById], references: [id])
 
@@ -434,6 +440,7 @@ enum OrderItemStatus {
   PENDING
   PARTIAL
   PICKED
+  MISSING
 }
 
 model Order {
@@ -500,11 +507,20 @@ model OrderItem {
   quantity Int
   reserved Int @default(0)
   picked Int @default(0)
+  shortageQuantity Int @default(0)
 
   unitPrice Decimal @db.Decimal(10, 2)
   subtotal Decimal @db.Decimal(12, 2)
 
   status OrderItemStatus @default(PENDING)
+
+  // Soft-delete de la proforma ecommerce (eliminar/restaurar con estado real).
+  // removedAt != null => la linea queda fuera del total pero se puede restaurar.
+  removedAt DateTime?
+  removedReason String?
+  removedNote String?
+  removedById Int?
+  removedByName String?
 
   createdAt DateTime @default(now())
 
@@ -516,6 +532,8 @@ model OrderItem {
 
   fulfillmentStoreId Int?
   fulfillmentStore Store? @relation("OrderItemFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
+
+  reservations Reservation[]
 }
 
 model PaymentMethod {
