@@ -10,8 +10,10 @@ import {
     COMPANY_NAME_KEY,
     COMPANY_PHONE_KEY,
     COMPANY_RUC_KEY,
+    DEFAULT_MARKETPLACE_HERO_HEADING,
     MARKETPLACE_AUTO_RESERVE_STOCK_KEY,
     MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY,
+    MARKETPLACE_HERO_HEADING_KEY,
     MARKETPLACE_INCLUDE_IGV_KEY,
     MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY,
     PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY,
@@ -141,6 +143,7 @@ export class SystemConfigService {
             companyPhoneRaw,
             companyEmailRaw,
             companyLogoUrlRaw,
+            marketplaceHeroHeadingRaw,
             activeMethodIds,
         ] = await Promise.all([
             this.getSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY),
@@ -156,6 +159,7 @@ export class SystemConfigService {
             this.getSettingValue(COMPANY_PHONE_KEY),
             this.getSettingValue(COMPANY_EMAIL_KEY),
             this.getSettingValue(COMPANY_LOGO_URL_KEY),
+            this.getSettingValue(MARKETPLACE_HERO_HEADING_KEY),
             this.getActivePaymentMethodIds(),
         ]);
 
@@ -178,6 +182,16 @@ export class SystemConfigService {
             companyPhone: this.parseText(companyPhoneRaw),
             companyEmail: this.parseText(companyEmailRaw),
             companyLogoUrl: this.parseText(companyLogoUrlRaw),
+            marketplaceHeroHeading: this.parseText(marketplaceHeroHeadingRaw) || DEFAULT_MARKETPLACE_HERO_HEADING,
+        };
+    }
+
+    async getPublicBranding() {
+        const settings = await this.getOrderWorkflowSettings();
+        return {
+            brandName: settings.companyName,
+            logoUrl: settings.companyLogoUrl,
+            heroHeading: settings.marketplaceHeroHeading,
         };
     }
 
@@ -205,6 +219,7 @@ export class SystemConfigService {
         const companyLogoUrl = dto.companyLogoFile
             ? await this.uploadCompanyLogo(dto.companyLogoFile)
             : (dto.companyLogoUrl ?? currentSettings.companyLogoUrl);
+        const marketplaceHeroHeading = dto.marketplaceHeroHeading ?? currentSettings.marketplaceHeroHeading;
 
         const incomingIds = dto.marketplacePaymentMethodIds ?? currentSettings.marketplacePaymentMethodIds;
         const sanitizedIds = this.normalizeIds(incomingIds).filter((id) => activeIdSet.has(id));
@@ -245,6 +260,7 @@ export class SystemConfigService {
         await this.upsertSettingValue(COMPANY_PHONE_KEY, companyPhone);
         await this.upsertSettingValue(COMPANY_EMAIL_KEY, companyEmail);
         await this.upsertSettingValue(COMPANY_LOGO_URL_KEY, companyLogoUrl);
+        await this.upsertSettingValue(MARKETPLACE_HERO_HEADING_KEY, marketplaceHeroHeading);
 
         return this.getOrderWorkflowSettings();
     }

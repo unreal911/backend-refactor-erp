@@ -1,3 +1,5 @@
+import { MARKETPLACE_HERO_HEADING_MAX_LENGTH } from '../../data/system-config-keys';
+
 export class UpdateOrderWorkflowSettingsDto {
     private constructor(
         public readonly returnResponsibilityManagementEnabled?: boolean,
@@ -14,6 +16,7 @@ export class UpdateOrderWorkflowSettingsDto {
         public readonly companyEmail?: string,
         public readonly companyLogoUrl?: string,
         public readonly companyLogoFile?: { filename: string; data: string },
+        public readonly marketplaceHeroHeading?: string,
     ) {}
 
     static create(object: { [key: string]: any }): [string | undefined, UpdateOrderWorkflowSettingsDto | undefined] {
@@ -31,6 +34,7 @@ export class UpdateOrderWorkflowSettingsDto {
         const rawCompanyEmail = object?.companyEmail;
         const rawCompanyLogoUrl = object?.companyLogoUrl;
         const rawCompanyLogoFile = object?.companyLogoFile;
+        const rawMarketplaceHeroHeading = object?.marketplaceHeroHeading;
 
         let returnResponsibilityManagementEnabled: boolean | undefined;
         if (rawReturnFlag !== undefined) {
@@ -108,6 +112,7 @@ export class UpdateOrderWorkflowSettingsDto {
         let companyEmail: string | undefined;
         let companyLogoUrl: string | undefined;
         let companyLogoFile: { filename: string; data: string } | undefined;
+        let marketplaceHeroHeading: string | undefined;
 
         {
             const [error, value] = normalizeOptionalText(rawCompanyName, 'companyName', 120);
@@ -150,6 +155,11 @@ export class UpdateOrderWorkflowSettingsDto {
             if (error) return [error, undefined];
             companyLogoUrl = value;
         }
+        {
+            const [error, value] = normalizeOptionalText(rawMarketplaceHeroHeading, 'marketplaceHeroHeading', MARKETPLACE_HERO_HEADING_MAX_LENGTH);
+            if (error) return [error, undefined];
+            marketplaceHeroHeading = value;
+        }
 
         if (rawCompanyLogoFile !== undefined) {
             if (
@@ -184,6 +194,7 @@ export class UpdateOrderWorkflowSettingsDto {
             && companyEmail === undefined
             && companyLogoUrl === undefined
             && companyLogoFile === undefined
+            && marketplaceHeroHeading === undefined
         ) {
             return ['Debes enviar al menos una configuracion para actualizar', undefined];
         }
@@ -205,6 +216,7 @@ export class UpdateOrderWorkflowSettingsDto {
                 companyEmail,
                 companyLogoUrl,
                 companyLogoFile,
+                marketplaceHeroHeading,
             ),
         ];
     }

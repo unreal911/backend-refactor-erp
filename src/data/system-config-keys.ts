@@ -11,3 +11,7 @@ export const COMPANY_ADDRESS_KEY = 'company_address';
 export const COMPANY_PHONE_KEY = 'company_phone';
 export const COMPANY_EMAIL_KEY = 'company_email';
 export const COMPANY_LOGO_URL_KEY = 'company_logo_url';
+export const MARKETPLACE_HERO_HEADING_KEY = 'marketplace_hero_heading';
+
+export const MARKETPLACE_HERO_HEADING_MAX_LENGTH = 60;
+export const DEFAULT_MARKETPLACE_HERO_HEADING = 'Encuentra polos por color y talla';

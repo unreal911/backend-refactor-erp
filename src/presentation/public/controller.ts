@@ -11,12 +11,14 @@ import { LoginMarketplaceCustomerDto } from '../../domain/dtos/login-marketplace
 import { UpdateMarketplaceCustomerProfileDto } from '../../domain/dtos/update-marketplace-customer-profile.dto';
 import { MarketplaceAuthService } from '../services/marketplace-auth.service';
 import { MarketplaceAuthRequest } from './marketplace-auth.middleware';
+import { SystemConfigService } from '../services/system-config.service';
 
 export class PublicController {
     constructor(
         private readonly productService: ProductService,
         private readonly orderService: OrderService,
         private readonly marketplaceAuthService: MarketplaceAuthService,
+        private readonly systemConfigService: SystemConfigService,
     ) {}
 
     private handleError(error: unknown, res: Response) {
@@ -120,6 +122,15 @@ export class PublicController {
         }
     };
 
+    getMarketplaceBranding = async (_req: Request, res: Response) => {
+        try {
+            const result = await this.systemConfigService.getPublicBranding();
+            return res.status(200).json({ data: result });
+        } catch (err) {
+            return this.handleError(err, res);
+        }
+    };
+
     getProductById = async (req: Request, res: Response) => {
         const id = Number(req.params.id);
         if (!Number.isInteger(id) || id < 1) {
@@ -145,7 +156,7 @@ export class PublicController {
             return res.status(201).json({
                 success: true,
                 data: order,
-                message: 'Pedido registrado. Nuestro equipo confirmara disponibilidad.',
+                message: 'Proforma registrada. Nuestro equipo confirmara disponibilidad.',
             });
         } catch (err) {
             return this.handleError(err, res);

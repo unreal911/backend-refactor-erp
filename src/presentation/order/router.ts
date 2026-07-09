@@ -32,6 +32,9 @@ export class orderRoute {
         // Finalizar picking
         router.patch('/:id/picking/complete', controller.completeOrderPicking);
 
+        // Separar de una vez todo lo disponible del pedido (1 transaccion)
+        router.patch('/:id/picking/pick-all', controller.pickAllOrderPicking);
+
         // Actualizar picking del pedido
         router.patch('/:id/picking', controller.updateOrderPicking);
 
@@ -73,6 +76,22 @@ export class orderRoute {
 
         // Reservar stock remoto
         router.post('/:id/reserve-remote', controller.reserveRemoteStock);
+
+        // Reservar de una vez todo lo pendiente con la tienda recomendada
+        router.post('/:id/reserve-all-recommended', controller.reserveAllRecommended);
+
+        // Liberar la reserva de un item (inverso de reserve-remote)
+        router.post('/:id/items/:itemId/release-remote', controller.releaseRemoteStock);
+
+        // Agregar un producto (nueva linea) a una proforma ecommerce
+        router.post('/:id/items', controller.addOrderItem);
+
+        // Eliminar (soft-delete) / restaurar un producto de la proforma ecommerce
+        router.post('/:id/items/:itemId/remove', controller.removeOrderItem);
+        router.post('/:id/items/:itemId/restore', controller.restoreOrderItem);
+
+        // Marcar/limpiar faltante de un item (proforma ecommerce)
+        router.post('/:id/items/:itemId/shortage', controller.markOrderItemShortage);
 
         return router;
     }

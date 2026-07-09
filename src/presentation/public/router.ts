@@ -4,6 +4,7 @@ import { OrderService } from '../services/order.service';
 import { PublicController } from './controller';
 import { MarketplaceAuthService } from '../services/marketplace-auth.service';
 import { MarketplaceAuthMiddleware } from './marketplace-auth.middleware';
+import { SystemConfigService } from '../services/system-config.service';
 
 export class publicRoute {
     static get router(): Router {
@@ -11,7 +12,8 @@ export class publicRoute {
         const productService = new ProductService();
         const orderService = new OrderService();
         const marketplaceAuthService = new MarketplaceAuthService();
-        const controller = new PublicController(productService, orderService, marketplaceAuthService);
+        const systemConfigService = new SystemConfigService();
+        const controller = new PublicController(productService, orderService, marketplaceAuthService, systemConfigService);
 
         router.post('/auth/register', controller.registerMarketplaceCustomer);
         router.post('/auth/login', controller.loginMarketplaceCustomer);
@@ -22,6 +24,7 @@ export class publicRoute {
         router.get('/products/:id', controller.getProductById);
         router.get('/stores', controller.listStores);
         router.get('/checkout-payment-methods', controller.listMarketplaceCheckoutPaymentMethods);
+        router.get('/branding', controller.getMarketplaceBranding);
 
         router.post('/orders', controller.createMarketplaceOrder);
         router.get('/orders/my', controller.listMarketplaceOrders);
