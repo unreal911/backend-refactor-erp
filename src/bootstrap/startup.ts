@@ -5,6 +5,7 @@ import { ensureMarketplaceAuthSchema } from "../data/marketplace-auth-bootstrap"
 import { ensureAuditLogSchema } from "../data/audit-log-bootstrap";
 import { ensureUserActivitySchema } from "../data/user-activity-bootstrap";
 import { ensurePickingResponsibilitySchema } from "../data/picking-responsibility-bootstrap";
+import { ensureSunatSchema } from "../data/sunat-bootstrap";
 import { prisma } from "../data/prisma";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
@@ -17,6 +18,7 @@ const BOOTSTRAP_STEPS: Array<{ name: string; run: () => Promise<void> }> = [
     { name: "Audit log", run: ensureAuditLogSchema },
     { name: "User activity", run: ensureUserActivitySchema },
     { name: "Picking responsibility", run: ensurePickingResponsibilitySchema },
+    { name: "SUNAT", run: ensureSunatSchema },
 ];
 
 function getDatabaseHost(connectionString: string): string | null {

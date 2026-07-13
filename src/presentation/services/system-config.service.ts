@@ -3,6 +3,7 @@ import { cloudinary } from '../../config/cloudinary';
 import { prisma } from '../../data/prisma';
 import { UpdateOrderWorkflowSettingsDto } from '../../domain/dtos/update-order-workflow-settings.dto';
 import {
+    BRAND_DISPLAY_MODE_KEY,
     COMPANY_ADDRESS_KEY,
     COMPANY_EMAIL_KEY,
     COMPANY_LEGAL_NAME_KEY,
@@ -17,6 +18,8 @@ import {
     MARKETPLACE_INCLUDE_IGV_KEY,
     MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY,
     PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY,
+    POS_BOLETA_ENABLED_KEY,
+    POS_FACTURA_ENABLED_KEY,
     RETURN_RESPONSIBILITY_MANAGEMENT_KEY,
 } from '../../data/system-config-keys';
 import { CustomError } from '../../domain/errors/custom.error';
@@ -53,6 +56,10 @@ export class SystemConfigService {
 
     private parseText(rawValue: string | null | undefined): string {
         return String(rawValue || '').trim();
+    }
+
+    private parseBrandDisplay(rawValue: string | null | undefined): 'logo' | 'logo_text' {
+        return String(rawValue || '').trim().toLowerCase() === 'logo' ? 'logo' : 'logo_text';
     }
 
     private safeParseJsonArray(rawValue: string): unknown[] | null {
@@ -144,6 +151,9 @@ export class SystemConfigService {
             companyEmailRaw,
             companyLogoUrlRaw,
             marketplaceHeroHeadingRaw,
+            posBoletaEnabledRaw,
+            posFacturaEnabledRaw,
+            brandDisplayModeRaw,
             activeMethodIds,
         ] = await Promise.all([
             this.getSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY),
@@ -160,6 +170,9 @@ export class SystemConfigService {
             this.getSettingValue(COMPANY_EMAIL_KEY),
             this.getSettingValue(COMPANY_LOGO_URL_KEY),
             this.getSettingValue(MARKETPLACE_HERO_HEADING_KEY),
+            this.getSettingValue(POS_BOLETA_ENABLED_KEY),
+            this.getSettingValue(POS_FACTURA_ENABLED_KEY),
+            this.getSettingValue(BRAND_DISPLAY_MODE_KEY),
             this.getActivePaymentMethodIds(),
         ]);
 
@@ -183,6 +196,9 @@ export class SystemConfigService {
             companyEmail: this.parseText(companyEmailRaw),
             companyLogoUrl: this.parseText(companyLogoUrlRaw),
             marketplaceHeroHeading: this.parseText(marketplaceHeroHeadingRaw) || DEFAULT_MARKETPLACE_HERO_HEADING,
+            posBoletaEnabled: this.parseBoolean(posBoletaEnabledRaw, false),
+            posFacturaEnabled: this.parseBoolean(posFacturaEnabledRaw, false),
+            brandDisplay: this.parseBrandDisplay(brandDisplayModeRaw),
         };
     }
 
@@ -192,6 +208,7 @@ export class SystemConfigService {
             brandName: settings.companyName,
             logoUrl: settings.companyLogoUrl,
             heroHeading: settings.marketplaceHeroHeading,
+            brandDisplay: settings.brandDisplay,
         };
     }
 
@@ -220,6 +237,9 @@ export class SystemConfigService {
             ? await this.uploadCompanyLogo(dto.companyLogoFile)
             : (dto.companyLogoUrl ?? currentSettings.companyLogoUrl);
         const marketplaceHeroHeading = dto.marketplaceHeroHeading ?? currentSettings.marketplaceHeroHeading;
+        const posBoletaEnabled = dto.posBoletaEnabled ?? currentSettings.posBoletaEnabled;
+        const posFacturaEnabled = dto.posFacturaEnabled ?? currentSettings.posFacturaEnabled;
+        const brandDisplay = dto.brandDisplay ?? currentSettings.brandDisplay;
 
         const incomingIds = dto.marketplacePaymentMethodIds ?? currentSettings.marketplacePaymentMethodIds;
         const sanitizedIds = this.normalizeIds(incomingIds).filter((id) => activeIdSet.has(id));
@@ -261,6 +281,9 @@ export class SystemConfigService {
         await this.upsertSettingValue(COMPANY_EMAIL_KEY, companyEmail);
         await this.upsertSettingValue(COMPANY_LOGO_URL_KEY, companyLogoUrl);
         await this.upsertSettingValue(MARKETPLACE_HERO_HEADING_KEY, marketplaceHeroHeading);
+        await this.upsertSettingValue(POS_BOLETA_ENABLED_KEY, posBoletaEnabled ? 'true' : 'false');
+        await this.upsertSettingValue(POS_FACTURA_ENABLED_KEY, posFacturaEnabled ? 'true' : 'false');
+        await this.upsertSettingValue(BRAND_DISPLAY_MODE_KEY, brandDisplay === 'logo' ? 'logo' : 'logo_text');
 
         return this.getOrderWorkflowSettings();
     }

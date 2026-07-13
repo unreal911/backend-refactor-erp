@@ -16,6 +16,7 @@ import { envs } from "../config/envs";
 import { registerAuthModuleRoutes } from "../modules/auth";
 import { registerInventoryModuleRoutes } from "../modules/inventory";
 import { registerOrdersModuleRoutes } from "../modules/orders";
+import { registerSunatModuleRoutes } from "../modules/sunat";
 
 export class AppRouter {
     static get router(): Router {
@@ -37,6 +38,7 @@ export class AppRouter {
         registerInventoryModuleRoutes(router);
         router.use("/api/stores", AuthMiddleware.validateJWT, storeRoute.router);
         registerOrdersModuleRoutes(router);
+        registerSunatModuleRoutes(router);
         router.use("/api/admin-events", AuthMiddleware.validateJWT, AdminEventsRoute.router);
         router.use("/api/payment-methods", AuthMiddleware.validateJWT, paymentMethodRoute.router);
         router.use("/api/system-config", AuthMiddleware.validateJWT, systemConfigRoute.router);

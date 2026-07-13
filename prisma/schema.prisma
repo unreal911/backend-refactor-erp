@@ -46,6 +46,9 @@ model Product {
 
   isActive Boolean @default(true)
 
+  // Afectacion IGV (catalogo SUNAT 07): 10=Gravado, 20=Exonerado, 30=Inafecto. Default gravado.
+  afectacionIgv String @default("10")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -261,6 +264,9 @@ model Store {
   sourceOrders Order[] @relation("OrderSourceStore")
   fulfillmentOrders Order[] @relation("OrderFulfillmentStore")
   fulfillmentOrderItems OrderItem[] @relation("OrderItemFulfillmentStore")
+
+  // SUNAT
+  comprobanteSeries ComprobanteSerie[] @relation("StoreComprobanteSeries")
 }
 
 model Inventory {
@@ -454,6 +460,14 @@ model Order {
   clientEmail String?
   clientPhone String?
 
+  // Documento del adquirente para facturacion electronica (catalogo 06: 1=DNI, 6=RUC).
+  clienteTipoDoc String?
+  clienteNumDoc String?
+
+  // Comprobante electronico solicitado al vender: BOLETA | FACTURA (null/NOTA = sin comprobante SUNAT).
+  // El backend crea el Comprobante en BORRADOR al registrar la venta (fuente de verdad, reconciliable).
+  comprobanteTipo String?
+
   subtotal Decimal @default(0) @db.Decimal(12, 2)
   tax Decimal @default(0) @db.Decimal(12, 2)
   total Decimal @default(0) @db.Decimal(12, 2)
@@ -499,6 +513,7 @@ model Order {
   reservations Reservation[]
   pickingSession PickingSession?
   transfer StockTransfer?
+  comprobantes Comprobante[]
 }
 
 model OrderItem {
@@ -547,4 +562,296 @@ model PaymentMethod {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ==========================================================================
+// SUNAT - Facturacion electronica (SEE Sistemas del Contribuyente, UBL 2.1)
+// ==========================================================================
+
+// Catalogo 01 SUNAT (tipo de comprobante). Guia de remision (09/31) es fase 2.
+enum ComprobanteTipo {
+  FACTURA // 01
+  BOLETA // 03
+  NOTA_CREDITO // 07
+  NOTA_DEBITO // 08
+}
+
+enum ComprobanteEstado {
+  BORRADOR // generado, aun no enviado
+  ENVIADO // enviado, esperando/parseando CDR
+  ACEPTADO // CDR ResponseCode 0
+  ACEPTADO_CON_OBSERVACIONES // CDR >= 4000
+  RECHAZADO // CDR 2000-3999
+  ANULADO // dado de baja / comunicado
+  ERROR // fallo de transporte/excepcion
+}
+
+enum SunatDispatchStatus {
+  SIMULATED // dry run local
+  PENDING // enviado, sin respuesta final (async: ticket)
+  ACCEPTED
+  ACCEPTED_WITH_OBSERVATIONS
+  REJECTED
+  ERROR
+}
+
+// Numeracion correlativa por tipo de comprobante y serie (opcionalmente por tienda).
+model ComprobanteSerie {
+  id Int @id @default(autoincrement())
+
+  tipo ComprobanteTipo
+  serie String // p.ej. F001, B001, FC01, FD01
+  correlativo Int @default(0) // ultimo numero emitido
+
+  storeId Int?
+  store Store? @relation("StoreComprobanteSeries", fields: [storeId], references: [id])
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comprobantes Comprobante[]
+
+  @@unique([tipo, serie])
+  @@index([storeId])
+}
+
+// Cabecera fiscal (snapshot inmutable de la venta al momento de emitir).
+model Comprobante {
+  id Int @id @default(autoincrement())
+
+  tipo ComprobanteTipo
+  tipoCodigo String // 01 / 03 / 07 / 08 (catalogo 01)
+  serie String
+  numero Int
+  // Identificador SUNAT: RUC-TT-SERIE-NUMERO (sin extension)
+  nombreArchivo String @unique
+
+  estado ComprobanteEstado @default(BORRADOR)
+
+  // Emisor
+  emisorRuc String
+  emisorRazonSocial String
+
+  // Adquirente
+  clienteTipoDoc String // catalogo 06: 6=RUC 1=DNI 0=sin/varios
+  clienteNumDoc String
+  clienteNombre String
+
+  moneda String @default("PEN")
+  fechaEmision DateTime @default(now())
+
+  // Totales (snapshot)
+  totalGravado Decimal @default(0) @db.Decimal(12, 2)
+  totalExonerado Decimal @default(0) @db.Decimal(12, 2)
+  totalInafecto Decimal @default(0) @db.Decimal(12, 2)
+  totalGratuito Decimal @default(0) @db.Decimal(12, 2)
+  totalIgv Decimal @default(0) @db.Decimal(12, 2)
+  totalIsc Decimal @default(0) @db.Decimal(12, 2)
+  totalOtrosTributos Decimal @default(0) @db.Decimal(12, 2)
+  totalDescuentos Decimal @default(0) @db.Decimal(12, 2)
+  totalValorVenta Decimal @default(0) @db.Decimal(12, 2) // suma valores de venta
+  totalPrecioVenta Decimal @default(0) @db.Decimal(12, 2) // importe total (con impuestos)
+  leyendaMontoLetras String
+
+  // Nota de credito / debito
+  motivoNota String? // descripcion del motivo
+  motivoNotaCodigo String? // catalogo 09 (NC) / 10 (ND)
+  comprobanteAfectadoId Int? // comprobante base que modifica
+  comprobanteAfectado Comprobante? @relation("ComprobanteNotas", fields: [comprobanteAfectadoId], references: [id])
+  notas Comprobante[] @relation("ComprobanteNotas")
+
+  // Origen: proforma / order del sistema
+  orderId Int?
+  order Order? @relation(fields: [orderId], references: [id])
+
+  serieRefId Int?
+  serieRef ComprobanteSerie? @relation(fields: [serieRefId], references: [id])
+
+  // Resumen diario que informa la boleta (envio asincrono)
+  resumenDiarioId Int?
+  resumenDiario ResumenDiario? @relation(fields: [resumenDiarioId], references: [id])
+
+  // Comunicacion de baja que anula el comprobante (facturas y notas)
+  comunicacionBajaId Int?
+  comunicacionBaja ComunicacionBaja? @relation(fields: [comunicacionBajaId], references: [id])
+  motivoBaja String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items ComprobanteItem[]
+  dispatches SunatDispatch[]
+
+  @@index([orderId])
+  @@index([estado])
+  @@index([tipo, fechaEmision])
+}
+
+model ComprobanteItem {
+  id Int @id @default(autoincrement())
+
+  linea Int // numero de orden del item (1..n)
+  codigoProducto String? // codigo interno / sku
+  descripcion String
+  unidadMedida String @default("NIU") // catalogo 03
+  cantidad Decimal @db.Decimal(12, 3)
+
+  valorUnitario Decimal @db.Decimal(12, 6) // sin impuestos
+  precioUnitario Decimal @db.Decimal(12, 6) // con impuestos (PriceType 01)
+  valorVenta Decimal @db.Decimal(12, 2) // cantidad * valorUnitario
+  descuento Decimal @default(0) @db.Decimal(12, 2)
+
+  afectacionIgvCodigo String @default("10") // catalogo 07 (10=gravado, 20=exon, 30=inaf, ...)
+  igv Decimal @default(0) @db.Decimal(12, 2)
+  isc Decimal @default(0) @db.Decimal(12, 2)
+
+  comprobanteId Int
+  comprobante Comprobante @relation(fields: [comprobanteId], references: [id], onDelete: Cascade)
+
+  @@index([comprobanteId])
+}
+
+// Registro de cada intento de envio a SUNAT y su CDR.
+model SunatDispatch {
+  id Int @id @default(autoincrement())
+
+  environment String @default("BETA") // BETA / PRODUCCION
+  endpoint String
+  fileName String // *.zip enviado
+  metodo String @default("sendBill") // sendBill / sendSummary
+  documentTypeCode String
+
+  status SunatDispatchStatus
+  ticket String? // para envios asincronos (resumen/baja)
+
+  cdrCode String?
+  cdrDescription String?
+  cdrNotes String[] @default([])
+
+  faultCode String?
+  faultString String?
+
+  // Payloads en base64 para auditoria / reintentos
+  xmlBase64 String? // XML firmado enviado
+  cdrZipBase64 String? // ZIP CDR recibido
+  rawResponseXml String?
+
+  sentAt DateTime @default(now())
+
+  comprobanteId Int
+  comprobante Comprobante @relation(fields: [comprobanteId], references: [id], onDelete: Cascade)
+
+  @@index([comprobanteId])
+  @@index([status])
+}
+
+// Resumen Diario de boletas (y sus notas): envio asincrono (sendSummary + getStatus).
+// Agrupa varias boletas emitidas localmente y las informa a SUNAT en un solo XML.
+model ResumenDiario {
+  id Int @id @default(autoincrement())
+
+  correlativo Int
+  fechaReferencia DateTime @db.Date // fecha de emision de las boletas informadas
+  fechaGeneracion DateTime @default(now())
+  fileName String @unique // RUC-RC-YYYYMMDD-N
+
+  // false = adicion de boletas (estado 1); true = anulacion de boletas (estado 3)
+  esAnulacion Boolean @default(false)
+
+  environment String @default("BETA")
+  endpoint String
+
+  status SunatDispatchStatus @default(PENDING)
+  ticket String? // devuelto por sendSummary
+
+  cdrCode String?
+  cdrDescription String?
+  cdrNotes String[] @default([])
+  faultCode String?
+  faultString String?
+
+  xmlBase64 String?
+  cdrZipBase64 String?
+  rawResponseXml String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comprobantes Comprobante[]
+
+  @@index([status])
+  @@index([fechaReferencia])
+}
+
+// Comunicacion de Baja (RA): anula facturas y sus notas ya aceptadas por SUNAT.
+// Envio asincrono (sendSummary + getStatus), similar al Resumen Diario.
+// (Las boletas se anulan por Resumen Diario con estado 3, no por RA.)
+model ComunicacionBaja {
+  id Int @id @default(autoincrement())
+
+  correlativo Int
+  fechaReferencia DateTime @db.Date // fecha de emision de los documentos a dar de baja
+  fechaGeneracion DateTime @default(now())
+  fileName String @unique // RUC-RA-YYYYMMDD-N
+
+  environment String @default("BETA")
+  endpoint String
+
+  status SunatDispatchStatus @default(PENDING)
+  ticket String?
+
+  cdrCode String?
+  cdrDescription String?
+  cdrNotes String[] @default([])
+  faultCode String?
+  faultString String?
+
+  xmlBase64 String?
+  cdrZipBase64 String?
+  rawResponseXml String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comprobantes Comprobante[]
+
+  @@index([status])
+  @@index([fechaReferencia])
+}
+
+// Configuracion del emisor SUNAT: 1 fila por instalacion (caso multi-instalacion,
+// no multi-tenant). Los secretos (Clave SOL, .pfx y su password) se guardan
+// cifrados con AES-256-GCM; ver src/modules/sunat/config/sunat-crypto.ts.
+model SunatEmisorConfig {
+  id Int @id @default(autoincrement())
+
+  environment String @default("BETA") // BETA / PRODUCCION
+
+  ruc String @default("")
+  razonSocial String @default("")
+  nombreComercial String?
+  ubigeo String @default("")
+  direccion String?
+  tipoOperacion String? // tipo de operacion / actividad
+  regimen String? // regimen tributario del emisor
+
+  solUser String @default("") // usuario secundario Clave SOL
+  solPasswordEnc String? // password Clave SOL (cifrado)
+
+  certP12Enc String? // bytes del .pfx (cifrados)
+  certPasswordEnc String? // password del .pfx (cifrado)
+
+  // Metadatos del certificado en claro, solo para mostrar en el dashboard.
+  certSubjectCN String?
+  certNotAfter DateTime?
+
+  signatureId String @default("SignSUNAT")
+
+  activo Boolean @default(false) // instalacion fresca arranca sin configurar
+
+  updatedById Int? // usuario admin que hizo el ultimo cambio
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }

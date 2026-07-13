@@ -17,6 +17,9 @@ export class UpdateOrderWorkflowSettingsDto {
         public readonly companyLogoUrl?: string,
         public readonly companyLogoFile?: { filename: string; data: string },
         public readonly marketplaceHeroHeading?: string,
+        public readonly posBoletaEnabled?: boolean,
+        public readonly posFacturaEnabled?: boolean,
+        public readonly brandDisplay?: 'logo' | 'logo_text',
     ) {}
 
     static create(object: { [key: string]: any }): [string | undefined, UpdateOrderWorkflowSettingsDto | undefined] {
@@ -35,6 +38,9 @@ export class UpdateOrderWorkflowSettingsDto {
         const rawCompanyLogoUrl = object?.companyLogoUrl;
         const rawCompanyLogoFile = object?.companyLogoFile;
         const rawMarketplaceHeroHeading = object?.marketplaceHeroHeading;
+        const rawPosBoletaEnabled = object?.posBoletaEnabled;
+        const rawPosFacturaEnabled = object?.posFacturaEnabled;
+        const rawBrandDisplay = object?.brandDisplay;
 
         let returnResponsibilityManagementEnabled: boolean | undefined;
         if (rawReturnFlag !== undefined) {
@@ -88,6 +94,30 @@ export class UpdateOrderWorkflowSettingsDto {
                 return ['marketplaceAutoReserveStock debe ser booleano', undefined];
             }
             marketplaceAutoReserveStock = rawMarketplaceAutoReserveStock;
+        }
+
+        let posBoletaEnabled: boolean | undefined;
+        if (rawPosBoletaEnabled !== undefined) {
+            if (typeof rawPosBoletaEnabled !== 'boolean') {
+                return ['posBoletaEnabled debe ser booleano', undefined];
+            }
+            posBoletaEnabled = rawPosBoletaEnabled;
+        }
+
+        let posFacturaEnabled: boolean | undefined;
+        if (rawPosFacturaEnabled !== undefined) {
+            if (typeof rawPosFacturaEnabled !== 'boolean') {
+                return ['posFacturaEnabled debe ser booleano', undefined];
+            }
+            posFacturaEnabled = rawPosFacturaEnabled;
+        }
+
+        let brandDisplay: 'logo' | 'logo_text' | undefined;
+        if (rawBrandDisplay !== undefined) {
+            if (rawBrandDisplay !== 'logo' && rawBrandDisplay !== 'logo_text') {
+                return ['brandDisplay debe ser "logo" o "logo_text"', undefined];
+            }
+            brandDisplay = rawBrandDisplay;
         }
 
         const normalizeOptionalText = (value: unknown, fieldName: string, maxLength: number): [string | undefined, string | undefined] => {
@@ -195,6 +225,9 @@ export class UpdateOrderWorkflowSettingsDto {
             && companyLogoUrl === undefined
             && companyLogoFile === undefined
             && marketplaceHeroHeading === undefined
+            && posBoletaEnabled === undefined
+            && posFacturaEnabled === undefined
+            && brandDisplay === undefined
         ) {
             return ['Debes enviar al menos una configuracion para actualizar', undefined];
         }
@@ -217,6 +250,9 @@ export class UpdateOrderWorkflowSettingsDto {
                 companyLogoUrl,
                 companyLogoFile,
                 marketplaceHeroHeading,
+                posBoletaEnabled,
+                posFacturaEnabled,
+                brandDisplay,
             ),
         ];
     }

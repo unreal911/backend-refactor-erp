@@ -7,6 +7,9 @@
         public readonly clientName?: string,
         public readonly clientEmail?: string,
         public readonly clientPhone?: string,
+        public readonly clienteTipoDoc?: string,
+        public readonly clienteNumDoc?: string,
+        public readonly comprobanteTipo?: 'BOLETA' | 'FACTURA',
         public readonly items: Array<{
             variantId: number;
             quantity: number;
@@ -25,6 +28,9 @@
             clientName,
             clientEmail,
             clientPhone,
+            clienteTipoDoc,
+            clienteNumDoc,
+            comprobanteTipo,
             items = [],
             note,
         } = object;
@@ -65,6 +71,26 @@
             return ['applyIgv debe ser booleano', undefined];
         }
 
+        // Documento del adquirente (opcional; requerido solo al emitir factura).
+        const tipoDoc = typeof clienteTipoDoc === 'string' ? clienteTipoDoc.trim() : undefined;
+        const numDoc = typeof clienteNumDoc === 'string' ? clienteNumDoc.trim() : undefined;
+        if (numDoc && !/^\d{8,11}$/.test(numDoc)) {
+            return ['El documento del cliente debe tener entre 8 y 11 digitos', undefined];
+        }
+
+        // Comprobante electronico solicitado (opcional). Otros valores (NOTA, etc.) => sin comprobante.
+        const compRaw = typeof comprobanteTipo === 'string' ? comprobanteTipo.trim().toUpperCase() : undefined;
+        const comprobante = compRaw === 'BOLETA' || compRaw === 'FACTURA' ? compRaw : undefined;
+        if (comprobante === 'FACTURA') {
+            if (tipoDoc !== '6' || !numDoc || !/^\d{11}$/.test(numDoc)) {
+                return ['La factura requiere RUC valido (11 digitos) del adquirente', undefined];
+            }
+            const nombre = typeof clientName === 'string' ? clientName.trim() : '';
+            if (!nombre) {
+                return ['La factura requiere razon social del adquirente', undefined];
+            }
+        }
+
         return [undefined, new CreateOrderDto(
             sourceStoreId,
             fulfillmentStoreId,
@@ -73,6 +99,9 @@
             clientName,
             clientEmail,
             clientPhone,
+            tipoDoc,
+            numDoc,
+            comprobante,
             items,
             note,
         )];

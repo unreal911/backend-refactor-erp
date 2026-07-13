@@ -23,6 +23,7 @@ import {
     PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY,
     RETURN_RESPONSIBILITY_MANAGEMENT_KEY,
 } from "../../data/system-config-keys";
+import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
 
 type MarketplacePaymentMethod = {
     id: number;
@@ -1808,6 +1809,9 @@ export class OrderService {
                 clientName: dto.clientName ?? null,
                 clientEmail: dto.clientEmail ?? null,
                 clientPhone: dto.clientPhone ?? null,
+                clienteTipoDoc: dto.clienteTipoDoc ?? null,
+                clienteNumDoc: dto.clienteNumDoc ?? null,
+                comprobanteTipo: dto.comprobanteTipo ?? null,
                 subtotal,
                 tax,
                 total,
@@ -1895,6 +1899,38 @@ export class OrderService {
                         },
                     },
                 });
+            }
+        }
+
+        // Comprobante electronico (fuente de verdad): se crea junto con la venta.
+        // Boleta -> BORRADOR para declararse por Resumen Diario.
+        // Factura -> se intenta enviar de una (sendBill); si falla queda BORRADOR/ERROR reintentable.
+        // Nunca bloquea la venta: cualquier error se registra y queda reconciliable via order.comprobanteTipo.
+        if (dto.comprobanteTipo) {
+            try {
+                const cliente = dto.clienteNumDoc
+                    ? {
+                        tipoDoc: dto.clienteTipoDoc ?? undefined,
+                        numDoc: dto.clienteNumDoc,
+                        nombre: dto.clientName ?? undefined,
+                    }
+                    : undefined;
+                const comprobante = await new ComprobanteService().emitirDesdeOrder(order.id, dto.comprobanteTipo, {
+                    cliente,
+                    viaResumen: dto.comprobanteTipo === "BOLETA",
+                });
+                order.comprobante = {
+                    id: comprobante.id,
+                    tipo: comprobante.tipo,
+                    serie: comprobante.serie,
+                    numero: comprobante.numero,
+                    estado: comprobante.estado,
+                };
+            } catch (error) {
+                console.error(
+                    `[SUNAT] No se pudo emitir el comprobante de la orden ${order.code}:`,
+                    error instanceof Error ? error.message : error,
+                );
             }
         }
 

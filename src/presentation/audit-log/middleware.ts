@@ -19,6 +19,9 @@ const SENSITIVE_KEY_PATTERNS = [
     'refresh',
     'card',
     'cvv',
+    'p12',
+    'pfx',
+    'cert',
 ];
 
 export class AuditLogMiddleware {

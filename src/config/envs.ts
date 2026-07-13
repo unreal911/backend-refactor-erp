@@ -35,4 +35,8 @@ export const envs = {
     SEED_ADMIN_FIRST_NAME: env.get("SEED_ADMIN_FIRST_NAME").default("Admin").asString(),
     SEED_ADMIN_LAST_NAME: env.get("SEED_ADMIN_LAST_NAME").default("Principal").asString(),
     SEED_ADMIN_RESET_PASSWORD: env.get("SEED_ADMIN_RESET_PASSWORD").default("false").asBool(),
+
+    // Clave maestra para cifrar secretos SUNAT (Clave SOL, .pfx) en la BD.
+    // Opcional: sin ella el emisor cae al fallback de env (solo BETA).
+    SUNAT_CONFIG_ENC_KEY: env.get("SUNAT_CONFIG_ENC_KEY").default("").asString(),
 };
