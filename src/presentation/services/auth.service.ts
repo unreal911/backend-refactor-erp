@@ -33,6 +33,17 @@ export class AuthService {
         };
     }
 
+    // Re-verificacion de contraseña (step-up) para acciones sensibles.
+    static async verifyUserPassword(userId: number, password: string): Promise<boolean> {
+        if (!password) return false;
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { password: true, isActive: true },
+        });
+        if (!user || !user.isActive) return false;
+        return bcrypt.compare(password, user.password);
+    }
+
     static async login(loginDto: LoginDto) {
         const { email, password } = loginDto;
 

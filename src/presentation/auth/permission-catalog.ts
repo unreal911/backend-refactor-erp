@@ -66,7 +66,9 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'picking.complete', name: 'Completar picking', module: 'picking', description: 'Permite completar picking' },
 
     { code: 'payment_methods.manage', name: 'Gestionar metodos de pago', module: 'payment_methods', description: 'Permite crear, editar y activar metodos de pago' },
-    { code: 'settings.manage', name: 'Gestionar configuraciones', module: 'settings', description: 'Permite activar o desactivar reglas operativas globales' }
+    { code: 'settings.manage', name: 'Gestionar configuraciones', module: 'settings', description: 'Permite activar o desactivar reglas operativas globales' },
+
+    { code: 'sunat.config', name: 'Configurar emisor SUNAT', module: 'sunat', description: 'Permite ver y editar la configuracion del emisor, credenciales y certificado SUNAT' }
 ];
 
 export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {

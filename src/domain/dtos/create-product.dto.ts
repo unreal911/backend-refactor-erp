@@ -20,6 +20,7 @@ export class CreateProductDto {
         public readonly name: string,
         public readonly categoryId: number,
         public readonly description: string | undefined,
+        public readonly afectacionIgv: string,
         public readonly variantMode: ProductVariantMode,
         public readonly colorIds: number[] = [],
         public readonly sizeIds: number[] = [],
@@ -59,6 +60,12 @@ export class CreateProductDto {
 
         if (description !== undefined && typeof description !== 'string') {
             return ['La descripcion debe ser una cadena valida', undefined];
+        }
+
+        // Afectacion IGV (catalogo SUNAT 07). Opcional; default gravado (10).
+        const afectacionIgv = object.afectacionIgv !== undefined ? String(object.afectacionIgv) : '10';
+        if (!['10', '20', '30'].includes(afectacionIgv)) {
+            return ['afectacionIgv debe ser 10 (gravado), 20 (exonerado) o 30 (inafecto)', undefined];
         }
 
         if (!Array.isArray(colorIds)) {
@@ -182,6 +189,7 @@ export class CreateProductDto {
             name.trim(),
             categoryId,
             description?.trim(),
+            afectacionIgv,
             variantMode,
             colorIds,
             sizeIds,

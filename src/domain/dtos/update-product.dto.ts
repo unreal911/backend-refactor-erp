@@ -21,6 +21,7 @@ export class UpdateProductDto {
         public readonly description?: string,
         public readonly categoryId?: number,
         public readonly isActive?: boolean,
+        public readonly afectacionIgv?: string,
         public readonly variantMode?: ProductVariantMode,
         public readonly colorIds?: number[],
         public readonly sizeIds?: number[],
@@ -72,6 +73,14 @@ export class UpdateProductDto {
 
         if (isActive !== undefined && typeof isActive !== 'boolean') {
             return ['isActive debe ser un booleano', undefined];
+        }
+
+        let afectacionIgv: string | undefined;
+        if (object.afectacionIgv !== undefined) {
+            afectacionIgv = String(object.afectacionIgv);
+            if (!['10', '20', '30'].includes(afectacionIgv)) {
+                return ['afectacionIgv debe ser 10 (gravado), 20 (exonerado) o 30 (inafecto)', undefined];
+            }
         }
 
         const effectiveMode: ProductVariantMode = normalizedVariantMode ?? 'MATRIX';
@@ -215,6 +224,7 @@ export class UpdateProductDto {
             description?.trim(),
             categoryId,
             isActive,
+            afectacionIgv,
             normalizedVariantMode,
             colorIds,
             sizeIds,

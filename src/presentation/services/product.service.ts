@@ -45,15 +45,27 @@ export class ProductService {
     }
 
     /**
-     * Generar SKU único
-     * Formato: PROD-{PRODUCTNAME}-{COLORNAME}-{SIZENAME}-{PRODUCTID}-{COLORID}-{SIZEID}
+     * Abreviatura de 3 caracteres alfanuméricos del nombre para el SKU.
      */
-    private generateSKU(productName: string, colorName: string, sizeName: string, productId: number, colorId: number, sizeId: number): string {
-        const normalizedName = this.normalizeSkuComponent(productName);
-        const normalizedColor = this.normalizeSkuComponent(colorName);
-        const normalizedSize = this.normalizeSkuComponent(sizeName);
+    private skuAbbr(productName: string): string {
+        const clean = productName
+            .normalize('NFD')
+            .replace(/\p{M}/gu, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '');
+        return (clean.slice(0, 3) || 'PRD').padEnd(3, 'X');
+    }
 
-        return `PROD-${normalizedName}-${normalizedColor}-${normalizedSize}-${productId.toString().padStart(5, '0')}-${colorId.toString().padStart(3, '0')}-${sizeId.toString().padStart(3, '0')}`;
+    /**
+     * Generar SKU único y acotado.
+     * Formato: {ABBR}-{PRODUCTID:5}-{COLORID:3}-{SIZEID:3}  (p.ej. POL-00001-004-005)
+     * La unicidad la garantizan los ids (unique [productId, colorId, sizeId]).
+     * Se mantiene corto (<=30 chars) para cumplir el código de producto SUNAT
+     * y ser apto para etiquetas / códigos de barra.
+     */
+    private generateSKU(productName: string, _colorName: string, _sizeName: string, productId: number, colorId: number, sizeId: number): string {
+        const abbr = this.skuAbbr(productName);
+        return `${abbr}-${productId.toString().padStart(5, '0')}-${colorId.toString().padStart(3, '0')}-${sizeId.toString().padStart(3, '0')}`;
     }
 
     /**
@@ -557,6 +569,7 @@ export class ProductService {
             name,
             categoryId,
             description,
+            afectacionIgv,
             variantMode,
             colorIds = [],
             sizeIds = [],
@@ -720,6 +733,7 @@ export class ProductService {
                     name,
                     description: description || null,
                     categoryId,
+                    afectacionIgv: afectacionIgv ?? '10',
                     isActive: true,
                     updatedAt: now,
                 },
@@ -955,6 +969,7 @@ export class ProductService {
 
             return {
                 ...ProductEntity.fromObject(product),
+                afectacionIgv: product.afectacionIgv ?? '10',
                 category: product.category,
                 variantCount: mappedVariants.length,
                 imageCount: (product.images || []).length,
@@ -1682,6 +1697,7 @@ export class ProductService {
                     description: updateData.description !== undefined ? updateData.description : product.description,
                     categoryId: updateData.categoryId ?? product.categoryId,
                     isActive: updateData.isActive !== undefined ? updateData.isActive : product.isActive,
+                    afectacionIgv: updateData.afectacionIgv ?? product.afectacionIgv,
                     updatedAt: new Date(),
                 },
             });
