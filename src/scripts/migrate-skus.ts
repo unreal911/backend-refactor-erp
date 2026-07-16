@@ -18,8 +18,8 @@ function skuAbbr(productName: string): string {
     return (clean.slice(0, 3) || "PRD").padEnd(3, "X");
 }
 
-function newSku(productName: string, productId: number, colorId: number, sizeId: number): string {
-    return `${skuAbbr(productName)}-${String(productId).padStart(5, "0")}-${String(colorId).padStart(3, "0")}-${String(sizeId).padStart(3, "0")}`;
+function newSku(productName: string, productId: number, colorId: number | null, sizeId: number | null): string {
+    return `${skuAbbr(productName)}-${String(productId).padStart(5, "0")}-${String(colorId ?? 0).padStart(3, "0")}-${String(sizeId ?? 0).padStart(3, "0")}`;
 }
 
 async function main(): Promise<void> {

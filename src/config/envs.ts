@@ -25,6 +25,10 @@ export const envs = {
     JWT_SECRET: env.get("JWT_SECRET").required().asString(),
     PUBLIC_PATH: env.get("PUBLIC_PATH").required().asString(),
 
+    // Allowlist de origenes para CORS (coma-separado). Vacio = permitir todos
+    // (comportamiento actual); definirlo en produccion para restringir.
+    CORS_ORIGINS: env.get("CORS_ORIGINS").default("").asString(),
+
     // Seed controls
     SEED_ENDPOINT_ENABLED: env.get("SEED_ENDPOINT_ENABLED").default(isProduction ? "false" : "true").asBool(),
     SEED_TRIGGER_KEY: env.get("SEED_TRIGGER_KEY").asString(),

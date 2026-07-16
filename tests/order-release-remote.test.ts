@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/data/prisma', () => {
   const client: any = {
     order: { findUnique: vi.fn() },
+    orderItem: { findUnique: vi.fn() },
     reservation: { update: vi.fn() },
     inventoryMovement: { create: vi.fn() },
     $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   return { prisma: client };
@@ -44,6 +46,9 @@ describe('OrderService.releaseRemoteStock (liberacion parcial)', () => {
     // El $transaction ejecuta el callback con el mismo cliente mock como `tx`.
     vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(prisma));
     vi.mocked(prisma.$executeRaw).mockResolvedValue(1 as never);
+    // C4: tras liberar se recorta picked; el detalle de picking se relee.
+    (prisma as any).$queryRaw.mockResolvedValue([]);
+    (prisma as any).orderItem.findUnique.mockResolvedValue({ reserved: 0 });
   });
 
   it('libera solo la cantidad pedida y NO toda la linea (bug del -)', async () => {

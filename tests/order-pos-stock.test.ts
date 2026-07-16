@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/data/prisma', () => ({
-  prisma: {
+vi.mock('../src/data/prisma', () => {
+  const prismaMock: any = {
     store: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
@@ -14,6 +14,7 @@ vi.mock('../src/data/prisma', () => ({
     },
     inventory: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -26,8 +27,12 @@ vi.mock('../src/data/prisma', () => ({
     reservation: {
       create: vi.fn(),
     },
-  },
-}));
+    $executeRaw: vi.fn(),
+  };
+  // createOrder corre dentro de una transaccion: el tx es el mismo mock.
+  prismaMock.$transaction = vi.fn(async (cb: any) => cb(prismaMock));
+  return { prisma: prismaMock };
+});
 
 import { prisma } from '../src/data/prisma';
 import { CreateOrderDto } from '../src/domain/dtos/create-order.dto';
@@ -77,6 +82,7 @@ describe('OrderService POS stock fulfillment', () => {
       .mockResolvedValueOnce(remoteInventory as never)
       .mockResolvedValueOnce(remoteInventory as never)
       .mockResolvedValueOnce(remoteInventory as never);
+    vi.mocked(prisma.inventory.findMany).mockResolvedValueOnce([remoteInventory] as never);
     vi.mocked(prisma.order.create).mockResolvedValueOnce({
       id: 500,
       code: 'ORD-POS-500',
@@ -170,6 +176,7 @@ describe('OrderService POS stock fulfillment', () => {
     vi.mocked(prisma.inventory.findUnique)
       .mockResolvedValueOnce(localInventory as never)
       .mockResolvedValueOnce(localInventory as never);
+    vi.mocked(prisma.inventory.findMany).mockResolvedValueOnce([localInventory] as never);
     vi.mocked(prisma.order.create).mockResolvedValueOnce({
       id: 501,
       code: 'ORD-POS-501',

@@ -7,6 +7,7 @@ vi.mock('../src/data/prisma', () => {
     orderItem: { create: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn() },
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   return { prisma: client };
@@ -33,6 +34,8 @@ beforeEach(() => {
   vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(prisma));
   // getMarketplacePaymentSettings: sin filas => includeIgv default true.
   vi.mocked(prisma.$queryRaw).mockResolvedValue([] as never);
+  // lockOrderRow (C5): SELECT ... FOR UPDATE
+  vi.mocked(prisma.$executeRaw).mockResolvedValue(1 as never);
   vi.mocked(prisma.order.update).mockResolvedValue({} as never);
   vi.mocked(prisma.orderItem.update).mockResolvedValue({} as never);
 });

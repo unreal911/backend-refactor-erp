@@ -6,6 +6,7 @@ import { CreateInventoryMovementDto } from "../../domain/dtos/create-inventory-m
 import { CreateStockTransferDto } from "../../domain/dtos/create-stock-transfer.dto";
 import { CreateReservationDto } from "../../domain/dtos/create-reservation.dto";
 import { UserActivityProduct, UserActivityService } from "../services/user-activity.service";
+import { AdminEventBus } from "../admin-events/admin-event-bus";
 
 export class InventoryController {
     constructor(
@@ -56,6 +57,15 @@ export class InventoryController {
             description: payload.description ?? null,
             products: Array.isArray(payload.products) ? payload.products.filter(Boolean) : [],
             context: payload.context ?? {},
+        });
+    }
+
+    private publishInventoryEvent(actorUserId?: number | null, inventoryId?: number | null) {
+        AdminEventBus.publish({
+            type: 'INVENTORY_UPDATED',
+            entity: 'INVENTORY',
+            entityId: Number(inventoryId || 0) || null,
+            actorUserId: Number(actorUserId || 0) || null,
         });
     }
 
@@ -167,6 +177,7 @@ export class InventoryController {
                 },
             });
 
+            this.publishInventoryEvent(req.user?.id, Number(result?.movement?.inventoryId || 0) || null);
             return res.status(201).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -249,6 +260,7 @@ export class InventoryController {
                 },
             });
 
+            this.publishInventoryEvent(req.user?.id, Number(transfer?.id || 0) || null);
             return res.status(200).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -286,6 +298,7 @@ export class InventoryController {
                 },
             });
 
+            this.publishInventoryEvent(req.user?.id, Number(dto.inventoryId) || null);
             return res.status(201).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -315,6 +328,16 @@ export class InventoryController {
                 },
             });
 
+            this.publishInventoryEvent(req.user?.id, null);
+            return res.status(200).json(result);
+        } catch (error) {
+            return this.handleError(error, res);
+        }
+    }
+
+    auditReservedStock = async (_req: AuthRequest, res: Response) => {
+        try {
+            const result = await this.inventoryService.auditReservedStock();
             return res.status(200).json(result);
         } catch (error) {
             return this.handleError(error, res);
