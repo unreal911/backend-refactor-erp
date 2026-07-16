@@ -171,8 +171,16 @@ export class PublicController {
             return res.status(400).json({ message: 'Codigo de pedido invalido' });
         }
 
+        // A2: 2do factor obligatorio (telefono o email) para evitar que conocer un
+        // codigo baste para leer datos del pedido (nombre, telefono, montos).
+        const phone = typeof req.query.phone === 'string' ? req.query.phone.trim() : '';
+        const email = typeof req.query.email === 'string' ? req.query.email.trim() : '';
+        if (!phone && !email) {
+            return res.status(400).json({ message: 'Se requiere telefono o email para ver el pedido' });
+        }
+
         try {
-            const order = await this.orderService.getMarketplaceOrderByCode(normalizedCode);
+            const order = await this.orderService.getMarketplaceOrderByCode(normalizedCode, { phone, email });
             return res.status(200).json({
                 success: true,
                 data: order,

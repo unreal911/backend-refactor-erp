@@ -1113,7 +1113,7 @@ export class OrderController {
      */
     reserveRemoteStock = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const { sourceStoreId, variantId, quantity, orderItemId } = req.body;
+        const { sourceStoreId, variantId, quantity, orderItemId, allowPartial } = req.body;
 
         if (!id || isNaN(Number(id))) {
             return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -1131,6 +1131,7 @@ export class OrderController {
                 Number(quantity),
                 req.user?.id,
                 orderItemId ? Number(orderItemId) : null,
+                allowPartial === true || allowPartial === 'true',
             );
 
             this.registerUserActivity(req, {
@@ -1461,6 +1462,79 @@ export class OrderController {
                 success: true,
                 data: result,
             });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /**
+     * Registrar devolucion post-entrega (G4). Parcial por item, repone stock.
+     * POST /api/orders/:id/returns  body: { reason, note?, items: [{orderItemId, quantity}] }
+     */
+    registerOrderReturn = async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+        const { reason, note, items } = req.body || {};
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+
+        try {
+            const returns = await this.orderService.registerOrderReturn(
+                Number(id),
+                {
+                    reason: String(reason || ''),
+                    note: note ?? null,
+                    items: Array.isArray(items)
+                        ? items.map((it: any) => ({
+                            orderItemId: Number(it?.orderItemId || 0),
+                            quantity: Number(it?.quantity || 0),
+                        }))
+                        : [],
+                },
+                req.user?.id,
+            );
+
+            const latest = returns[0] || null;
+            this.registerUserActivity(req, {
+                module: 'ORDERS',
+                actionType: 'ORDER_RETURN_REGISTERED',
+                actionLabel: 'Devolucion registrada',
+                entityType: 'ORDER',
+                entityId: Number(id),
+                description: `Devolucion de ${Number(latest?.totalQuantity || 0)} unidades en pedido ${id}`,
+                context: {
+                    reason: String(reason || ''),
+                    totalQuantity: Number(latest?.totalQuantity || 0),
+                },
+            });
+            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+
+            res.status(201).json({
+                success: true,
+                data: returns,
+                message: 'Devolucion registrada exitosamente',
+            });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({ error: error.message });
+            }
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    };
+
+    /** Listar devoluciones post-entrega de un pedido. GET /api/orders/:id/returns */
+    getOrderReturns = async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'ID de pedido inválido' });
+        }
+        try {
+            const returns = await this.orderService.getOrderReturns(Number(id));
+            res.status(200).json({ success: true, data: returns });
         } catch (error) {
             if (error instanceof CustomError) {
                 return res.status(error.statusCode).json({ error: error.message });

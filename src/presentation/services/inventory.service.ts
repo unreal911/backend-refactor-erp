@@ -3,7 +3,7 @@ import { CustomError } from "../../domain/errors/custom.error";
 import { CreateInventoryMovementDto } from "../../domain/dtos/create-inventory-movement.dto";
 import { CreateStockTransferDto } from "../../domain/dtos/create-stock-transfer.dto";
 import { CreateReservationDto } from "../../domain/dtos/create-reservation.dto";
-import { InventoryMovementType, TransferStatus } from "@prisma/client";
+import { InventoryMovementType, TransferStatus, Prisma } from "@prisma/client";
 
 interface InventoryListOptions {
     skip?: number;
@@ -527,16 +527,26 @@ export class InventoryService {
             throw CustomError.badRequest('El inventario especificado no existe');
         }
 
-        const availableStock = inventory.stock - inventory.reservedStock;
-        if (availableStock < dto.quantity) {
-            throw CustomError.badRequest('No hay suficiente stock disponible para reservar');
-        }
-
         const result = await prisma.$transaction(async (tx) => {
-            const updatedInventory = await tx.inventory.update({
-                where: { id: inventory.id },
-                data: { reservedStock: { increment: dto.quantity } },
-            });
+            // Reserva atomica anti-carrera: el WHERE "stock - reservedStock >= qty"
+            // se re-evalua bajo el lock de fila, asi dos reservas concurrentes sobre
+            // el mismo inventario no sobre-reservan (TOCTOU cerrado).
+            const reserved = await tx.$executeRaw`
+                UPDATE "Inventory"
+                SET "reservedStock" = "reservedStock" + ${dto.quantity}
+                WHERE "id" = ${inventory.id}
+                  AND "stock" - "reservedStock" >= ${dto.quantity}
+            `;
+            if (reserved === 0) {
+                const fresh = await tx.inventory.findUnique({ where: { id: inventory.id } });
+                const available = Math.max(0, Number(fresh?.stock || 0) - Number(fresh?.reservedStock || 0));
+                throw CustomError.badRequest(`No hay suficiente stock disponible para reservar. Disponible: ${available}`);
+            }
+
+            const updatedInventory = await tx.inventory.findUnique({ where: { id: inventory.id } });
+            if (!updatedInventory) {
+                throw CustomError.badRequest('El inventario especificado no existe');
+            }
 
             const reservation = await tx.reservation.create({
                 data: {
@@ -585,6 +595,18 @@ export class InventoryService {
             : {};
 
         const result = await prisma.$transaction(async (tx) => {
+            // C7: bloquea las filas de inventario a reconciliar. Una reserva concurrente
+            // (que hace UPDATE "Inventory" ... reservedStock) queda a la espera del
+            // commit de la reconciliacion, evitando que el SET absoluto pise un
+            // incremento recien aplicado.
+            if (normalizedIds.length > 0) {
+                await tx.$executeRaw(
+                    Prisma.sql`SELECT "id" FROM "Inventory" WHERE "id" IN (${Prisma.join(normalizedIds)}) FOR UPDATE`,
+                );
+            } else {
+                await tx.$executeRaw(Prisma.sql`SELECT "id" FROM "Inventory" FOR UPDATE`);
+            }
+
             const inventories = await tx.inventory.findMany({
                 where,
                 include: {
@@ -679,6 +701,82 @@ export class InventoryService {
             ...result,
             requestedInventoryCount: normalizedIds.length > 0 ? normalizedIds.length : undefined,
             processedInventoryCount: result.items.length,
+        };
+    }
+
+    /**
+     * Auditoria de integridad de reservas (solo lectura). Detecta inventarios con:
+     *  - reservedStock != suma de reservas ACTIVE (descuadre del ledger),
+     *  - reservedStock > stock (sobre-reserva), o
+     *  - stock < 0 (negativo).
+     * No corrige nada; para corregir usar `reconcileReservedStock`.
+     */
+    async auditReservedStock() {
+        const rows = await prisma.$queryRaw<Array<{
+            id: number;
+            storeId: number;
+            storeName: string;
+            variantId: number;
+            sku: string;
+            stock: number;
+            reservedStock: number;
+            activeReserved: number;
+        }>>(
+            Prisma.sql`
+                SELECT
+                    i."id",
+                    i."storeId",
+                    s."name" AS "storeName",
+                    i."variantId",
+                    v."sku",
+                    i."stock",
+                    i."reservedStock",
+                    COALESCE(r."activeReserved", 0)::int AS "activeReserved"
+                FROM "Inventory" i
+                INNER JOIN "Store" s ON s."id" = i."storeId"
+                INNER JOIN "ProductVariant" v ON v."id" = i."variantId"
+                LEFT JOIN (
+                    SELECT "inventoryId", SUM("quantity") AS "activeReserved"
+                    FROM "Reservation"
+                    WHERE "status" = 'ACTIVE'
+                    GROUP BY "inventoryId"
+                ) r ON r."inventoryId" = i."id"
+                WHERE i."stock" < 0
+                   OR i."reservedStock" < 0
+                   OR i."reservedStock" > i."stock"
+                   OR i."reservedStock" <> COALESCE(r."activeReserved", 0)
+                ORDER BY i."id" ASC
+            `,
+        );
+
+        const items = rows.map((row) => {
+            const stock = Number(row.stock || 0);
+            const reservedStock = Number(row.reservedStock || 0);
+            const activeReserved = Number(row.activeReserved || 0);
+            const problems: string[] = [];
+            if (stock < 0) problems.push('STOCK_NEGATIVO');
+            if (reservedStock < 0) problems.push('RESERVADO_NEGATIVO');
+            if (reservedStock > stock) problems.push('SOBRE_RESERVA');
+            if (reservedStock !== activeReserved) problems.push('DESCUADRE_LEDGER');
+            return {
+                inventoryId: Number(row.id),
+                storeId: Number(row.storeId),
+                storeName: row.storeName,
+                variantId: Number(row.variantId),
+                sku: row.sku,
+                stock,
+                reservedStock,
+                activeReserved,
+                availableStock: stock - reservedStock,
+                ledgerDifference: activeReserved - reservedStock,
+                problems,
+            };
+        });
+
+        return {
+            ok: items.length === 0,
+            inconsistentCount: items.length,
+            items,
         };
     }
 }

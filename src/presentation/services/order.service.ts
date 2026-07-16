@@ -199,28 +199,18 @@ export class OrderService {
     private sanitizeVariantForPresentation(variant: any) {
         if (!variant) return variant;
 
-        const rawColorName = String(variant?.color?.name || '').trim();
-        const rawSizeName = String(variant?.size?.name || '').trim();
-        const isSimpleColor = this.isSimpleColorToken(rawColorName);
-        const isSimpleSize = this.isSimpleSizeToken(rawSizeName);
+        // Modelo unificado: dimension ausente = colorId/sizeId null. Se toleran
+        // centinelas viejos (__SIN_*) por si quedaran datos sin migrar.
+        const hasColor = variant?.colorId != null && !this.isSimpleColorToken(variant?.color?.name);
+        const hasSize = variant?.sizeId != null && !this.isSimpleSizeToken(variant?.size?.name);
 
-        const normalizedColor = variant?.color
-            ? {
-                ...variant.color,
-                name: isSimpleColor
-                    ? (isSimpleSize ? 'Unico' : 'Sin color')
-                    : variant.color.name,
-            }
-            : variant?.color;
+        const normalizedColor = hasColor
+            ? variant.color
+            : { id: 0, name: hasSize ? 'Sin color' : 'Unico' };
 
-        const normalizedSize = variant?.size
-            ? {
-                ...variant.size,
-                name: isSimpleSize
-                    ? (isSimpleColor ? 'Unica' : 'Sin talla')
-                    : variant.size.name,
-            }
-            : variant?.size;
+        const normalizedSize = hasSize
+            ? variant.size
+            : { id: 0, name: hasColor ? 'Sin talla' : 'Unica' };
 
         return {
             ...variant,
@@ -1688,6 +1678,15 @@ export class OrderService {
      * Crear un nuevo pedido
      */
     async createOrder(dto: CreateOrderDto) {
+        // C4: idempotencia. Si ya existe una orden con esta clave, devolverla
+        // (replay de un reintento/doble-submit) sin crear ni consumir stock de nuevo.
+        if (dto.idempotencyKey) {
+            const existing = await this.findOrderByIdempotencyKey(dto.idempotencyKey);
+            if (existing) {
+                return existing;
+            }
+        }
+
         // Validar que la tienda origen existe
         const sourceStore = await prisma.store.findUnique({
             where: { id: dto.sourceStoreId },
@@ -1754,7 +1753,8 @@ export class OrderService {
         const hasRemoteFulfillment = resolvedFulfillmentStoreIds.some((storeId) => Number(storeId) !== Number(dto.sourceStoreId));
         const shouldConsumeDirectStock = isPosOrder && !hasRemoteFulfillment;
 
-        // Validar stock disponible por variante y tienda de fulfillment
+        // Pares (tienda, variante) solicitados: se agregan cantidades por si una
+        // misma variante viene en varias lineas del pedido.
         const requestedByStoreAndVariant = new Map<string, { storeId: number; variantId: number; quantity: number }>();
         for (const item of dto.items) {
             const storeId = resolveItemFulfillmentStoreId(item);
@@ -1767,139 +1767,183 @@ export class OrderService {
             });
         }
 
-        for (const request of requestedByStoreAndVariant.values()) {
-            const inventory = await prisma.inventory.findUnique({
-                where: {
-                    storeId_variantId: {
-                        storeId: request.storeId,
-                        variantId: request.variantId,
-                    },
-                },
-            });
-
-            const availableStock = (inventory?.stock ?? 0) - (inventory?.reservedStock ?? 0);
-            if (availableStock < request.quantity) {
-                const variant = variants.find((v) => v.id === request.variantId);
-                throw CustomError.badRequest(
-                    `Stock insuficiente para ${variant?.product.name}. Disponible: ${availableStock}`
-                );
+        // C3: en mayorista el precio se negocia y lo fija el vendedor (DTO), pero se
+        // valida que sea un numero positivo para bloquear tampering (0/negativo/NaN).
+        const resolveUnitPrice = (item: { variantId: number; unitPrice: number }): number => {
+            const price = Number(item.unitPrice);
+            if (!Number.isFinite(price) || price <= 0) {
+                const variant = variants.find((v) => v.id === item.variantId);
+                throw CustomError.badRequest(`Precio unitario invalido para ${variant?.product.name ?? item.variantId}`);
             }
-        }
+            return price;
+        };
 
-        // Calcular totales
-        const subtotal = dto.items.reduce((sum, item) => {
-            return sum + item.quantity * item.unitPrice;
-        }, 0);
+        // Calcular totales con el precio validado.
+        const subtotal = dto.items.reduce((sum, item) => sum + item.quantity * resolveUnitPrice(item), 0);
         const includeIgv = dto.applyIgv === undefined ? true : dto.applyIgv;
         const tax = this.resolveTaxAmount(subtotal, includeIgv);
         const total = subtotal + tax;
 
-        // Crear pedido con items
-        const order: any = await prisma.order.create({
-            data: {
-                code: this.generateOrderCode(),
-                status: shouldConsumeDirectStock
-                    ? OrderStatusEnum.DELIVERED
-                    : hasRemoteFulfillment
-                        ? OrderStatusEnum.WAITING_TRANSFER
-                        : OrderStatusEnum.PENDING,
-                sourceStoreId: dto.sourceStoreId,
-                fulfillmentStoreId: orderFulfillmentStoreId,
-                sellerUserId: dto.sellerUserId ?? null,
-                clientName: dto.clientName ?? null,
-                clientEmail: dto.clientEmail ?? null,
-                clientPhone: dto.clientPhone ?? null,
-                clienteTipoDoc: dto.clienteTipoDoc ?? null,
-                clienteNumDoc: dto.clienteNumDoc ?? null,
-                comprobanteTipo: dto.comprobanteTipo ?? null,
-                subtotal,
-                tax,
-                total,
-                note: dto.note ?? null,
-                items: {
-                    create: dto.items.map((item) => ({
-                        variantId: item.variantId,
-                        quantity: item.quantity,
-                        reserved: item.quantity,
-                        picked: shouldConsumeDirectStock ? item.quantity : 0,
-                        unitPrice: item.unitPrice,
-                        subtotal: item.quantity * item.unitPrice,
-                        fulfillmentStoreId: resolveItemFulfillmentStoreId(item),
-                        status: shouldConsumeDirectStock ? 'PICKED' : 'PENDING',
-                    })),
-                },
-            },
-            include: {
-                items: {
-                    include: {
-                        fulfillmentStore: true,
-                        variant: { include: { product: true, color: true, size: true } },
-                    },
-                },
-                sourceStore: true,
-                fulfillmentStore: true,
-                sellerUser: true,
-            },
-        });
+        // C1+C2: check de stock, creacion de la orden y reservas/decrementos en una
+        // sola transaccion con lock FOR UPDATE sobre las filas de inventario, para
+        // que dos pedidos concurrentes no sobrevendan ni dejen ordenes huerfanas.
+        let order: any;
+        try {
+        order = await prisma.$transaction(async (tx) => {
+            const storeVariantPairs = Array.from(requestedByStoreAndVariant.values());
 
-        // Crear reservas automÃ¡ticamente para cada item
-        for (const item of order.items) {
-            const storeToUse = item.fulfillmentStoreId || order.fulfillmentStoreId || order.sourceStoreId;
-            const inventory = await this.getOrCreateInventory(storeToUse, item.variantId);
-
-            if (shouldConsumeDirectStock) {
-                const previousStock = Number(inventory.stock || 0);
-                const newStock = previousStock - item.quantity;
-
-                await prisma.inventory.update({
-                    where: { id: inventory.id },
-                    data: {
-                        stock: {
-                            decrement: item.quantity,
-                        },
-                    },
-                });
-
-                await prisma.inventoryMovement.create({
-                    data: {
-                        type: 'OUT',
-                        quantity: item.quantity,
-                        previousStock,
-                        newStock,
-                        note: `Stock consumido por venta POS ${order.code}`,
-                        responsibleUserId: dto.sellerUserId ?? null,
-                        inventoryId: inventory.id,
-                    },
-                });
-                continue;
+            // Asegurar filas de inventario dentro de la tx y obtener sus ids.
+            const inventoryByKey = new Map<string, { id: number }>();
+            for (const pair of storeVariantPairs) {
+                const inventory = await this.getOrCreateInventory(pair.storeId, pair.variantId, tx);
+                inventoryByKey.set(`${pair.storeId}:${pair.variantId}`, inventory);
             }
 
-            await prisma.reservation.create({
+            // Bloquear las filas: cualquier reserva/consumo concurrente espera al commit.
+            const lockIds = Array.from(inventoryByKey.values()).map((inventory) => inventory.id);
+            if (lockIds.length > 0) {
+                await tx.$executeRaw(
+                    Prisma.sql`SELECT "id" FROM "Inventory" WHERE "id" IN (${Prisma.join(lockIds)}) FOR UPDATE`,
+                );
+            }
+
+            // Re-leer stock bajo lock y validar disponibilidad real.
+            const lockedInventories = await tx.inventory.findMany({
+                where: { id: { in: lockIds } },
+                select: { id: true, storeId: true, variantId: true, stock: true, reservedStock: true },
+            });
+            const lockedByKey = new Map<string, { stock: number; reservedStock: number }>();
+            lockedInventories.forEach((inventory) => {
+                lockedByKey.set(`${inventory.storeId}:${inventory.variantId}`, {
+                    stock: Number(inventory.stock || 0),
+                    reservedStock: Number(inventory.reservedStock || 0),
+                });
+            });
+            for (const pair of storeVariantPairs) {
+                const locked = lockedByKey.get(`${pair.storeId}:${pair.variantId}`);
+                const availableStock = (locked?.stock ?? 0) - (locked?.reservedStock ?? 0);
+                if (availableStock < pair.quantity) {
+                    const variant = variants.find((v) => v.id === pair.variantId);
+                    throw CustomError.badRequest(
+                        `Stock insuficiente para ${variant?.product.name}. Disponible: ${availableStock}`,
+                    );
+                }
+            }
+
+            // Crear el pedido con items (precio del servidor).
+            const createdOrder: any = await tx.order.create({
                 data: {
-                    quantity: item.quantity,
-                    status: 'ACTIVE',
-                    inventoryId: inventory.id,
-                    variantId: item.variantId,
-                    orderId: order.id,
-                    reservedById: dto.sellerUserId ?? null,
+                    code: this.generateOrderCode(),
+                    // Solo se referencia la columna cuando hay clave: las ventas sin
+                    // idempotencia siguen funcionando aunque la migracion no este aplicada.
+                    ...(dto.idempotencyKey ? { idempotencyKey: dto.idempotencyKey } : {}),
+                    status: shouldConsumeDirectStock
+                        ? OrderStatusEnum.DELIVERED
+                        : hasRemoteFulfillment
+                            ? OrderStatusEnum.WAITING_TRANSFER
+                            : OrderStatusEnum.PENDING,
+                    sourceStoreId: dto.sourceStoreId,
+                    fulfillmentStoreId: orderFulfillmentStoreId,
+                    sellerUserId: dto.sellerUserId ?? null,
+                    clientName: dto.clientName ?? null,
+                    clientEmail: dto.clientEmail ?? null,
+                    clientPhone: dto.clientPhone ?? null,
+                    clienteTipoDoc: dto.clienteTipoDoc ?? null,
+                    clienteNumDoc: dto.clienteNumDoc ?? null,
+                    comprobanteTipo: dto.comprobanteTipo ?? null,
+                    subtotal,
+                    tax,
+                    total,
+                    note: dto.note ?? null,
+                    items: {
+                        create: dto.items.map((item) => {
+                            const unitPrice = resolveUnitPrice(item);
+                            return {
+                                variantId: item.variantId,
+                                quantity: item.quantity,
+                                reserved: item.quantity,
+                                picked: shouldConsumeDirectStock ? item.quantity : 0,
+                                unitPrice,
+                                subtotal: item.quantity * unitPrice,
+                                fulfillmentStoreId: resolveItemFulfillmentStoreId(item),
+                                status: shouldConsumeDirectStock ? 'PICKED' : 'PENDING',
+                            };
+                        }),
+                    },
+                },
+                include: {
+                    items: {
+                        include: {
+                            fulfillmentStore: true,
+                            variant: { include: { product: true, color: true, size: true } },
+                        },
+                    },
+                    sourceStore: true,
+                    fulfillmentStore: true,
+                    sellerUser: true,
                 },
             });
-        }
 
-        // Actualizar stock reservado en inventario
-        if (!shouldConsumeDirectStock) {
-            for (const item of order.items) {
-                const storeToUse = item.fulfillmentStoreId || order.fulfillmentStoreId || order.sourceStoreId;
-                const inventory = await this.getOrCreateInventory(storeToUse, item.variantId);
-                await prisma.inventory.update({
-                    where: { id: inventory.id },
-                    data: {
-                        reservedStock: {
-                            increment: item.quantity,
+            // Reservar (o consumir en POS directo) por item, dentro de la tx.
+            for (const item of createdOrder.items) {
+                const storeToUse = item.fulfillmentStoreId || createdOrder.fulfillmentStoreId || createdOrder.sourceStoreId;
+                const inventory = await this.getOrCreateInventory(storeToUse, item.variantId, tx);
+
+                if (shouldConsumeDirectStock) {
+                    const previousStock = Number(inventory.stock || 0);
+                    const newStock = previousStock - item.quantity;
+                    if (newStock < 0) {
+                        // Defensa en profundidad: nunca dejar stock negativo.
+                        throw CustomError.badRequest('Stock insuficiente para completar la venta');
+                    }
+
+                    await tx.inventory.update({
+                        where: { id: inventory.id },
+                        data: { stock: { decrement: item.quantity } },
+                    });
+
+                    await tx.inventoryMovement.create({
+                        data: {
+                            type: 'OUT',
+                            quantity: item.quantity,
+                            previousStock,
+                            newStock,
+                            note: `Stock consumido por venta POS ${createdOrder.code}`,
+                            responsibleUserId: dto.sellerUserId ?? null,
+                            inventoryId: inventory.id,
                         },
+                    });
+                    continue;
+                }
+
+                await tx.reservation.create({
+                    data: {
+                        quantity: item.quantity,
+                        status: 'ACTIVE',
+                        inventoryId: inventory.id,
+                        variantId: item.variantId,
+                        orderId: createdOrder.id,
+                        reservedById: dto.sellerUserId ?? null,
                     },
                 });
+                await tx.inventory.update({
+                    where: { id: inventory.id },
+                    data: { reservedStock: { increment: item.quantity } },
+                });
             }
+
+            return createdOrder;
+        });
+        } catch (error) {
+            // Carrera exacta con la misma idempotencyKey (dos requests simultaneos):
+            // el indice unico rechaza el segundo; devolver la orden ya creada.
+            if (dto.idempotencyKey && (error as { code?: string })?.code === 'P2002') {
+                const existing = await this.findOrderByIdempotencyKey(dto.idempotencyKey);
+                if (existing) {
+                    return existing;
+                }
+            }
+            throw error;
         }
 
         // Comprobante electronico (fuente de verdad): se crea junto con la venta.
@@ -1938,6 +1982,17 @@ export class OrderService {
     }
 
     async createMarketplaceOrder(dto: CreateMarketplaceOrderDto) {
+        // C4: idempotencia. Reintento/doble-submit con la misma clave -> replay.
+        if (dto.idempotencyKey) {
+            const existing = await prisma.order.findUnique({
+                where: { idempotencyKey: dto.idempotencyKey },
+                include: this.orderDetailInclude,
+            });
+            if (existing) {
+                return this.buildMarketplaceOrderResponse(existing);
+            }
+        }
+
         const [selectedPaymentMethod, marketplaceSettings] = await Promise.all([
             this.resolveMarketplacePaymentMethod(dto.paymentMethodId),
             this.getMarketplacePaymentSettings(),
@@ -1984,7 +2039,9 @@ export class OrderService {
             ? `${dto.clientName} (${dto.companyName})`
             : dto.clientName;
 
-        const summary = await prisma.$transaction(async (tx) => {
+        let summary;
+        try {
+        summary = await prisma.$transaction(async (tx) => {
             const calculatedItems: Array<{
                 variantId: number;
                 requestedQuantity: number;
@@ -2071,6 +2128,7 @@ export class OrderService {
             const order = await tx.order.create({
                 data: {
                     code: orderCode,
+                    ...(dto.idempotencyKey ? { idempotencyKey: dto.idempotencyKey } : {}),
                     status,
                     sourceStoreId: dto.sourceStoreId,
                     fulfillmentStoreId: dto.sourceStoreId,
@@ -2177,6 +2235,19 @@ export class OrderService {
                 },
             };
         });
+        } catch (error) {
+            // Carrera exacta con la misma idempotencyKey: devolver la ya creada.
+            if (dto.idempotencyKey && (error as { code?: string })?.code === 'P2002') {
+                const existing = await prisma.order.findUnique({
+                    where: { idempotencyKey: dto.idempotencyKey },
+                    include: this.orderDetailInclude,
+                });
+                if (existing) {
+                    return this.buildMarketplaceOrderResponse(existing);
+                }
+            }
+            throw error;
+        }
 
         return {
             ...this.mapOrderWithPresentationData(summary.order),
@@ -2185,7 +2256,24 @@ export class OrderService {
         };
     }
 
-    async getMarketplaceOrderByCode(code: string) {
+    // C4: arma la respuesta del marketplace desde una orden existente (replay
+    // idempotente), con el mismo shape que devuelve createMarketplaceOrder.
+    private buildMarketplaceOrderResponse(order: any) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        const totalRequested = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+        const totalReserved = items.reduce((sum: number, item: any) => sum + Number(item.reserved || 0), 0);
+        return {
+            ...this.mapOrderWithPresentationData(order),
+            stockSummary: {
+                totalRequested,
+                totalReserved,
+                totalPending: Math.max(0, totalRequested - totalReserved),
+            },
+            reviewMessage: 'Proforma sujeta a confirmacion de disponibilidad',
+        };
+    }
+
+    async getMarketplaceOrderByCode(code: string, verifier?: { phone?: string; email?: string }) {
         const order = await prisma.order.findFirst({
             where: {
                 code,
@@ -2195,6 +2283,18 @@ export class OrderService {
         });
 
         if (!order) {
+            throw CustomError.notFound('Pedido no encontrado');
+        }
+
+        // A2: verificar propiedad por telefono o email. Se responde el MISMO 404
+        // que cuando no existe, para no revelar si un codigo es valido (sin oraculo).
+        const phone = String(verifier?.phone || '').trim();
+        const email = String(verifier?.email || '').trim().toLowerCase();
+        const orderPhone = String(order.clientPhone || '').trim();
+        const orderEmail = String(order.clientEmail || '').trim().toLowerCase();
+        const phoneMatches = Boolean(phone) && phone === orderPhone;
+        const emailMatches = Boolean(email) && email === orderEmail;
+        if (!phoneMatches && !emailMatches) {
             throw CustomError.notFound('Pedido no encontrado');
         }
 
@@ -2394,8 +2494,27 @@ export class OrderService {
     /**
      * Obtener o crear un registro de inventario
      */
-    private async getOrCreateInventory(storeId: number, variantId: number) {
-        let inventory = await prisma.inventory.findUnique({
+    // C4: busca una orden ya creada con esta clave de idempotencia (mismo include
+    // que devuelve createOrder, para que el replay entregue la misma forma).
+    private async findOrderByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
+        return prisma.order.findUnique({
+            where: { idempotencyKey },
+            include: {
+                items: {
+                    include: {
+                        fulfillmentStore: true,
+                        variant: { include: { product: true, color: true, size: true } },
+                    },
+                },
+                sourceStore: true,
+                fulfillmentStore: true,
+                sellerUser: true,
+            },
+        });
+    }
+
+    private async getOrCreateInventory(storeId: number, variantId: number, client: any = prisma) {
+        let inventory = await client.inventory.findUnique({
             where: {
                 storeId_variantId: {
                     storeId,
@@ -2405,14 +2524,25 @@ export class OrderService {
         });
 
         if (!inventory) {
-            inventory = await prisma.inventory.create({
-                data: {
-                    storeId,
-                    variantId,
-                    stock: 0,
-                    reservedStock: 0,
-                },
-            });
+            try {
+                inventory = await client.inventory.create({
+                    data: {
+                        storeId,
+                        variantId,
+                        stock: 0,
+                        reservedStock: 0,
+                    },
+                });
+            } catch (error) {
+                // Otra transaccion creo la fila primero (@@unique storeId_variantId): releer.
+                if ((error as { code?: string })?.code === 'P2002') {
+                    inventory = await client.inventory.findUnique({
+                        where: { storeId_variantId: { storeId, variantId } },
+                    });
+                } else {
+                    throw error;
+                }
+            }
         }
 
         return inventory;
@@ -2767,15 +2897,40 @@ export class OrderService {
         const returnResponsibilityManagementEnabled = await this.isReturnResponsibilityManagementEnabled();
 
         await prisma.$transaction(async (tx) => {
+            // Guarda anti-doble-transicion (C1): se toma el lock de fila del pedido y
+            // se re-verifica el estado DENTRO de la tx. Dos operaciones concurrentes
+            // (p.ej. dos clics "Entregar") se serializan: la 2da bloquea hasta el
+            // commit de la 1ra y aqui ve el estado ya cambiado -> aborta. Evita el
+            // doble decremento de stock / doble liberacion de reservas.
+            const lockedRows = await tx.$queryRaw<Array<{ status: string }>>(
+                Prisma.sql`SELECT "status" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`,
+            );
+            const lockedStatus = String(lockedRows?.[0]?.status || '');
+            if (lockedStatus !== String(currentStatus)) {
+                throw CustomError.badRequest('El pedido cambio de estado en otra operacion. Refresca e intenta de nuevo.');
+            }
+
             const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled(tx);
             const isReturnCompletion = currentStatus === OrderStatusEnum.RETURN_PENDING && targetStatus === OrderStatusEnum.CANCELLED;
             const isCancellationRequest = (targetStatus === OrderStatusEnum.CANCELLED && currentStatus !== OrderStatusEnum.RETURN_PENDING)
                 || targetStatus === OrderStatusEnum.RETURN_PENDING;
-            const activeReservations = order.reservations.filter((reservation: any) => reservation.status === 'ACTIVE');
-            const totalPickedUnits = order.items.reduce((sum: number, item: any) => {
-                const picked = Number(item?.picked || 0);
-                return sum + Math.max(0, picked);
-            }, 0);
+            // Reservas activas releidas DENTRO de la tx (no la lectura stale de fuera):
+            // si otra operacion libero/consumio reservas entre la lectura inicial y el
+            // lock, aqui se ve el estado real.
+            const activeReservations = await tx.reservation.findMany({
+                where: { orderId, status: 'ACTIVE' },
+                include: { inventory: true },
+            });
+            // G2: unidades separadas recomputadas DENTRO de la tx bajo lock (no la
+            // lectura stale de `order`). Un picking concurrente entre la lectura
+            // inicial y el lock hacia que la cancelacion tomara la rama equivocada
+            // (CANCELLED en vez de RETURN_PENDING), perdiendo el rastro de la
+            // devolucion de mercaderia fisicamente separada.
+            const pickedAgg = await tx.orderItem.aggregate({
+                where: { orderId, removedAt: null },
+                _sum: { picked: true },
+            });
+            const totalPickedUnits = Math.max(0, Number(pickedAgg._sum.picked || 0));
             const hasPickedUnits = totalPickedUnits > 0;
 
             let nextOrderStatus = targetStatus;
@@ -2802,14 +2957,19 @@ export class OrderService {
                 for (const reservation of activeReservations) {
                     const previousStock = Number(reservation.inventory.stock || 0);
 
+                    // Idempotente: libera solo si la reserva sigue ACTIVE (protege
+                    // contra una liberacion concurrente ya aplicada).
+                    const released = await tx.reservation.updateMany({
+                        where: { id: reservation.id, status: 'ACTIVE' },
+                        data: { status: 'RELEASED' },
+                    });
+                    if (released.count === 0) {
+                        continue;
+                    }
+
                     await tx.inventory.update({
                         where: { id: reservation.inventoryId },
                         data: { reservedStock: { decrement: reservation.quantity } },
-                    });
-
-                    await tx.reservation.update({
-                        where: { id: reservation.id },
-                        data: { status: 'RELEASED' },
                     });
 
                     await tx.inventoryMovement.create({
@@ -2930,11 +3090,40 @@ export class OrderService {
             }
 
             if (targetStatus === OrderStatusEnum.DELIVERED) {
-                const activeReservations = order.reservations.filter((reservation: any) => reservation.status === 'ACTIVE');
+                // G5: guard anti-sobreventa. La entrega solo decrementa stock via
+                // reservas ACTIVE; una linea activa (removedAt IS NULL) con
+                // `reserved` por debajo de su demanda real (quantity -
+                // shortageQuantity) se entregaria fisicamente sin descontar stock
+                // -> descuadre/sobreventa. Se exige cobertura total bajo el lock;
+                // si falta, se bloquea con mensaje claro (reservar o marcar
+                // faltante antes de entregar).
+                const activeLines = await tx.orderItem.findMany({
+                    where: { orderId, removedAt: null },
+                    select: { quantity: true, reserved: true, shortageQuantity: true },
+                });
+                const hasUncoveredLine = activeLines.some((line) => {
+                    const demand = Math.max(0, Number(line.quantity || 0) - Number(line.shortageQuantity || 0));
+                    return Number(line.reserved || 0) < demand;
+                });
+                if (hasUncoveredLine) {
+                    throw CustomError.badRequest('No se puede entregar: hay lineas sin reservar por completo. Reserva el stock pendiente o marca el faltante antes de entregar.');
+                }
 
+                // Usa la lista de reservas ACTIVE releida bajo el lock del pedido.
                 for (const reservation of activeReservations) {
                     const previousStock = Number(reservation.inventory.stock || 0);
                     const newStock = previousStock - reservation.quantity;
+
+                    // Idempotente: solo consume la reserva si sigue ACTIVE. Si otra
+                    // operacion ya la cerro, updateMany afecta 0 filas y se omite el
+                    // decremento de stock (evita doble consumo).
+                    const consumed = await tx.reservation.updateMany({
+                        where: { id: reservation.id, status: 'ACTIVE' },
+                        data: { status: 'COMPLETED' },
+                    });
+                    if (consumed.count === 0) {
+                        continue;
+                    }
 
                     await tx.inventory.update({
                         where: { id: reservation.inventoryId },
@@ -2942,11 +3131,6 @@ export class OrderService {
                             stock: { decrement: reservation.quantity },
                             reservedStock: { decrement: reservation.quantity },
                         },
-                    });
-
-                    await tx.reservation.update({
-                        where: { id: reservation.id },
-                        data: { status: 'COMPLETED' },
                     });
 
                     await tx.inventoryMovement.create({
@@ -4376,6 +4560,7 @@ export class OrderService {
             );
 
         await prisma.$transaction(async (tx) => {
+            await this.assertPickableUnderLock(tx, orderId);
             // Total del grupo ANTES de nuestro write, leido dentro de la tx: base
             // fiable para acreditar la contribucion del actor (no la lectura stale
             // de fuera de la tx, que bajo concurrencia sobre-acreditaria).
@@ -4574,6 +4759,7 @@ export class OrderService {
         }
 
         await prisma.$transaction(async (tx) => {
+            await this.assertPickableUnderLock(tx, order.id);
             await tx.pickingItem.update({
                 where: { id: pickingItemId },
                 data: { pickedQuantity },
@@ -4703,20 +4889,41 @@ export class OrderService {
             pickingResponsibilityFlowEnabled ? actorUserId : responsibleUserId,
         );
 
-        await prisma.pickingSession.update({
-            where: { id: picking.pickingSession.id },
-            data: {
-                status: 'COMPLETED',
-                assignedUserId,
-            },
-        });
+        // G1: los writes van en una transaccion con lock del pedido y re-check de
+        // estado. Sin esto, un completeOrderPicking concurrente con una cancelacion
+        // podia poner READY sobre un pedido ya CANCELLED/DELIVERED (resucitarlo).
+        const pickingSessionId = picking.pickingSession.id;
+        await prisma.$transaction(async (tx) => {
+            await this.lockOrderRow(tx, orderId);
+            const locked = await tx.order.findUnique({
+                where: { id: orderId },
+                select: { status: true },
+            });
+            const lockedStatus = locked?.status as OrderStatusEnum;
+            const pickableStatuses = [
+                OrderStatusEnum.CONFIRMED,
+                OrderStatusEnum.PREPARING,
+                OrderStatusEnum.WAITING_TRANSFER,
+            ];
+            if (!pickableStatuses.includes(lockedStatus)) {
+                throw CustomError.badRequest('El pedido cambio de estado y no permite finalizar picking. Refresca e intenta de nuevo.');
+            }
 
-        await prisma.order.update({
-            where: { id: orderId },
-            data: {
-                status: OrderStatusEnum.READY,
-                pickerUserId: assignedUserId,
-            },
+            await tx.pickingSession.update({
+                where: { id: pickingSessionId },
+                data: {
+                    status: 'COMPLETED',
+                    assignedUserId,
+                },
+            });
+
+            await tx.order.update({
+                where: { id: orderId },
+                data: {
+                    status: OrderStatusEnum.READY,
+                    pickerUserId: assignedUserId,
+                },
+            });
         });
 
         return this.getOrderById(orderId);
@@ -4804,6 +5011,7 @@ export class OrderService {
         );
 
         await prisma.$transaction(async (tx) => {
+            await this.assertPickableUnderLock(tx, orderId);
             // Totales por grupo ANTES del write (contribucion exacta del actor).
             const affectedPickingItemIds = Array.from(new Set(
                 pendingRows.map((row) => row.pickingItemId).filter((id) => id > 0),
@@ -4903,6 +5111,7 @@ export class OrderService {
         quantity: number,
         responsibleUserId?: number | null,
         orderItemId?: number | null,
+        allowPartial: boolean = false,
     ) {
         const normalizedQuantity = Math.max(0, Math.round(Number(quantity || 0)));
         if (!Number.isInteger(normalizedQuantity) || normalizedQuantity < 1) {
@@ -4953,8 +5162,15 @@ export class OrderService {
             if (pendingQuantity <= 0) {
                 throw CustomError.badRequest('El item ya tiene toda su cantidad reservada');
             }
-            if (normalizedQuantity > pendingQuantity) {
-                throw CustomError.badRequest(`La cantidad supera el pendiente por reservar. Pendiente: ${pendingQuantity}`);
+            // Con allowPartial se acota lo pedido al pendiente en vez de rechazar
+            // (el operador quiere "reservar lo que se pueda"). Sin el, se mantiene
+            // el contrato estricto todo-o-nada.
+            let desiredQuantity = normalizedQuantity;
+            if (desiredQuantity > pendingQuantity) {
+                if (!allowPartial) {
+                    throw CustomError.badRequest(`La cantidad supera el pendiente por reservar. Pendiente: ${pendingQuantity}`);
+                }
+                desiredQuantity = pendingQuantity;
             }
 
             const remoteInventory = await tx.inventory.findUnique({
@@ -4975,13 +5191,33 @@ export class OrderService {
             // El WHERE "stock - reservedStock >= qty" se re-evalua bajo el lock de
             // fila, asi dos reservas concurrentes no sobre-reservan (la 2da bloquea
             // hasta el commit de la 1ra y re-verifica el disponible ya actualizado).
-            const inventoryUpdated = await tx.$executeRaw`
-                UPDATE "Inventory"
-                SET "reservedStock" = "reservedStock" + ${normalizedQuantity}
-                WHERE "id" = ${remoteInventory.id}
-                  AND "stock" - "reservedStock" >= ${normalizedQuantity}
-            `;
-            if (inventoryUpdated === 0) {
+            // En modo parcial: si otro operador tomo unidades entremedio, se recalcula
+            // el disponible y se reserva lo que quede (hasta agotar intentos).
+            let take = desiredQuantity;
+            {
+                const fresh = await tx.inventory.findUnique({ where: { id: remoteInventory.id } });
+                const available = Math.max(0, Number(fresh?.stock || 0) - Number(fresh?.reservedStock || 0));
+                take = allowPartial ? Math.min(desiredQuantity, available) : desiredQuantity;
+            }
+            let inventoryUpdated = 0;
+            for (let attempt = 0; attempt < 3 && take > 0; attempt++) {
+                inventoryUpdated = await tx.$executeRaw`
+                    UPDATE "Inventory"
+                    SET "reservedStock" = "reservedStock" + ${take}
+                    WHERE "id" = ${remoteInventory.id}
+                      AND "stock" - "reservedStock" >= ${take}
+                `;
+                if (inventoryUpdated > 0) {
+                    break;
+                }
+                if (!allowPartial) {
+                    break;
+                }
+                const fresh = await tx.inventory.findUnique({ where: { id: remoteInventory.id } });
+                const available = Math.max(0, Number(fresh?.stock || 0) - Number(fresh?.reservedStock || 0));
+                take = Math.min(desiredQuantity, available);
+            }
+            if (inventoryUpdated === 0 || take <= 0) {
                 const currentAvailable = Math.max(0, Number(remoteInventory.stock || 0) - Number(remoteInventory.reservedStock || 0));
                 throw CustomError.badRequest(`Stock insuficiente en ${remoteInventory.store?.name || 'la tienda seleccionada'}. Disponible: ${currentAvailable}`);
             }
@@ -4991,19 +5227,26 @@ export class OrderService {
             // tienda primaria; no se pisa en reservas multi-tienda posteriores).
             const itemUpdated = await tx.$executeRaw`
                 UPDATE "OrderItem"
-                SET "reserved" = "reserved" + ${normalizedQuantity},
+                SET "reserved" = "reserved" + ${take},
                     "status" = 'PENDING',
                     "fulfillmentStoreId" = COALESCE("fulfillmentStoreId", ${sourceStoreId})
                 WHERE "id" = ${targetItem.id}
-                  AND "reserved" + ${normalizedQuantity} <= "quantity"
+                  AND "reserved" + ${take} <= "quantity"
             `;
             if (itemUpdated === 0) {
+                // El item se lleno por otra operacion: revertir el incremento de
+                // inventario para no dejar reservado colgado.
+                await tx.$executeRaw`
+                    UPDATE "Inventory"
+                    SET "reservedStock" = GREATEST(0, "reservedStock" - ${take})
+                    WHERE "id" = ${remoteInventory.id}
+                `;
                 throw CustomError.badRequest('El item ya tiene toda su cantidad reservada por otra operacion. Refresca el pedido e intenta de nuevo.');
             }
 
             const reservation = await tx.reservation.create({
                 data: {
-                    quantity: normalizedQuantity,
+                    quantity: take,
                     status: 'ACTIVE',
                     inventoryId: remoteInventory.id,
                     variantId,
@@ -5017,7 +5260,7 @@ export class OrderService {
             await tx.inventoryMovement.create({
                 data: {
                     type: 'RESERVED',
-                    quantity: normalizedQuantity,
+                    quantity: take,
                     previousStock: Number(remoteInventory.stock || 0),
                     newStock: Number(remoteInventory.stock || 0),
                     note: `Reserva creada desde detalle de pedido ${order.code}`,
@@ -5043,21 +5286,32 @@ export class OrderService {
                 });
             }
 
+            const pendingAfter = Math.max(0, pendingQuantity - take);
+            const partial = take < normalizedQuantity;
+
             return {
                 reservationId: reservation.id,
                 orderItemId: targetItem.id,
                 storeId: sourceStoreId,
                 storeName: remoteInventory.store?.name || null,
                 variantId,
-                quantity: normalizedQuantity,
-                pendingQuantityAfterReservation: Math.max(0, pendingQuantity - normalizedQuantity),
+                // `quantity` = lo efectivamente reservado (compat con llamadores previos).
+                quantity: take,
+                reservedQuantity: take,
+                requestedQuantity: normalizedQuantity,
+                pendingQuantityAfterReservation: pendingAfter,
+                partial,
                 allRequestedReserved,
             };
         });
 
+        const message = result.partial
+            ? `Se reservaron ${result.reservedQuantity} de ${result.requestedQuantity} und. Otro usuario tomo stock; quedan ${result.pendingQuantityAfterReservation} por reservar.`
+            : 'Stock reservado exitosamente';
+
         return {
             success: true,
-            message: 'Stock reservado exitosamente',
+            message,
             ...result,
         };
     }
@@ -5341,6 +5595,33 @@ export class OrderService {
                 WHERE "id" = ${targetItem.id}
             `;
 
+            // C4: al liberar reserva, no puede quedar separado (picked) mas de lo que
+            // ahora queda reservado. Se recorta picked del OrderItem, el detalle de
+            // picking de la linea, y se recalcula el total del PickingItem asociado.
+            await tx.$executeRaw`
+                UPDATE "OrderItem"
+                SET "picked" = LEAST("picked", "reserved")
+                WHERE "id" = ${targetItem.id}
+            `;
+            const clampedItem = await tx.orderItem.findUnique({
+                where: { id: targetItem.id },
+                select: { reserved: true },
+            });
+            const newReserved = Math.max(0, Number(clampedItem?.reserved || 0));
+            const detailRows = await tx.$queryRaw<Array<{ pickingItemId: number | null }>>(
+                Prisma.sql`
+                    UPDATE "PickingOrderItemDetail"
+                    SET "pickedQuantity" = LEAST("pickedQuantity", ${newReserved}),
+                        "updatedAt" = CURRENT_TIMESTAMP
+                    WHERE "orderItemId" = ${targetItem.id}
+                    RETURNING "pickingItemId"
+                `,
+            );
+            const affectedPickingItemId = Number(detailRows?.[0]?.pickingItemId || 0);
+            if (affectedPickingItemId > 0) {
+                await this.recalculatePickingItemPickedQuantityFromDetails(orderId, affectedPickingItemId, tx);
+            }
+
             return {
                 orderItemId: targetItem.id,
                 variantId: Number(targetItem.variantId),
@@ -5398,8 +5679,14 @@ export class OrderService {
                 throw CustomError.badRequest('No se encontro el item indicado en el pedido');
             }
 
-            const requestedQuantity = Math.max(0, Number(targetItem.quantity || 0));
-            const reservedQuantity = Math.max(0, Number(targetItem.reserved || 0));
+            // C6: relee quantity/reserved de la linea con lock de fila. Evita calcular
+            // el faltante sobre un `reserved` stale si otra operacion reserva en paralelo.
+            const lockedItemRows = await tx.$queryRaw<Array<{ quantity: number; reserved: number }>>(
+                Prisma.sql`SELECT "quantity", "reserved" FROM "OrderItem" WHERE "id" = ${targetItem.id} FOR UPDATE`,
+            );
+            const lockedItem = lockedItemRows?.[0];
+            const requestedQuantity = Math.max(0, Number(lockedItem?.quantity ?? targetItem.quantity ?? 0));
+            const reservedQuantity = Math.max(0, Number(lockedItem?.reserved ?? targetItem.reserved ?? 0));
             const pendingQuantity = Math.max(0, requestedQuantity - reservedQuantity);
 
             const requested = Number(quantity);
@@ -5450,6 +5737,204 @@ export class OrderService {
             message: result.shortageQuantity > 0 ? 'Faltante registrado' : 'Faltante eliminado',
             ...result,
         };
+    }
+
+    /**
+     * C5: toma el lock de fila del pedido dentro de la tx. Las mutaciones de
+     * proforma que recalculan totales (agregar/quitar/restaurar linea) se serializan
+     * asi entre si, evitando el lost-update por last-writer-wins sobre subtotal/total.
+     */
+    private async lockOrderRow(tx: any, orderId: number): Promise<void> {
+        await tx.$executeRaw(
+            Prisma.sql`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`,
+        );
+    }
+
+    // G3: bloquea la fila del pedido y re-valida que siga en un estado que permite
+    // separar (picking). Serializa las escrituras de `picked` contra una
+    // cancelacion/entrega concurrente (que tambien toma el lock), evitando marcar
+    // separada mercaderia de un pedido ya CANCELLED/RETURN_PENDING/DELIVERED.
+    private async assertPickableUnderLock(tx: any, orderId: number): Promise<void> {
+        await this.lockOrderRow(tx, orderId);
+        const locked = await tx.order.findUnique({
+            where: { id: orderId },
+            select: { status: true },
+        });
+        const status = locked?.status as OrderStatusEnum | undefined;
+        const pickable = [
+            OrderStatusEnum.CONFIRMED,
+            OrderStatusEnum.PREPARING,
+            OrderStatusEnum.WAITING_TRANSFER,
+            OrderStatusEnum.READY,
+        ];
+        if (!status || !pickable.includes(status)) {
+            throw CustomError.badRequest('El pedido cambio de estado y no permite actualizar el picking. Refresca e intenta de nuevo.');
+        }
+    }
+
+    /**
+     * G4: registra una devolucion POST-entrega (parcial por item) de un pedido
+     * DELIVERED. Repone stock a la tienda de despacho, acumula `returnedQuantity`
+     * por linea (guarda contra devolver mas de lo entregado) y deja el pedido
+     * listo para emitir la Nota de Credito SUNAT aparte (paso manual con
+     * emitirNota). Todo bajo `lockOrderRow` para serializar contra otras
+     * devoluciones/operaciones concurrentes.
+     */
+    async registerOrderReturn(
+        orderId: number,
+        dto: {
+            reason: string;
+            note?: string | null;
+            items: Array<{ orderItemId: number; quantity: number }>;
+        },
+        responsibleUserId?: number,
+    ) {
+        if (!Number.isInteger(orderId) || orderId < 1) {
+            throw CustomError.badRequest('El ID de la orden es invalido');
+        }
+        const reason = String(dto?.reason || '').trim();
+        if (!reason) {
+            throw CustomError.badRequest('Debes indicar el motivo de la devolucion');
+        }
+        const requestedItems = Array.isArray(dto?.items) ? dto.items : [];
+        if (requestedItems.length === 0) {
+            throw CustomError.badRequest('Debes indicar al menos una linea a devolver');
+        }
+
+        await prisma.$transaction(async (tx) => {
+            await this.lockOrderRow(tx, orderId);
+            const order = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true },
+            });
+            if (!order) {
+                throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
+            }
+            if (order.status !== OrderStatusEnum.DELIVERED) {
+                throw CustomError.badRequest('Solo se puede devolver un pedido ya entregado (DELIVERED)');
+            }
+
+            const restockStoreId = Number(order.fulfillmentStoreId || order.sourceStoreId || 0);
+            if (!Number.isInteger(restockStoreId) || restockStoreId < 1) {
+                throw CustomError.badRequest('El pedido no tiene tienda de despacho para reponer el stock');
+            }
+
+            const itemsById = new Map<number, any>();
+            for (const it of order.items) {
+                itemsById.set(Number(it.id), it);
+            }
+
+            // Consolida cantidades por linea (por si llega la misma dos veces) y valida.
+            const consolidated = new Map<number, number>();
+            for (const raw of requestedItems) {
+                const orderItemId = Number(raw?.orderItemId || 0);
+                const quantity = Number(raw?.quantity || 0);
+                if (!Number.isInteger(orderItemId) || orderItemId < 1) {
+                    throw CustomError.badRequest('Linea de devolucion invalida');
+                }
+                if (!Number.isInteger(quantity) || quantity < 1) {
+                    throw CustomError.badRequest('La cantidad a devolver debe ser un entero positivo');
+                }
+                const orderItem = itemsById.get(orderItemId);
+                if (!orderItem || orderItem.removedAt) {
+                    throw CustomError.badRequest(`La linea ${orderItemId} no pertenece al pedido`);
+                }
+                consolidated.set(orderItemId, Number(consolidated.get(orderItemId) || 0) + quantity);
+            }
+
+            let totalQuantity = 0;
+            let totalAmount = 0;
+            const returnItemsData: Array<{ orderItemId: number; variantId: number; quantity: number; unitPrice: number; subtotal: number }> = [];
+
+            for (const [orderItemId, quantity] of consolidated.entries()) {
+                const orderItem = itemsById.get(orderItemId);
+                // Base entregada de la linea = lo solicitado menos el faltante declarado.
+                const deliveredBase = Math.max(0, Number(orderItem.quantity || 0) - Number(orderItem.shortageQuantity || 0));
+                const alreadyReturned = Math.max(0, Number(orderItem.returnedQuantity || 0));
+                const available = deliveredBase - alreadyReturned;
+                if (quantity > available) {
+                    throw CustomError.badRequest(
+                        `No puedes devolver ${quantity} de la linea ${orderItemId}: solo quedan ${available} unidades por devolver`,
+                    );
+                }
+
+                const variantId = Number(orderItem.variantId);
+                const inventory = await this.getOrCreateInventory(restockStoreId, variantId, tx);
+                const previousStock = Number(inventory.stock || 0);
+                const newStock = previousStock + quantity;
+
+                await tx.inventory.update({
+                    where: { id: inventory.id },
+                    data: { stock: { increment: quantity } },
+                });
+
+                await tx.inventoryMovement.create({
+                    data: {
+                        type: 'IN',
+                        quantity,
+                        previousStock,
+                        newStock,
+                        note: `Reposicion por devolucion de orden ${order.code} (${reason})`,
+                        responsibleUserId: responsibleUserId ?? null,
+                        inventoryId: inventory.id,
+                    },
+                });
+
+                await tx.orderItem.update({
+                    where: { id: orderItemId },
+                    data: { returnedQuantity: { increment: quantity } },
+                });
+
+                const unitPrice = Number(orderItem.unitPrice || 0);
+                const subtotal = unitPrice * quantity;
+                totalQuantity += quantity;
+                totalAmount += subtotal;
+                returnItemsData.push({ orderItemId, variantId, quantity, unitPrice, subtotal });
+            }
+
+            await tx.orderReturn.create({
+                data: {
+                    orderId,
+                    storeId: restockStoreId,
+                    reason,
+                    note: dto?.note ? String(dto.note).trim() || null : null,
+                    responsibleUserId: responsibleUserId ?? null,
+                    totalQuantity,
+                    totalAmount,
+                    items: { create: returnItemsData },
+                },
+            });
+
+            // Senal ligera: si TODAS las lineas quedaron completamente devueltas,
+            // marca returnedAt (el pedido sigue DELIVERED; la devolucion es un
+            // sub-registro, no un cambio de la maquina de estados).
+            const refreshedItems = await tx.orderItem.findMany({
+                where: { orderId, removedAt: null },
+                select: { quantity: true, shortageQuantity: true, returnedQuantity: true },
+            });
+            const fullyReturned = refreshedItems.length > 0 && refreshedItems.every((it) => {
+                const base = Math.max(0, Number(it.quantity || 0) - Number(it.shortageQuantity || 0));
+                return Number(it.returnedQuantity || 0) >= base;
+            });
+            await tx.order.update({
+                where: { id: orderId },
+                data: { returnedAt: fullyReturned ? new Date() : null },
+            });
+        });
+
+        return this.getOrderReturns(orderId);
+    }
+
+    /** Lista las devoluciones post-entrega de un pedido (con sus lineas). */
+    async getOrderReturns(orderId: number) {
+        if (!Number.isInteger(orderId) || orderId < 1) {
+            throw CustomError.badRequest('El ID de la orden es invalido');
+        }
+        return prisma.orderReturn.findMany({
+            where: { orderId },
+            include: { items: true },
+            orderBy: { createdAt: 'desc' },
+        });
     }
 
     /**
@@ -5539,6 +6024,7 @@ export class OrderService {
                 },
             });
             const status = this.assertEcommerceProformaOpen(order, 'agregar productos');
+            await this.lockOrderRow(tx, orderId);
 
             const variant = await tx.productVariant.findFirst({
                 where: { id: variantId, isActive: true, product: { isActive: true } },
@@ -5653,6 +6139,7 @@ export class OrderService {
         }
 
         const result = await prisma.$transaction(async (tx) => {
+            await this.lockOrderRow(tx, orderId);
             let removedByName: string | null = null;
             if (userId) {
                 const remover = await tx.user.findUnique({
@@ -5714,6 +6201,7 @@ export class OrderService {
                 },
             });
             const status = this.assertEcommerceProformaOpen(order, 'restaurar productos');
+            await this.lockOrderRow(tx, orderId);
 
             const target = order.items?.[0];
             if (!target) {

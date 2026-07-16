@@ -93,6 +93,10 @@ export class orderRoute {
         // Marcar/limpiar faltante de un item (proforma ecommerce)
         router.post('/:id/items/:itemId/shortage', controller.markOrderItemShortage);
 
+        // Devoluciones post-entrega (G4)
+        router.get('/:id/returns', controller.getOrderReturns);
+        router.post('/:id/returns', controller.registerOrderReturn);
+
         return router;
     }
 }

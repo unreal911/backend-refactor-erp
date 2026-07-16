@@ -17,6 +17,7 @@
             fulfillmentStoreId?: number;
         }> = [],
         public readonly note?: string,
+        public readonly idempotencyKey?: string,
     ) {}
 
     static create(object: { [key: string]: any }): [string | undefined, CreateOrderDto | undefined] {
@@ -33,6 +34,7 @@
             comprobanteTipo,
             items = [],
             note,
+            idempotencyKey,
         } = object;
 
         // Validar tienda origen
@@ -91,6 +93,10 @@
             }
         }
 
+        // Clave de idempotencia opcional (string acotado). Si no es valida se ignora.
+        const idempoRaw = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : undefined;
+        const idempo = idempoRaw && idempoRaw.length > 0 && idempoRaw.length <= 100 ? idempoRaw : undefined;
+
         return [undefined, new CreateOrderDto(
             sourceStoreId,
             fulfillmentStoreId,
@@ -104,6 +110,7 @@
             comprobante,
             items,
             note,
+            idempo,
         )];
     }
 

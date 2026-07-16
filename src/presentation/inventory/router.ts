@@ -12,6 +12,7 @@ export class inventoryRoute {
         router.get('/movements', controller.listMovements);
         router.get('/transfers', controller.listTransfers);
         router.get('/reservations', controller.listReservations);
+        router.get('/reserved-audit', controller.auditReservedStock);
 
         router.post('/movements', controller.createMovement);
         router.post('/transfers', controller.createStockTransfer);

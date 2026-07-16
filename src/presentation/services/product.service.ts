@@ -23,10 +23,18 @@ type MarketplaceColorImageInput = {
     imageFile?: { filename: string; data: string };
 };
 
+// Variante a persistir en el modelo unificado: color/talla opcionales (null = el
+// producto no varia por esa dimension).
+type VariantWriteInput = {
+    colorId: number | null;
+    sizeId: number | null;
+    price: number;
+    isActive?: boolean;
+    imageUrl?: string;
+    imageFile?: { filename: string; data: string };
+};
+
 export class ProductService {
-    private readonly simpleColorName = '__SIN_COLOR__';
-    private readonly simpleSizeName = '__SIN_TALLA__';
-    private readonly simpleColorHex = '#9CA3AF';
     private readonly marketplaceVariantSettingKeyPrefix = 'marketplace_product_variants_';
 
     constructor() { }
@@ -63,9 +71,33 @@ export class ProductService {
      * Se mantiene corto (<=30 chars) para cumplir el código de producto SUNAT
      * y ser apto para etiquetas / códigos de barra.
      */
-    private generateSKU(productName: string, _colorName: string, _sizeName: string, productId: number, colorId: number, sizeId: number): string {
+    private generateSKU(productName: string, _colorName: string, _sizeName: string, productId: number, colorId: number | null, sizeId: number | null): string {
         const abbr = this.skuAbbr(productName);
-        return `${abbr}-${productId.toString().padStart(5, '0')}-${colorId.toString().padStart(3, '0')}-${sizeId.toString().padStart(3, '0')}`;
+        const color = (colorId ?? 0).toString().padStart(3, '0');
+        const size = (sizeId ?? 0).toString().padStart(3, '0');
+        return `${abbr}-${productId.toString().padStart(5, '0')}-${color}-${size}`;
+    }
+
+    // Clave de dimension por producto (coincide con la columna variantKey y el
+    // unique [productId, variantKey]). Dimensiones ausentes = 0.
+    private variantKeyOf(colorId: number | null | undefined, sizeId: number | null | undefined): string {
+        return `${colorId ?? 0}-${sizeId ?? 0}`;
+    }
+
+    // Deteccion de tipo por dimensiones reales (null), no por nombres centinela.
+    private variantIsSimple(variant: any): boolean {
+        return variant?.colorId == null && variant?.sizeId == null;
+    }
+
+    private variantIsSizeOnly(variant: any): boolean {
+        return variant?.colorId == null && variant?.sizeId != null;
+    }
+
+    // Deriva el modo legacy expuesto en la API desde las dimensiones del producto.
+    private deriveVariantMode(hasColor: boolean, hasSize: boolean): 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY' {
+        if (hasColor && hasSize) return 'MATRIX';
+        if (!hasColor && hasSize) return 'SIZE_ONLY';
+        return 'SIMPLE';
     }
 
     /**
@@ -102,54 +134,6 @@ export class ProductService {
         if (sizes.length !== sizeIds.length) {
             throw CustomError.badRequest('Una o más tallas seleccionadas no existen o están inactivas');
         }
-    }
-
-    private async ensureSimpleColor(): Promise<{ id: number; name: string }> {
-        const color = await prisma.color.upsert({
-            where: { name: this.simpleColorName },
-            update: { isActive: false, hex: this.simpleColorHex },
-            create: { name: this.simpleColorName, hex: this.simpleColorHex, isActive: false },
-        });
-
-        return {
-            id: color.id,
-            name: color.name,
-        };
-    }
-
-    private async ensureSimpleSize(): Promise<{ id: number; name: string }> {
-        const size = await prisma.size.upsert({
-            where: { name: this.simpleSizeName },
-            update: { isActive: false },
-            create: { name: this.simpleSizeName, isActive: false },
-        });
-
-        return {
-            id: size.id,
-            name: size.name,
-        };
-    }
-
-    private async ensureSimpleVariantDimensions(): Promise<{ colorId: number; sizeId: number; colorName: string; sizeName: string }> {
-        const [color, size] = await Promise.all([
-            this.ensureSimpleColor(),
-            this.ensureSimpleSize(),
-        ]);
-
-        return {
-            colorId: color.id,
-            sizeId: size.id,
-            colorName: color.name,
-            sizeName: size.name,
-        };
-    }
-
-    private isSimpleVariantByNames(colorName?: string | null, sizeName?: string | null): boolean {
-        return colorName === this.simpleColorName && sizeName === this.simpleSizeName;
-    }
-
-    private isSizeOnlyVariantByNames(colorName?: string | null, sizeName?: string | null): boolean {
-        return colorName === this.simpleColorName && sizeName !== this.simpleSizeName;
     }
 
     private buildMarketplaceVariantSettingKey(productId: number): string {
@@ -265,16 +249,15 @@ export class ProductService {
     }
 
     private mapVariantForResponse(variant: any) {
-        const colorName = variant?.color?.name ?? null;
-        const sizeName = variant?.size?.name ?? null;
-        const isSimpleVariant = this.isSimpleVariantByNames(colorName, sizeName);
+        const isSimpleVariant = this.variantIsSimple(variant);
+        const isSizeOnlyVariant = this.variantIsSizeOnly(variant);
 
         return {
             ...ProductVariantEntity.fromObject(variant),
-            color: (isSimpleVariant || this.isSizeOnlyVariantByNames(colorName, sizeName)) ? null : variant.color,
-            size: isSimpleVariant ? null : variant.size,
+            color: variant?.colorId == null ? null : variant.color,
+            size: variant?.sizeId == null ? null : variant.size,
             isSimpleVariant,
-            isSizeOnlyVariant: this.isSizeOnlyVariantByNames(colorName, sizeName),
+            isSizeOnlyVariant,
         };
     }
 
@@ -283,13 +266,9 @@ export class ProductService {
             return 'MATRIX';
         }
 
-        const allSimple = variants.every((variant: any) => this.isSimpleVariantByNames(variant?.color?.name, variant?.size?.name));
-        if (allSimple) {
-            return 'SIMPLE';
-        }
-
-        const allSizeOnly = variants.every((variant: any) => this.isSizeOnlyVariantByNames(variant?.color?.name, variant?.size?.name));
-        return allSizeOnly ? 'SIZE_ONLY' : 'MATRIX';
+        const hasColor = variants.some((variant: any) => variant?.colorId != null);
+        const hasSize = variants.some((variant: any) => variant?.sizeId != null);
+        return this.deriveVariantMode(hasColor, hasSize);
     }
 
     private buildSyntheticMarketplaceVariantId(baseVariantId: number, colorId: number, sizeId: number): number {
@@ -517,9 +496,9 @@ export class ProductService {
         return urls;
     }
 
-    private async uploadVariantImage(productId: number, variant: { colorId: number; sizeId: number; imageUrl?: string; imageFile?: { filename: string; data: string } }): Promise<string | null> {
+    private async uploadVariantImage(productId: number, variant: { colorId: number | null; sizeId: number | null; imageUrl?: string; imageFile?: { filename: string; data: string } }): Promise<string | null> {
         if (variant.imageFile) {
-            const publicId = `product_${productId}_variant_${variant.colorId}_${variant.sizeId}_${variant.imageFile.filename.replace(/\.[^/.]+$/, '')}`;
+            const publicId = `product_${productId}_variant_${variant.colorId ?? 0}_${variant.sizeId ?? 0}_${variant.imageFile.filename.replace(/\.[^/.]+$/, '')}`;
             return await this.uploadBase64Image(variant.imageFile.data, publicId);
         }
 
@@ -603,36 +582,21 @@ export class ProductService {
             const isSimpleMode = variantMode === 'SIMPLE';
             const isSizeOnlyMode = variantMode === 'SIZE_ONLY';
             const simpleMarketplaceConfig = await this.resolveSimpleMarketplaceConfig(variantMode, colorIds, sizeIds);
-            let variantsToCreate: Array<{
-                colorId: number;
-                sizeId: number;
-                price: number;
-                isActive?: boolean;
-                imageUrl?: string;
-                imageFile?: { filename: string; data: string };
-            }> = [];
+            let variantsToCreate: VariantWriteInput[] = [];
 
             let colorById = new Map<number, string>();
             let sizeById = new Map<number, string>();
 
             if (isSimpleMode) {
-                const simpleDimensions = await this.ensureSimpleVariantDimensions();
                 const baseVariant = variants[0];
 
                 if (!baseVariant) {
                     throw CustomError.badRequest('Debe enviar una variante base para el modo SIMPLE');
                 }
 
-                const simpleVariant: {
-                    colorId: number;
-                    sizeId: number;
-                    price: number;
-                    isActive?: boolean;
-                    imageUrl?: string;
-                    imageFile?: { filename: string; data: string };
-                } = {
-                    colorId: simpleDimensions.colorId,
-                    sizeId: simpleDimensions.sizeId,
+                const simpleVariant: VariantWriteInput = {
+                    colorId: null,
+                    sizeId: null,
                     price: Number(baseVariant.price),
                     isActive: baseVariant.isActive !== false,
                 };
@@ -646,25 +610,13 @@ export class ProductService {
                 }
 
                 variantsToCreate = [simpleVariant];
-                colorById.set(simpleDimensions.colorId, simpleDimensions.colorName);
-                sizeById.set(simpleDimensions.sizeId, simpleDimensions.sizeName);
             } else if (isSizeOnlyMode) {
-                await this.validateSizes(sizeIds);
-
-                const simpleColor = await this.ensureSimpleColor();
                 const uniqueSizeIds = [...new Set(variants.map((variant) => Number(variant.sizeId || 0)).filter((id) => id > 0))];
                 await this.validateSizes(uniqueSizeIds);
 
                 variantsToCreate = variants.map((variant) => {
-                    const sizeOnlyVariant: {
-                        colorId: number;
-                        sizeId: number;
-                        price: number;
-                        isActive?: boolean;
-                        imageUrl?: string;
-                        imageFile?: { filename: string; data: string };
-                    } = {
-                        colorId: simpleColor.id,
+                    const sizeOnlyVariant: VariantWriteInput = {
+                        colorId: null,
                         sizeId: Number(variant.sizeId),
                         price: Number(variant.price),
                         isActive: variant.isActive !== false,
@@ -682,7 +634,6 @@ export class ProductService {
                 });
 
                 const sizeRecords = await prisma.size.findMany({ where: { id: { in: uniqueSizeIds } } });
-                colorById.set(simpleColor.id, simpleColor.name);
                 sizeById = new Map(sizeRecords.map((size) => [size.id, size.name]));
             } else {
                 // Validar que los colores existen
@@ -692,14 +643,7 @@ export class ProductService {
                 await this.validateSizes(sizeIds);
 
                 variantsToCreate = variants.map((variant) => {
-                    const matrixVariant: {
-                        colorId: number;
-                        sizeId: number;
-                        price: number;
-                        isActive?: boolean;
-                        imageUrl?: string;
-                        imageFile?: { filename: string; data: string };
-                    } = {
+                    const matrixVariant: VariantWriteInput = {
                         colorId: Number(variant.colorId),
                         sizeId: Number(variant.sizeId),
                         price: Number(variant.price),
@@ -717,8 +661,8 @@ export class ProductService {
                     return matrixVariant;
                 });
 
-                const uniqueColorIds = [...new Set(variantsToCreate.map((variant) => variant.colorId))];
-                const uniqueSizeIds = [...new Set(variantsToCreate.map((variant) => variant.sizeId))];
+                const uniqueColorIds = [...new Set(variantsToCreate.map((variant) => variant.colorId).filter((id): id is number => id != null))];
+                const uniqueSizeIds = [...new Set(variantsToCreate.map((variant) => variant.sizeId).filter((id): id is number => id != null))];
                 const colorRecords = await prisma.color.findMany({ where: { id: { in: uniqueColorIds } } });
                 const sizeRecords = await prisma.size.findMany({ where: { id: { in: uniqueSizeIds } } });
                 colorById = new Map(colorRecords.map((color) => [color.id, color.name]));
@@ -727,7 +671,7 @@ export class ProductService {
 
             const now = new Date();
 
-            // Crear el producto
+            // Crear el producto (dimensiones explicitas segun el modo)
             const product = await prisma.product.create({
                 data: {
                     name,
@@ -735,6 +679,8 @@ export class ProductService {
                     categoryId,
                     afectacionIgv: afectacionIgv ?? '10',
                     isActive: true,
+                    hasColor: variantMode === 'MATRIX',
+                    hasSize: variantMode !== 'SIMPLE',
                     updatedAt: now,
                 },
             });
@@ -763,14 +709,15 @@ export class ProductService {
             const createdVariants = await Promise.all(
                 variantsToCreate.map(async (variant) => {
                     const imageUrl = await this.uploadVariantImage(product.id, variant);
-                    const colorName = colorById.get(variant.colorId) ?? '';
-                    const sizeName = sizeById.get(variant.sizeId) ?? '';
+                    const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
+                    const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                     return prisma.productVariant.create({
                         data: {
                             sku: this.generateSKU(product.name, colorName, sizeName, product.id, variant.colorId, variant.sizeId),
                             price: new Prisma.Decimal(String(variant.price)),
                             colorId: variant.colorId,
                             sizeId: variant.sizeId,
+                            variantKey: this.variantKeyOf(variant.colorId, variant.sizeId),
                             imageUrl: imageUrl || null,
                             productId: product.id,
                             isActive: variant.isActive !== false,
@@ -1087,10 +1034,8 @@ export class ProductService {
         const mapped = products.map((product) => {
             const realVariants = product.variants.map((variant) => {
                 const stock = stockByVariant.get(variant.id) ?? { stock: 0, reservedStock: 0, availableStock: 0 };
-                const colorName = variant.color?.name ?? '';
-                const sizeName = variant.size?.name ?? '';
-                const isSimpleVariant = this.isSimpleVariantByNames(colorName, sizeName);
-                const isSizeOnlyVariant = this.isSizeOnlyVariantByNames(colorName, sizeName);
+                const isSimpleVariant = this.variantIsSimple(variant);
+                const isSizeOnlyVariant = this.variantIsSizeOnly(variant);
 
                 return {
                     id: variant.id,
@@ -1099,8 +1044,8 @@ export class ProductService {
                     barcode: variant.barcode,
                     price: Number(variant.price || 0),
                     imageUrl: variant.imageUrl,
-                    color: (isSimpleVariant || isSizeOnlyVariant) ? null : variant.color,
-                    size: isSimpleVariant ? null : variant.size,
+                    color: variant.colorId == null ? null : variant.color,
+                    size: variant.sizeId == null ? null : variant.size,
                     availableStock: stock.availableStock,
                     reservedStock: stock.reservedStock,
                     isSimpleVariant,
@@ -1262,10 +1207,8 @@ export class ProductService {
 
         const realVariants = product.variants.map((variant) => {
             const stock = stockByVariant.get(variant.id) ?? { stock: 0, reservedStock: 0, availableStock: 0 };
-            const colorName = variant.color?.name ?? '';
-            const sizeName = variant.size?.name ?? '';
-            const isSimpleVariant = this.isSimpleVariantByNames(colorName, sizeName);
-            const isSizeOnlyVariant = this.isSizeOnlyVariantByNames(colorName, sizeName);
+            const isSimpleVariant = this.variantIsSimple(variant);
+            const isSizeOnlyVariant = this.variantIsSizeOnly(variant);
 
             return {
                 id: variant.id,
@@ -1274,8 +1217,8 @@ export class ProductService {
                 barcode: variant.barcode,
                 price: Number(variant.price || 0),
                 imageUrl: variant.imageUrl,
-                color: (isSimpleVariant || isSizeOnlyVariant) ? null : variant.color,
-                size: isSimpleVariant ? null : variant.size,
+                color: variant.colorId == null ? null : variant.color,
+                size: variant.sizeId == null ? null : variant.size,
                 availableStock: stock.availableStock,
                 reservedStock: stock.reservedStock,
                 isSimpleVariant,
@@ -1397,26 +1340,26 @@ export class ProductService {
     /**
      * Reemplazar las variantes de un producto
      */
-    private async replaceVariants(productId: number, productName: string, variants: Array<{ colorId: number; sizeId: number; price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } }>) {
+    private async replaceVariants(productId: number, productName: string, variants: VariantWriteInput[]) {
         const existingVariants = await prisma.productVariant.findMany({
             where: { productId },
             select: { id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true },
         });
 
-        const incomingMap = new Map<string, { colorId: number; sizeId: number; price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } }>();
+        const incomingMap = new Map<string, VariantWriteInput>();
         for (const variant of variants) {
-            const key = `${variant.colorId}-${variant.sizeId}`;
+            const key = this.variantKeyOf(variant.colorId, variant.sizeId);
             if (incomingMap.has(key)) {
-                throw CustomError.badRequest(`Variante duplicada para colorId=${variant.colorId} y sizeId=${variant.sizeId}`);
+                throw CustomError.badRequest(`Variante duplicada para colorId=${variant.colorId ?? 'null'} y sizeId=${variant.sizeId ?? 'null'}`);
             }
             incomingMap.set(key, variant);
         }
 
-        const existingByKey = new Map(existingVariants.map((variant) => [`${variant.colorId}-${variant.sizeId}`, variant]));
+        const existingByKey = new Map(existingVariants.map((variant) => [this.variantKeyOf(variant.colorId, variant.sizeId), variant]));
         const removedVariantImages: string[] = [];
 
-        const colorIds = [...new Set(variants.map((variant) => variant.colorId))];
-        const sizeIds = [...new Set(variants.map((variant) => variant.sizeId))];
+        const colorIds = [...new Set(variants.map((variant) => variant.colorId).filter((id): id is number => id != null))];
+        const sizeIds = [...new Set(variants.map((variant) => variant.sizeId).filter((id): id is number => id != null))];
         const colorRecords = await prisma.color.findMany({ where: { id: { in: colorIds } } });
         const sizeRecords = await prisma.size.findMany({ where: { id: { in: sizeIds } } });
         const colorById = new Map(colorRecords.map(color => [color.id, color.name]));
@@ -1426,11 +1369,11 @@ export class ProductService {
 
         const savedVariants = await Promise.all(
             variants.map(async variant => {
-                const key = `${variant.colorId}-${variant.sizeId}`;
+                const key = this.variantKeyOf(variant.colorId, variant.sizeId);
                 const existing = existingByKey.get(key);
                 const uploadedImage = await this.uploadVariantImage(productId, variant);
-                const colorName = colorById.get(variant.colorId) ?? '';
-                const sizeName = sizeById.get(variant.sizeId) ?? '';
+                const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
+                const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                 const shouldBeActive = variant.isActive !== false;
 
                 let imageUrlToPersist: string | null = null;
@@ -1456,6 +1399,7 @@ export class ProductService {
                     price: new Prisma.Decimal(String(variant.price)),
                     colorId: variant.colorId,
                     sizeId: variant.sizeId,
+                    variantKey: key,
                     imageUrl: imageUrlToPersist,
                     isActive: shouldBeActive,
                     updatedAt: now,
@@ -1478,7 +1422,7 @@ export class ProductService {
         );
 
         const variantsToDeactivate = existingVariants
-            .filter((existing) => !incomingMap.has(`${existing.colorId}-${existing.sizeId}`) && existing.isActive)
+            .filter((existing) => !incomingMap.has(this.variantKeyOf(existing.colorId, existing.sizeId)) && existing.isActive)
             .map((existing) => existing.id);
 
         if (variantsToDeactivate.length > 0) {
@@ -1502,17 +1446,9 @@ export class ProductService {
         productName: string,
         variant: { price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } },
     ) {
-        const simpleDimensions = await this.ensureSimpleVariantDimensions();
-        const simpleVariant: {
-            colorId: number;
-            sizeId: number;
-            price: number;
-            isActive?: boolean;
-            imageUrl?: string;
-            imageFile?: { filename: string; data: string };
-        } = {
-            colorId: simpleDimensions.colorId,
-            sizeId: simpleDimensions.sizeId,
+        const simpleVariant: VariantWriteInput = {
+            colorId: null,
+            sizeId: null,
             price: Number(variant.price),
             isActive: variant.isActive !== false,
         };
@@ -1533,20 +1469,12 @@ export class ProductService {
         productName: string,
         variants: Array<{ sizeId?: number; price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } }>,
     ) {
-        const simpleColor = await this.ensureSimpleColor();
         const normalizedSizeIds = [...new Set(variants.map((variant) => Number(variant.sizeId || 0)).filter((id) => id > 0))];
         await this.validateSizes(normalizedSizeIds);
 
-        const sizeOnlyVariants = variants.map((variant) => {
-            const mapped: {
-                colorId: number;
-                sizeId: number;
-                price: number;
-                isActive?: boolean;
-                imageUrl?: string;
-                imageFile?: { filename: string; data: string };
-            } = {
-                colorId: simpleColor.id,
+        const sizeOnlyVariants: VariantWriteInput[] = variants.map((variant) => {
+            const mapped: VariantWriteInput = {
+                colorId: null,
                 sizeId: Number(variant.sizeId),
                 price: Number(variant.price),
                 isActive: variant.isActive !== false,
@@ -1658,14 +1586,7 @@ export class ProductService {
                         id,
                         productName,
                         updateData.variants.map((variant) => {
-                            const matrixVariant: {
-                                colorId: number;
-                                sizeId: number;
-                                price: number;
-                                isActive?: boolean;
-                                imageUrl?: string;
-                                imageFile?: { filename: string; data: string };
-                            } = {
+                            const matrixVariant: VariantWriteInput = {
                                 colorId: Number(variant.colorId),
                                 sizeId: Number(variant.sizeId),
                                 price: Number(variant.price),
@@ -1698,6 +1619,9 @@ export class ProductService {
                     categoryId: updateData.categoryId ?? product.categoryId,
                     isActive: updateData.isActive !== undefined ? updateData.isActive : product.isActive,
                     afectacionIgv: updateData.afectacionIgv ?? product.afectacionIgv,
+                    // Dimensiones explicitas derivadas del modo resultante.
+                    hasColor: nextMode === 'MATRIX',
+                    hasSize: nextMode !== 'SIMPLE',
                     updatedAt: new Date(),
                 },
             });

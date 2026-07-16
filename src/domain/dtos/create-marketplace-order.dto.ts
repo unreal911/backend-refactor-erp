@@ -22,6 +22,7 @@ export class CreateMarketplaceOrderDto {
             sizeName?: string;
             displayVariantId?: number;
         }>,
+        public readonly idempotencyKey?: string,
     ) {}
 
     static create(payload: { [key: string]: unknown }): [string | undefined, CreateMarketplaceOrderDto | undefined] {
@@ -131,6 +132,9 @@ export class CreateMarketplaceOrderDto {
             normalizedItems.push(normalizedItem);
         }
 
+        const idempoRaw = typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : undefined;
+        const idempotencyKey = idempoRaw && idempoRaw.length > 0 && idempoRaw.length <= 100 ? idempoRaw : undefined;
+
         return [
             undefined,
             new CreateMarketplaceOrderDto(
@@ -147,6 +151,7 @@ export class CreateMarketplaceOrderDto {
                 paymentMethodId,
                 note,
                 normalizedItems,
+                idempotencyKey,
             ),
         ];
     }

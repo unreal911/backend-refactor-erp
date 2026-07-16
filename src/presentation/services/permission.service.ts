@@ -153,11 +153,11 @@ export class PermissionService {
         roleName: string | null | undefined;
         tokenPermissions?: string[] | null;
     }): Promise<string[]> {
-        const tokenPermissions = this.normalizePermissions(params.tokenPermissions || []);
-        if (tokenPermissions.length > 0) {
-            return tokenPermissions;
-        }
-
+        // A1: resolucion AUTORITATIVA contra la BD. Antes se devolvia el claim
+        // `permissions` del token sin consultar la BD, lo que hacia que revocar un
+        // permiso o cambiar el rol NO surtiera efecto en un usuario activo (el
+        // token se auto-renueva con los permisos viejos). Ahora la BD manda; el
+        // token solo se usa como fallback si las tablas RBAC no estan disponibles.
         try {
             const user = await prisma.user.findUnique({
                 where: { id: params.userId },
@@ -194,6 +194,12 @@ export class PermissionService {
         } catch (error) {
             if (!this.isMissingRbacTables(error)) {
                 throw error;
+            }
+            // RBAC no disponible (bootstrap incompleto): degradar al claim del
+            // token o a los defaults por rol.
+            const tokenPermissions = this.normalizePermissions(params.tokenPermissions || []);
+            if (tokenPermissions.length > 0) {
+                return tokenPermissions;
             }
         }
 

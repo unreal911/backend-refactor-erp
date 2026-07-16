@@ -49,6 +49,12 @@ model Product {
   // Afectacion IGV (catalogo SUNAT 07): 10=Gravado, 20=Exonerado, 30=Inafecto. Default gravado.
   afectacionIgv String @default("10")
 
+  // Dimensiones de variacion del producto (modelo unificado). Reemplazan la
+  // inferencia por centinelas. variantMode se deriva: ambas=MATRIX, solo talla=
+  // SIZE_ONLY, ninguna=SIMPLE.
+  hasColor Boolean @default(true)
+  hasSize  Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -93,15 +99,19 @@ model ProductVariant {
   productId Int
   product   Product @relation(fields: [productId], references: [id])
 
-  // COLOR
+  // COLOR (opcional: null = el producto no varia por color)
 
-  colorId Int
-  color   Color @relation(fields: [colorId], references: [id])
+  colorId Int?
+  color   Color? @relation(fields: [colorId], references: [id])
 
-  // SIZE
+  // SIZE (opcional: null = el producto no varia por talla)
 
-  sizeId Int
-  size   Size @relation(fields: [sizeId], references: [id])
+  sizeId Int?
+  size   Size? @relation(fields: [sizeId], references: [id])
+
+  // Clave de dimension por producto: "{colorId ?? 0}-{sizeId ?? 0}".
+  // Garantiza unicidad aun con dimensiones NULL (que un unique normal no cubre).
+  variantKey String @default("0-0")
 
   // INVENTORY
 
@@ -123,7 +133,7 @@ model ProductVariant {
 
   orderItems OrderItem[]
 
-  @@unique([productId, colorId, sizeId])
+  @@unique([productId, variantKey])
 }
 
 enum InventoryMovementType {
@@ -454,6 +464,10 @@ model Order {
 
   code String @unique
 
+  // Idempotencia: clave enviada por el cliente para deduplicar reintentos/doble-submit.
+  // Nullable + unique (Postgres permite multiples NULL). Sin clave => sin dedupe.
+  idempotencyKey String? @unique
+
   status OrderStatus @default(PENDING)
 
   clientName String?
@@ -514,6 +528,7 @@ model Order {
   pickingSession PickingSession?
   transfer StockTransfer?
   comprobantes Comprobante[]
+  returns OrderReturn[]
 }
 
 model OrderItem {
@@ -523,6 +538,8 @@ model OrderItem {
   reserved Int @default(0)
   picked Int @default(0)
   shortageQuantity Int @default(0)
+  // Devolucion post-entrega (G4): unidades ya devueltas de esta linea (acumulado).
+  returnedQuantity Int @default(0)
 
   unitPrice Decimal @db.Decimal(10, 2)
   subtotal Decimal @db.Decimal(12, 2)
@@ -549,6 +566,54 @@ model OrderItem {
   fulfillmentStore Store? @relation("OrderItemFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
 
   reservations Reservation[]
+  returnItems OrderReturnItem[]
+}
+
+// Devolucion post-entrega (G4). Cabecera: una devolucion parcial o total de un
+// pedido ya DELIVERED. Repone stock a `storeId`; la Nota de Credito SUNAT se
+// emite aparte (paso manual con emitirNota).
+model OrderReturn {
+  id Int @id @default(autoincrement())
+
+  orderId Int
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Tienda a la que vuelve el stock (normalmente fulfillment/source del pedido).
+  storeId Int
+
+  reason String
+  note String?
+
+  // Responsable de registrar la devolucion (FK a User a nivel BD).
+  responsibleUserId Int?
+
+  totalQuantity Int @default(0)
+  totalAmount Decimal @default(0) @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  items OrderReturnItem[]
+
+  @@index([orderId])
+}
+
+model OrderReturnItem {
+  id Int @id @default(autoincrement())
+
+  returnId Int
+  return OrderReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  orderItemId Int
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+
+  // FK a ProductVariant a nivel BD (sin relacion Prisma para acotar el blast radius).
+  variantId Int
+
+  quantity Int
+  unitPrice Decimal @db.Decimal(10, 2)
+  subtotal Decimal @db.Decimal(12, 2)
+
+  @@index([returnId])
 }
 
 model PaymentMethod {

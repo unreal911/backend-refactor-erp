@@ -6,8 +6,8 @@ export class ProductVariantEntity {
         public readonly sku: string,
         public readonly price: number,
         public readonly productId: number,
-        public readonly colorId: number,
-        public readonly sizeId: number,
+        public readonly colorId: number | null,
+        public readonly sizeId: number | null,
         public readonly imageUrl: string | null = null,
         public readonly barcode: string | null = null,
         public readonly isActive: boolean = true,
@@ -40,15 +40,10 @@ export class ProductVariantEntity {
             throw CustomError.badRequest("El ID del producto es requerido");
         }
 
-        const colorId = obj.colorId;
-        if (!colorId || typeof colorId !== 'number') {
-            throw CustomError.badRequest("El ID del color es requerido");
-        }
-
-        const sizeId = obj.sizeId;
-        if (!sizeId || typeof sizeId !== 'number') {
-            throw CustomError.badRequest("El ID de la talla es requerido");
-        }
+        // Dimensiones opcionales (modelo unificado): null = el producto no varia
+        // por esa dimension. Producto unico -> ambas null; solo talla -> colorId null.
+        const colorId = typeof obj.colorId === 'number' ? obj.colorId : null;
+        const sizeId = typeof obj.sizeId === 'number' ? obj.sizeId : null;
 
         const imageUrl = obj.imageUrl || null;
         const barcode = obj.barcode || null;

@@ -101,6 +101,34 @@ describe('OrderService.reserveRemoteStock — variante compartida (producto unic
     expect(result.orderItemId).toBe(903);
     expect(result.quantity).toBe(1);
   });
+
+  // C2 — reserva parcial (allowPartial): el caso "otro usuario ya separo, solo
+  // queda lo que hay". Se pide mas de lo disponible y se reserva lo posible,
+  // devolviendo partial=true + cuanto quedo por reservar (sin lanzar error).
+  it('con allowPartial reserva solo lo disponible y marca partial', async () => {
+    vi.mocked(prisma.order.findUnique).mockResolvedValueOnce(sharedVariantOrder() as never);
+    // Solo 1 disponible (stock 13 - reservado 12). La linea 903 tiene pendiente 2.
+    vi.mocked(prisma.inventory.findUnique).mockResolvedValue({ id: 22, store: { name: 'Tienda X' }, stock: 13, reservedStock: 12 } as never);
+
+    const result = await new OrderService().reserveRemoteStock(1, STORE, VARIANT, 4, undefined, 903, true);
+
+    expect(result.reservedQuantity).toBe(1);
+    expect(result.requestedQuantity).toBe(4);
+    expect(result.partial).toBe(true);
+    // Se creo la reserva por la unidad efectivamente tomada.
+    expect(prisma.reservation.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ quantity: 1, orderItemId: 903 }) }),
+    );
+  });
+
+  // Sin allowPartial se mantiene el contrato estricto: pedir mas del pendiente falla.
+  it('sin allowPartial rechaza si se pide mas del pendiente de la linea', async () => {
+    vi.mocked(prisma.order.findUnique).mockResolvedValueOnce(sharedVariantOrder() as never);
+
+    await expect(
+      new OrderService().reserveRemoteStock(1, STORE, VARIANT, 4, undefined, 903),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
 });
 
 // FIX de la raiz del sintoma: la respuesta de picking ahora usa el reserved REAL por
