@@ -47,7 +47,7 @@ export class AuditLogMiddleware {
                     actorEmail: user?.email ?? null,
                     actorRole: user?.role ?? null,
                     method,
-                    path: originalUrl,
+                    path: this.resolvePath(originalUrl),
                     statusCode: Number(res.statusCode || 0),
                     durationMs: Math.max(0, Date.now() - startedAt),
                     ipAddress: this.resolveIpAddress(req),
@@ -60,6 +60,14 @@ export class AuditLogMiddleware {
 
             return next();
         };
+    }
+
+    // El query string se descarta del path: iría en claro (sin pasar por sanitizeValue)
+    // y podría contener secretos/PII (p. ej. ?phone=&email= del tracking de pedidos).
+    // La query estructurada y ya redactada se persiste aparte en requestQuery.
+    private static resolvePath(originalUrl: string): string {
+        const queryIndex = originalUrl.indexOf('?');
+        return queryIndex >= 0 ? originalUrl.slice(0, queryIndex) : originalUrl;
     }
 
     private static shouldCaptureBody(method: string): boolean {
