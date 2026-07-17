@@ -64,6 +64,7 @@ import {
     buildPendingUnpickRequestMap,
     buildPickingItemContributionMap,
     buildPickingOrderItemDetailMap,
+    getPickingItemUserContribution,
     isActiveSharedResponsible,
     listPickingItemContributionRows,
     listPickingOrderItemDetailRows,
@@ -71,23 +72,21 @@ import {
     listPickingSharedResponsibilityRows,
     listPickingUnpickRequestRows,
     recalculatePickingItemPickedQuantityFromDetails,
+    updatePickingItemUserContribution,
     upsertSharedPickingResponsibility,
 } from "./order-picking.queries";
+import {
+    assertPickableUnderLock,
+    getSystemSettingValue,
+    lockOrderRow,
+} from "./order.queries";
 
 export class OrderService {
     constructor() {}
 
-    private async getSystemSettingValue(key: string, dbClient: any = prisma): Promise<string | null> {
-        const rowsRaw = await dbClient.$queryRaw(
-            Prisma.sql`SELECT "value" FROM "SystemSetting" WHERE "key" = ${key} LIMIT 1`,
-        );
-        const rows = rowsRaw as Array<{ value: string }>;
-        return rows?.[0]?.value ?? null;
-    }
-
     private async isReturnResponsibilityManagementEnabled(dbClient: any = prisma): Promise<boolean> {
         try {
-            const setting = await this.getSystemSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY, dbClient);
+            const setting = await getSystemSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY, dbClient);
             return parseBooleanSetting(setting, true);
         } catch {
             return true;
@@ -96,7 +95,7 @@ export class OrderService {
 
     private async isPickingResponsibilityFlowEnabled(dbClient: any = prisma): Promise<boolean> {
         try {
-            const setting = await this.getSystemSettingValue(PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY, dbClient);
+            const setting = await getSystemSettingValue(PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY, dbClient);
             return parseBooleanSetting(setting, false);
         } catch {
             return false;
@@ -347,93 +346,12 @@ export class OrderService {
         }
     }
 
-    private async getPickingItemUserContribution(
-        orderId: number,
-        pickingItemId: number,
-        userId: number,
-        dbClient: any = prisma,
-    ): Promise<number> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT "quantity"
-                FROM "PickingItemContribution"
-                WHERE "orderId" = ${orderId}
-                  AND "pickingItemId" = ${pickingItemId}
-                  AND "userId" = ${userId}
-                LIMIT 1
-            `,
-        ) as Array<{ quantity: number }>;
-
-        return Math.max(0, Number(rows?.[0]?.quantity || 0));
-    }
-
-    private async updatePickingItemUserContribution(
-        orderId: number,
-        pickingItemId: number,
-        userId: number,
-        deltaQuantity: number,
-        dbClient: any = prisma,
-    ): Promise<number> {
-        const normalizedDelta = Number(deltaQuantity);
-        if (!Number.isFinite(normalizedDelta) || normalizedDelta === 0) {
-            return this.getPickingItemUserContribution(orderId, pickingItemId, userId, dbClient);
-        }
-
-        const existingRows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT "id", "quantity"
-                FROM "PickingItemContribution"
-                WHERE "orderId" = ${orderId}
-                  AND "pickingItemId" = ${pickingItemId}
-                  AND "userId" = ${userId}
-                LIMIT 1
-            `,
-        ) as Array<{ id: number; quantity: number }>;
-
-        if (!existingRows.length) {
-            const initialQuantity = Math.max(0, Math.round(normalizedDelta));
-            if (initialQuantity <= 0) {
-                return 0;
-            }
-            await dbClient.$executeRaw(
-                Prisma.sql`
-                    INSERT INTO "PickingItemContribution" (
-                        "orderId",
-                        "pickingItemId",
-                        "userId",
-                        "quantity"
-                    )
-                    VALUES (
-                        ${orderId},
-                        ${pickingItemId},
-                        ${userId},
-                        ${initialQuantity}
-                    )
-                `,
-            );
-            return initialQuantity;
-        }
-
-        const currentQuantity = Math.max(0, Number(existingRows[0]!.quantity || 0));
-        const nextQuantity = Math.max(0, currentQuantity + Math.round(normalizedDelta));
-        await dbClient.$executeRaw(
-            Prisma.sql`
-                UPDATE "PickingItemContribution"
-                SET "quantity" = ${nextQuantity},
-                    "updatedAt" = CURRENT_TIMESTAMP
-                WHERE "id" = ${existingRows[0]!.id}
-            `,
-        );
-
-        return nextQuantity;
-    }
-
     private async getMarketplacePaymentSettings(dbClient: any = prisma): Promise<MarketplacePaymentSettings> {
         const [enabledRaw, allowedIdsRaw, includeIgvRaw, autoReserveStockRaw] = await Promise.all([
-            this.getSystemSettingValue(MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY, dbClient),
-            this.getSystemSettingValue(MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY, dbClient),
-            this.getSystemSettingValue(MARKETPLACE_INCLUDE_IGV_KEY, dbClient),
-            this.getSystemSettingValue(MARKETPLACE_AUTO_RESERVE_STOCK_KEY, dbClient),
+            getSystemSettingValue(MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY, dbClient),
+            getSystemSettingValue(MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY, dbClient),
+            getSystemSettingValue(MARKETPLACE_INCLUDE_IGV_KEY, dbClient),
+            getSystemSettingValue(MARKETPLACE_AUTO_RESERVE_STOCK_KEY, dbClient),
         ]);
 
         return {
@@ -2833,7 +2751,7 @@ export class OrderService {
             throw CustomError.badRequest('El item no tiene unidades separadas para solicitar unpick');
         }
 
-        const ownContribution = await this.getPickingItemUserContribution(orderId, pickingItemId, actorUserId);
+        const ownContribution = await getPickingItemUserContribution(orderId, pickingItemId, actorUserId);
         const maxRequestable = Math.max(0, currentPickedQuantity - ownContribution);
         if (maxRequestable <= 0) {
             throw CustomError.badRequest(
@@ -3002,7 +2920,7 @@ export class OrderService {
             throw CustomError.badRequest('La cantidad actual separada es menor a la solicitada');
         }
 
-        const requesterContribution = await this.getPickingItemUserContribution(
+        const requesterContribution = await getPickingItemUserContribution(
             orderId,
             Number(requestRow.pickingItemId),
             Number(requestRow.requesterUserId),
@@ -3081,7 +2999,7 @@ export class OrderService {
 
         await prisma.$transaction(async (tx) => {
             for (const reduction of reductionPlan) {
-                await this.updatePickingItemUserContribution(
+                await updatePickingItemUserContribution(
                     orderId,
                     Number(requestRow.pickingItemId),
                     Number(reduction.userId),
@@ -3552,7 +3470,7 @@ export class OrderService {
                     ) as Array<{ quantity: number }>;
                     const totalContributed = Math.max(0, Number(totalContributionRows?.[0]?.quantity || 0));
                     if (totalContributed <= 0) {
-                        await this.updatePickingItemUserContribution(
+                        await updatePickingItemUserContribution(
                             order.id,
                             refreshedPickingItem.id,
                             Number(defaultContributionUserId),
@@ -3580,7 +3498,7 @@ export class OrderService {
                 && Number(defaultContributionUserId || 0) > 0
                 && Number(createdPickingItem.pickedQuantity || 0) > 0
             ) {
-                await this.updatePickingItemUserContribution(
+                await updatePickingItemUserContribution(
                     order.id,
                     createdPickingItem.id,
                     Number(defaultContributionUserId),
@@ -3718,7 +3636,7 @@ export class OrderService {
 
         if (pickingResponsibilityFlowEnabled && rowDelta < 0 && pickingItemId > 0) {
             const reductionQuantity = Math.abs(rowDelta);
-            let ownContribution = await this.getPickingItemUserContribution(orderId, pickingItemId, Number(actorUserId || 0));
+            let ownContribution = await getPickingItemUserContribution(orderId, pickingItemId, Number(actorUserId || 0));
 
             if (ownContribution < reductionQuantity && actorUserId) {
                 const totalContributionRows = await prisma.$queryRaw(
@@ -3733,7 +3651,7 @@ export class OrderService {
 
                 // Compatibilidad: registros legacy sin trazabilidad previa.
                 if (totalContribution <= 0 && currentGroupPickedQuantity > 0) {
-                    ownContribution = await this.updatePickingItemUserContribution(
+                    ownContribution = await updatePickingItemUserContribution(
                         order.id,
                         pickingItemId,
                         Number(actorUserId),
@@ -3758,7 +3676,7 @@ export class OrderService {
             );
 
         await prisma.$transaction(async (tx) => {
-            await this.assertPickableUnderLock(tx, orderId);
+            await assertPickableUnderLock(tx, orderId);
             // Total del grupo ANTES de nuestro write, leido dentro de la tx: base
             // fiable para acreditar la contribucion del actor (no la lectura stale
             // de fuera de la tx, que bajo concurrencia sobre-acreditaria).
@@ -3818,7 +3736,7 @@ export class OrderService {
                 );
                 const groupDelta = nextGroupPickedQuantity - groupBeforeInTx;
                 if (pickingResponsibilityFlowEnabled && actorUserId && groupDelta !== 0) {
-                    await this.updatePickingItemUserContribution(
+                    await updatePickingItemUserContribution(
                         order.id,
                         pickingItemId,
                         Number(actorUserId),
@@ -3924,7 +3842,7 @@ export class OrderService {
 
         if (pickingResponsibilityFlowEnabled && quantityDelta < 0) {
             const reductionQuantity = Math.abs(quantityDelta);
-            let ownContribution = await this.getPickingItemUserContribution(order.id, pickingItemId, Number(actorUserId || 0));
+            let ownContribution = await getPickingItemUserContribution(order.id, pickingItemId, Number(actorUserId || 0));
 
             if (ownContribution < reductionQuantity && actorUserId) {
                 const totalContributionRows = await prisma.$queryRaw(
@@ -3940,7 +3858,7 @@ export class OrderService {
                 // Compatibilidad: si este item viene de datos antiguos sin trazabilidad, tomamos el estado actual
                 // como contribucion del actor para no bloquear la operacion.
                 if (totalContribution <= 0 && currentPickedQuantity > 0) {
-                    ownContribution = await this.updatePickingItemUserContribution(
+                    ownContribution = await updatePickingItemUserContribution(
                         order.id,
                         pickingItemId,
                         Number(actorUserId),
@@ -3957,7 +3875,7 @@ export class OrderService {
         }
 
         await prisma.$transaction(async (tx) => {
-            await this.assertPickableUnderLock(tx, order.id);
+            await assertPickableUnderLock(tx, order.id);
             await tx.pickingItem.update({
                 where: { id: pickingItemId },
                 data: { pickedQuantity },
@@ -4009,7 +3927,7 @@ export class OrderService {
             await recalculatePickingItemPickedQuantityFromDetails(order.id, pickingItemId, tx);
 
             if (pickingResponsibilityFlowEnabled && actorUserId && quantityDelta !== 0) {
-                await this.updatePickingItemUserContribution(
+                await updatePickingItemUserContribution(
                     order.id,
                     pickingItemId,
                     Number(actorUserId),
@@ -4092,7 +4010,7 @@ export class OrderService {
         // podia poner READY sobre un pedido ya CANCELLED/DELIVERED (resucitarlo).
         const pickingSessionId = picking.pickingSession.id;
         await prisma.$transaction(async (tx) => {
-            await this.lockOrderRow(tx, orderId);
+            await lockOrderRow(tx, orderId);
             const locked = await tx.order.findUnique({
                 where: { id: orderId },
                 select: { status: true },
@@ -4209,7 +4127,7 @@ export class OrderService {
         );
 
         await prisma.$transaction(async (tx) => {
-            await this.assertPickableUnderLock(tx, orderId);
+            await assertPickableUnderLock(tx, orderId);
             // Totales por grupo ANTES del write (contribucion exacta del actor).
             const affectedPickingItemIds = Array.from(new Set(
                 pendingRows.map((row) => row.pickingItemId).filter((id) => id > 0),
@@ -4258,7 +4176,7 @@ export class OrderService {
                 const nextGroup = await recalculatePickingItemPickedQuantityFromDetails(orderId, pickingItemId, tx);
                 const delta = nextGroup - (groupBefore.get(pickingItemId) || 0);
                 if (pickingResponsibilityFlowEnabled && actorUserId && delta !== 0) {
-                    await this.updatePickingItemUserContribution(order.id, pickingItemId, Number(actorUserId), delta, tx);
+                    await updatePickingItemUserContribution(order.id, pickingItemId, Number(actorUserId), delta, tx);
                 }
             }
 
@@ -4942,34 +4860,6 @@ export class OrderService {
      * proforma que recalculan totales (agregar/quitar/restaurar linea) se serializan
      * asi entre si, evitando el lost-update por last-writer-wins sobre subtotal/total.
      */
-    private async lockOrderRow(tx: any, orderId: number): Promise<void> {
-        await tx.$executeRaw(
-            Prisma.sql`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`,
-        );
-    }
-
-    // G3: bloquea la fila del pedido y re-valida que siga en un estado que permite
-    // separar (picking). Serializa las escrituras de `picked` contra una
-    // cancelacion/entrega concurrente (que tambien toma el lock), evitando marcar
-    // separada mercaderia de un pedido ya CANCELLED/RETURN_PENDING/DELIVERED.
-    private async assertPickableUnderLock(tx: any, orderId: number): Promise<void> {
-        await this.lockOrderRow(tx, orderId);
-        const locked = await tx.order.findUnique({
-            where: { id: orderId },
-            select: { status: true },
-        });
-        const status = locked?.status as OrderStatusEnum | undefined;
-        const pickable = [
-            OrderStatusEnum.CONFIRMED,
-            OrderStatusEnum.PREPARING,
-            OrderStatusEnum.WAITING_TRANSFER,
-            OrderStatusEnum.READY,
-        ];
-        if (!status || !pickable.includes(status)) {
-            throw CustomError.badRequest('El pedido cambio de estado y no permite actualizar el picking. Refresca e intenta de nuevo.');
-        }
-    }
-
     /**
      * G4: registra una devolucion POST-entrega (parcial por item) de un pedido
      * DELIVERED. Repone stock a la tienda de despacho, acumula `returnedQuantity`
@@ -5000,7 +4890,7 @@ export class OrderService {
         }
 
         await prisma.$transaction(async (tx) => {
-            await this.lockOrderRow(tx, orderId);
+            await lockOrderRow(tx, orderId);
             const order = await tx.order.findUnique({
                 where: { id: orderId },
                 include: { items: true },
@@ -5222,7 +5112,7 @@ export class OrderService {
                 },
             });
             const status = this.assertEcommerceProformaOpen(order, 'agregar productos');
-            await this.lockOrderRow(tx, orderId);
+            await lockOrderRow(tx, orderId);
 
             const variant = await tx.productVariant.findFirst({
                 where: { id: variantId, isActive: true, product: { isActive: true } },
@@ -5337,7 +5227,7 @@ export class OrderService {
         }
 
         const result = await prisma.$transaction(async (tx) => {
-            await this.lockOrderRow(tx, orderId);
+            await lockOrderRow(tx, orderId);
             let removedByName: string | null = null;
             if (userId) {
                 const remover = await tx.user.findUnique({
@@ -5399,7 +5289,7 @@ export class OrderService {
                 },
             });
             const status = this.assertEcommerceProformaOpen(order, 'restaurar productos');
-            await this.lockOrderRow(tx, orderId);
+            await lockOrderRow(tx, orderId);
 
             const target = order.items?.[0];
             if (!target) {

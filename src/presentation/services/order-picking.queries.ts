@@ -322,3 +322,84 @@ export function buildPendingUnpickRequestMap(rows: PickingUnpickRequestRow[]) {
 
     return map;
 }
+
+export async function getPickingItemUserContribution(
+    orderId: number,
+    pickingItemId: number,
+    userId: number,
+    dbClient: any = prisma,
+): Promise<number> {
+    const rows = await dbClient.$queryRaw(
+        Prisma.sql`
+            SELECT "quantity"
+            FROM "PickingItemContribution"
+            WHERE "orderId" = ${orderId}
+              AND "pickingItemId" = ${pickingItemId}
+              AND "userId" = ${userId}
+            LIMIT 1
+        `,
+    ) as Array<{ quantity: number }>;
+
+    return Math.max(0, Number(rows?.[0]?.quantity || 0));
+}
+
+export async function updatePickingItemUserContribution(
+    orderId: number,
+    pickingItemId: number,
+    userId: number,
+    deltaQuantity: number,
+    dbClient: any = prisma,
+): Promise<number> {
+    const normalizedDelta = Number(deltaQuantity);
+    if (!Number.isFinite(normalizedDelta) || normalizedDelta === 0) {
+        return getPickingItemUserContribution(orderId, pickingItemId, userId, dbClient);
+    }
+
+    const existingRows = await dbClient.$queryRaw(
+        Prisma.sql`
+            SELECT "id", "quantity"
+            FROM "PickingItemContribution"
+            WHERE "orderId" = ${orderId}
+              AND "pickingItemId" = ${pickingItemId}
+              AND "userId" = ${userId}
+            LIMIT 1
+        `,
+    ) as Array<{ id: number; quantity: number }>;
+
+    if (!existingRows.length) {
+        const initialQuantity = Math.max(0, Math.round(normalizedDelta));
+        if (initialQuantity <= 0) {
+            return 0;
+        }
+        await dbClient.$executeRaw(
+            Prisma.sql`
+                INSERT INTO "PickingItemContribution" (
+                    "orderId",
+                    "pickingItemId",
+                    "userId",
+                    "quantity"
+                )
+                VALUES (
+                    ${orderId},
+                    ${pickingItemId},
+                    ${userId},
+                    ${initialQuantity}
+                )
+            `,
+        );
+        return initialQuantity;
+    }
+
+    const currentQuantity = Math.max(0, Number(existingRows[0]!.quantity || 0));
+    const nextQuantity = Math.max(0, currentQuantity + Math.round(normalizedDelta));
+    await dbClient.$executeRaw(
+        Prisma.sql`
+            UPDATE "PickingItemContribution"
+            SET "quantity" = ${nextQuantity},
+                "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${existingRows[0]!.id}
+        `,
+    );
+
+    return nextQuantity;
+}
