@@ -62,6 +62,7 @@ import {
 } from "./order-picking.queries";
 import {
     assertPickableUnderLock,
+    lockOrderItemForUpdate,
     lockOrderRow,
 } from "./order.queries";
 import {
@@ -4079,12 +4080,7 @@ export class OrderService {
                 throw CustomError.badRequest('No se encontro el item indicado en el pedido');
             }
 
-            // C6: relee quantity/reserved de la linea con lock de fila. Evita calcular
-            // el faltante sobre un `reserved` stale si otra operacion reserva en paralelo.
-            const lockedItemRows = await tx.$queryRaw<Array<{ quantity: number; reserved: number }>>(
-                Prisma.sql`SELECT "quantity", "reserved" FROM "OrderItem" WHERE "id" = ${targetItem.id} FOR UPDATE`,
-            );
-            const lockedItem = lockedItemRows?.[0];
+            const lockedItem = await lockOrderItemForUpdate(tx, targetItem.id);
             const requestedQuantity = Math.max(0, Number(lockedItem?.quantity ?? targetItem.quantity ?? 0));
             const reservedQuantity = Math.max(0, Number(lockedItem?.reserved ?? targetItem.reserved ?? 0));
             const pendingQuantity = Math.max(0, requestedQuantity - reservedQuantity);
