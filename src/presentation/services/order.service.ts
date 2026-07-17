@@ -77,11 +77,15 @@ import {
     canUserOperatePicking,
     ensurePrimaryPickerCanDelegate,
     findPendingResponsibilityRequestId,
+    findPendingUnpickRequestId,
     getResponsibilityRequestById,
+    getUnpickRequestById,
     insertResponsibilityRequest,
+    insertUnpickRequest,
     isPickingResponsibilityFlowEnabled,
     isReturnResponsibilityManagementEnabled,
     resolveResponsibilityRequestById,
+    resolveUnpickRequestById,
 } from "./order-responsibility.queries";
 import {
     allocateQuantityAcrossOrderItems,
@@ -2161,40 +2165,12 @@ export class OrderService {
             throw CustomError.badRequest(`Solo puedes solicitar hasta ${maxRequestable} und para este item`);
         }
 
-        const existingPending = await prisma.$queryRaw(
-            Prisma.sql`
-                SELECT "id"
-                FROM "PickingUnpickRequest"
-                WHERE "pickingItemId" = ${pickingItemId}
-                  AND "requesterUserId" = ${actorUserId}
-                  AND "status" = 'PENDING'
-                LIMIT 1
-            `,
-        ) as Array<{ id: number }>;
-        if (existingPending.length > 0) {
+        const existingPendingId = await findPendingUnpickRequestId(pickingItemId, actorUserId);
+        if (existingPendingId !== null) {
             throw CustomError.badRequest('Ya tienes una solicitud pendiente para este item');
         }
 
-        await prisma.$executeRaw(
-            Prisma.sql`
-                INSERT INTO "PickingUnpickRequest" (
-                    "orderId",
-                    "pickingItemId",
-                    "requesterUserId",
-                    "quantity",
-                    "status",
-                    "note"
-                )
-                VALUES (
-                    ${orderId},
-                    ${pickingItemId},
-                    ${actorUserId},
-                    ${requestedQuantity},
-                    'PENDING',
-                    ${dto.note ?? null}
-                )
-            `,
-        );
+        await insertUnpickRequest(orderId, pickingItemId, actorUserId, requestedQuantity, dto.note);
 
         return this.getOrderPicking(orderId);
     }
@@ -2215,34 +2191,11 @@ export class OrderService {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
 
-        const requestRows = await prisma.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    "id",
-                    "orderId",
-                    "pickingItemId",
-                    "requesterUserId",
-                    "quantity",
-                    "status"
-                FROM "PickingUnpickRequest"
-                WHERE "id" = ${requestId}
-                  AND "orderId" = ${orderId}
-                LIMIT 1
-            `,
-        ) as Array<{
-            id: number;
-            orderId: number;
-            pickingItemId: number;
-            requesterUserId: number;
-            quantity: number;
-            status: string;
-        }>;
-
-        if (!requestRows.length) {
+        const requestRow = await getUnpickRequestById(orderId, requestId);
+        if (!requestRow) {
             throw CustomError.notFound('No se encontro la solicitud de unpick');
         }
 
-        const requestRow = requestRows[0]!;
         const currentStatus = String(requestRow.status || '').toUpperCase();
         if (currentStatus !== 'PENDING') {
             throw CustomError.badRequest('La solicitud de unpick ya fue resuelta');
@@ -2287,17 +2240,7 @@ export class OrderService {
 
         const action = String(dto.action || '').trim().toUpperCase();
         if (action === 'REJECT') {
-            await prisma.$executeRaw(
-                Prisma.sql`
-                    UPDATE "PickingUnpickRequest"
-                    SET "status" = 'REJECTED',
-                        "note" = COALESCE(${dto.note ?? null}, "note"),
-                        "resolvedByUserId" = ${actorUserId},
-                        "resolvedAt" = CURRENT_TIMESTAMP,
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE "id" = ${requestId}
-                `,
-            );
+            await resolveUnpickRequestById(requestId, 'REJECTED', dto.note, actorUserId);
             return this.getOrderPicking(orderId);
         }
 
@@ -2455,17 +2398,7 @@ export class OrderService {
 
             await recalculatePickingItemPickedQuantityFromDetails(orderId, Number(requestRow.pickingItemId), tx);
 
-            await tx.$executeRaw(
-                Prisma.sql`
-                    UPDATE "PickingUnpickRequest"
-                    SET "status" = 'APPROVED',
-                        "note" = COALESCE(${dto.note ?? null}, "note"),
-                        "resolvedByUserId" = ${actorUserId},
-                        "resolvedAt" = CURRENT_TIMESTAMP,
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE "id" = ${requestId}
-                `,
-            );
+            await resolveUnpickRequestById(requestId, 'APPROVED', dto.note, actorUserId, tx);
         });
 
         await this.syncPickingAndOrderStatus(orderId);

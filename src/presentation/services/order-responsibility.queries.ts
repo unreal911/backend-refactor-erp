@@ -220,6 +220,89 @@ export async function resolveResponsibilityRequestById(
     );
 }
 
+// --- CRUD raw de solicitudes de unpick (PickingUnpickRequest) ---
+
+export interface UnpickRequestRow {
+    id: number;
+    orderId: number;
+    pickingItemId: number;
+    requesterUserId: number;
+    quantity: number;
+    status: string;
+}
+
+export async function findPendingUnpickRequestId(
+    pickingItemId: number,
+    requesterUserId: number,
+    dbClient: any = prisma,
+): Promise<number | null> {
+    const rows = await dbClient.$queryRaw(
+        Prisma.sql`
+            SELECT "id"
+            FROM "PickingUnpickRequest"
+            WHERE "pickingItemId" = ${pickingItemId}
+              AND "requesterUserId" = ${requesterUserId}
+              AND "status" = 'PENDING'
+            LIMIT 1
+        `,
+    ) as Array<{ id: number }>;
+    return rows?.[0]?.id ?? null;
+}
+
+export async function insertUnpickRequest(
+    orderId: number,
+    pickingItemId: number,
+    requesterUserId: number,
+    quantity: number,
+    note: string | null | undefined,
+    dbClient: any = prisma,
+): Promise<void> {
+    await dbClient.$executeRaw(
+        Prisma.sql`
+            INSERT INTO "PickingUnpickRequest" ("orderId", "pickingItemId", "requesterUserId", "quantity", "status", "note")
+            VALUES (${orderId}, ${pickingItemId}, ${requesterUserId}, ${quantity}, 'PENDING', ${note ?? null})
+        `,
+    );
+}
+
+export async function getUnpickRequestById(
+    orderId: number,
+    requestId: number,
+    dbClient: any = prisma,
+): Promise<UnpickRequestRow | null> {
+    const rows = await dbClient.$queryRaw(
+        Prisma.sql`
+            SELECT "id", "orderId", "pickingItemId", "requesterUserId", "quantity", "status"
+            FROM "PickingUnpickRequest"
+            WHERE "id" = ${requestId}
+              AND "orderId" = ${orderId}
+            LIMIT 1
+        `,
+    ) as Array<UnpickRequestRow>;
+    return rows?.[0] ?? null;
+}
+
+// REJECT/APPROVE de una solicitud de unpick (misma forma; note por COALESCE).
+export async function resolveUnpickRequestById(
+    requestId: number,
+    status: 'APPROVED' | 'REJECTED',
+    note: string | null | undefined,
+    resolvedByUserId: number,
+    dbClient: any = prisma,
+): Promise<void> {
+    await dbClient.$executeRaw(
+        Prisma.sql`
+            UPDATE "PickingUnpickRequest"
+            SET "status" = ${status},
+                "note" = COALESCE(${note ?? null}, "note"),
+                "resolvedByUserId" = ${resolvedByUserId},
+                "resolvedAt" = CURRENT_TIMESTAMP,
+                "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${requestId}
+        `,
+    );
+}
+
 // Al cerrar un pedido (CANCELLED/DELIVERED): desactiva responsables compartidos y
 // cancela solicitudes pendientes (responsabilidad y unpick). Corre dentro de la tx.
 export async function cancelPickingArtifactsOnOrderClose(
