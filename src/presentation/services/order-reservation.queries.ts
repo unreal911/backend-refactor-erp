@@ -46,7 +46,8 @@ export async function reserveOrderItemConditional(
 
 /**
  * Revierte un incremento de reservedStock (nunca deja negativo). Se usa cuando
- * la reserva de inventario se aplico pero la de la linea fallo (carrera).
+ * la reserva de inventario se aplico pero la de la linea fallo (carrera), y
+ * tambien al liberar reserva de una linea.
  */
 export async function revertInventoryReservation(tx: any, inventoryId: number, quantity: number): Promise<void> {
     await tx.$executeRaw(
@@ -56,4 +57,50 @@ export async function revertInventoryReservation(tx: any, inventoryId: number, q
             WHERE "id" = ${inventoryId}
         `,
     );
+}
+
+/**
+ * Baja OrderItem.reserved (nunca negativo) y deja la linea en PENDING. Usado al
+ * liberar reserva de la linea.
+ */
+export async function releaseOrderItemReservation(tx: any, orderItemId: number, quantity: number): Promise<void> {
+    await tx.$executeRaw(
+        Prisma.sql`
+            UPDATE "OrderItem"
+            SET "reserved" = GREATEST(0, "reserved" - ${quantity}),
+                "status" = 'PENDING'
+            WHERE "id" = ${orderItemId}
+        `,
+    );
+}
+
+/**
+ * C4: tras liberar, el separado (picked) no puede superar lo que queda reservado.
+ * Recorta picked al nuevo reserved de la linea.
+ */
+export async function clampOrderItemPickedToReserved(tx: any, orderItemId: number): Promise<void> {
+    await tx.$executeRaw(
+        Prisma.sql`
+            UPDATE "OrderItem"
+            SET "picked" = LEAST("picked", "reserved")
+            WHERE "id" = ${orderItemId}
+        `,
+    );
+}
+
+/**
+ * Recorta el detalle de picking de la linea al maximo reservado y devuelve el
+ * pickingItemId afectado (0 si no habia detalle) para recalcular su total.
+ */
+export async function clampPickingDetailToReserved(tx: any, orderItemId: number, maxReserved: number): Promise<number> {
+    const rows = await tx.$queryRaw(
+        Prisma.sql`
+            UPDATE "PickingOrderItemDetail"
+            SET "pickedQuantity" = LEAST("pickedQuantity", ${maxReserved}),
+                "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "orderItemId" = ${orderItemId}
+            RETURNING "pickingItemId"
+        `,
+    ) as Array<{ pickingItemId: number | null }>;
+    return Number(rows?.[0]?.pickingItemId || 0);
 }
