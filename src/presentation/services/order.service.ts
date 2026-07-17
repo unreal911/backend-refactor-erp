@@ -638,45 +638,47 @@ export class OrderService {
             throw error;
         }
 
-        // Comprobante electronico (fuente de verdad): se crea junto con la venta.
-        // Boleta -> BORRADOR para declararse por Resumen Diario.
-        // Factura -> se intenta enviar de una (sendBill); si falla queda BORRADOR/ERROR reintentable.
-        // Nunca bloquea la venta: cualquier error se registra y queda reconciliable via order.comprobanteTipo.
-        if (dto.comprobanteTipo) {
-            try {
-                const cliente = dto.clienteNumDoc
-                    ? {
-                        tipoDoc: dto.clienteTipoDoc ?? undefined,
-                        numDoc: dto.clienteNumDoc,
-                        nombre: dto.clientName ?? undefined,
-                    }
-                    : undefined;
-                const comprobante = await new ComprobanteService().emitirDesdeOrder(order.id, dto.comprobanteTipo, {
-                    cliente,
-                    viaResumen: dto.comprobanteTipo === "BOLETA",
-                });
-                order.comprobante = {
-                    id: comprobante.id,
-                    tipo: comprobante.tipo,
-                    serie: comprobante.serie,
-                    numero: comprobante.numero,
-                    estado: comprobante.estado,
-                };
-            } catch (error) {
-                // La venta NO se bloquea, pero el fallo debe ser visible: los fallos de
-                // envio dejan un Comprobante en ERROR (reconciliable por orderId); los
-                // fallos previos a crear la fila solo tenian este log. Exponemos el
-                // motivo en la respuesta para que el POS avise al operador.
-                const detalle = error instanceof Error ? error.message : String(error);
-                console.error(
-                    `[SUNAT] No se pudo emitir el comprobante de la orden ${order.code}:`,
-                    error,
-                );
-                order.comprobanteError = detalle;
-            }
-        }
+        await this.emitirComprobanteDeVenta(order, dto);
 
         return order;
+    }
+
+    // Emision del comprobante electronico ligado a la venta. NO bloquea la venta:
+    // Boleta -> BORRADOR (se declara por Resumen Diario); Factura -> se intenta enviar
+    // (si falla queda BORRADOR/ERROR reintentable). Los fallos de envio dejan un
+    // Comprobante en ERROR reconciliable por orderId; cualquier fallo se refleja en
+    // order.comprobante / order.comprobanteError para que el POS avise al operador.
+    private async emitirComprobanteDeVenta(order: any, dto: CreateOrderDto): Promise<void> {
+        if (!dto.comprobanteTipo) {
+            return;
+        }
+        try {
+            const cliente = dto.clienteNumDoc
+                ? {
+                    tipoDoc: dto.clienteTipoDoc ?? undefined,
+                    numDoc: dto.clienteNumDoc,
+                    nombre: dto.clientName ?? undefined,
+                }
+                : undefined;
+            const comprobante = await new ComprobanteService().emitirDesdeOrder(order.id, dto.comprobanteTipo, {
+                cliente,
+                viaResumen: dto.comprobanteTipo === "BOLETA",
+            });
+            order.comprobante = {
+                id: comprobante.id,
+                tipo: comprobante.tipo,
+                serie: comprobante.serie,
+                numero: comprobante.numero,
+                estado: comprobante.estado,
+            };
+        } catch (error) {
+            const detalle = error instanceof Error ? error.message : String(error);
+            console.error(
+                `[SUNAT] No se pudo emitir el comprobante de la orden ${order.code}:`,
+                error,
+            );
+            order.comprobanteError = detalle;
+        }
     }
 
     async createMarketplaceOrder(dto: CreateMarketplaceOrderDto) {
