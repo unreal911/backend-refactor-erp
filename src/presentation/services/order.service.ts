@@ -60,6 +60,19 @@ import {
     sanitizeVariantForPresentation,
     upsertMarketplaceGuideItemsInNote,
 } from "./order.helpers";
+import {
+    buildPendingUnpickRequestMap,
+    buildPickingItemContributionMap,
+    buildPickingOrderItemDetailMap,
+    isActiveSharedResponsible,
+    listPickingItemContributionRows,
+    listPickingOrderItemDetailRows,
+    listPickingResponsibilityRequestRows,
+    listPickingSharedResponsibilityRows,
+    listPickingUnpickRequestRows,
+    recalculatePickingItemPickedQuantityFromDetails,
+    upsertSharedPickingResponsibility,
+} from "./order-picking.queries";
 
 export class OrderService {
     constructor() {}
@@ -90,65 +103,6 @@ export class OrderService {
         }
     }
 
-    private async listPickingSharedResponsibilityRows(orderId: number, dbClient: any = prisma): Promise<PickingSharedResponsibilityRow[]> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    psr."id",
-                    psr."orderId",
-                    psr."userId",
-                    psr."assignedByUserId",
-                    psr."source",
-                    psr."note",
-                    psr."createdAt",
-                    psr."updatedAt",
-                    u."firstName" AS "userFirstName",
-                    u."lastName" AS "userLastName",
-                    u."email" AS "userEmail",
-                    assigner."firstName" AS "assignedByFirstName",
-                    assigner."lastName" AS "assignedByLastName",
-                    assigner."email" AS "assignedByEmail"
-                FROM "PickingSharedResponsibility" psr
-                INNER JOIN "User" u ON u."id" = psr."userId"
-                LEFT JOIN "User" assigner ON assigner."id" = psr."assignedByUserId"
-                WHERE psr."orderId" = ${orderId}
-                  AND psr."isActive" = true
-                ORDER BY psr."createdAt" ASC
-            `,
-        );
-        return rows as PickingSharedResponsibilityRow[];
-    }
-
-    private async listPickingResponsibilityRequestRows(orderId: number, dbClient: any = prisma): Promise<PickingResponsibilityRequestRow[]> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    prr."id",
-                    prr."orderId",
-                    prr."requesterUserId",
-                    prr."mode",
-                    prr."status",
-                    prr."note",
-                    prr."resolvedByUserId",
-                    prr."resolvedAt",
-                    prr."createdAt",
-                    prr."updatedAt",
-                    requester."firstName" AS "requesterFirstName",
-                    requester."lastName" AS "requesterLastName",
-                    requester."email" AS "requesterEmail",
-                    resolver."firstName" AS "resolvedByFirstName",
-                    resolver."lastName" AS "resolvedByLastName",
-                    resolver."email" AS "resolvedByEmail"
-                FROM "PickingResponsibilityRequest" prr
-                INNER JOIN "User" requester ON requester."id" = prr."requesterUserId"
-                LEFT JOIN "User" resolver ON resolver."id" = prr."resolvedByUserId"
-                WHERE prr."orderId" = ${orderId}
-                ORDER BY prr."createdAt" DESC
-            `,
-        );
-        return rows as PickingResponsibilityRequestRow[];
-    }
-
     private async buildPickingResponsibilityContext(
         orderId: number,
         primaryResponsibleUser: any | null,
@@ -156,8 +110,8 @@ export class OrderService {
     ): Promise<PickingResponsibilityContext> {
         const enabled = await this.isPickingResponsibilityFlowEnabled(dbClient);
         const [sharedRows, requestRows] = await Promise.all([
-            this.listPickingSharedResponsibilityRows(orderId, dbClient),
-            this.listPickingResponsibilityRequestRows(orderId, dbClient),
+            listPickingSharedResponsibilityRows(orderId, dbClient),
+            listPickingResponsibilityRequestRows(orderId, dbClient),
         ]);
 
         const primaryResponsible = primaryResponsibleUser
@@ -177,20 +131,6 @@ export class OrderService {
         };
     }
 
-    private async isActiveSharedResponsible(orderId: number, userId: number, dbClient: any = prisma): Promise<boolean> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT "id"
-                FROM "PickingSharedResponsibility"
-                WHERE "orderId" = ${orderId}
-                  AND "userId" = ${userId}
-                  AND "isActive" = true
-                LIMIT 1
-            `,
-        ) as Array<{ id: number }>;
-        return rows.length > 0;
-    }
-
     private async canUserOperatePicking(orderId: number, actorUserId: number, primaryResponsibleUserId?: number | null, dbClient: any = prisma): Promise<boolean> {
         const flowEnabled = await this.isPickingResponsibilityFlowEnabled(dbClient);
         if (!flowEnabled) {
@@ -201,7 +141,7 @@ export class OrderService {
             return true;
         }
 
-        return this.isActiveSharedResponsible(orderId, actorUserId, dbClient);
+        return isActiveSharedResponsible(orderId, actorUserId, dbClient);
     }
 
     private async ensurePrimaryPickerCanDelegate(orderId: number, actorUserId: number, dbClient: any = prisma): Promise<any> {
@@ -229,148 +169,6 @@ export class OrderService {
         }
 
         return order;
-    }
-
-    private async upsertSharedPickingResponsibility(
-        orderId: number,
-        userId: number,
-        assignedByUserId: number,
-        source: 'DELEGATION' | 'REQUEST_APPROVAL',
-        note?: string,
-        dbClient: any = prisma,
-    ): Promise<void> {
-        const existingRows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT "id"
-                FROM "PickingSharedResponsibility"
-                WHERE "orderId" = ${orderId}
-                  AND "userId" = ${userId}
-                LIMIT 1
-            `,
-        ) as Array<{ id: number }>;
-
-        if (existingRows.length > 0) {
-            await dbClient.$executeRaw(
-                Prisma.sql`
-                    UPDATE "PickingSharedResponsibility"
-                    SET "isActive" = true,
-                        "assignedByUserId" = ${assignedByUserId},
-                        "source" = ${source},
-                        "note" = ${note ?? null},
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE "id" = ${existingRows[0]!.id}
-                `,
-            );
-            return;
-        }
-
-        await dbClient.$executeRaw(
-            Prisma.sql`
-                INSERT INTO "PickingSharedResponsibility" (
-                    "orderId",
-                    "userId",
-                    "assignedByUserId",
-                    "source",
-                    "note",
-                    "isActive"
-                )
-                VALUES (
-                    ${orderId},
-                    ${userId},
-                    ${assignedByUserId},
-                    ${source},
-                    ${note ?? null},
-                    true
-                )
-            `,
-        );
-    }
-
-    private async listPickingItemContributionRows(orderId: number, dbClient: any = prisma): Promise<PickingItemContributionRow[]> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    pic."id",
-                    pic."orderId",
-                    pic."pickingItemId",
-                    pic."userId",
-                    pic."quantity",
-                    pic."createdAt",
-                    pic."updatedAt",
-                    u."firstName" AS "userFirstName",
-                    u."lastName" AS "userLastName",
-                    u."email" AS "userEmail"
-                FROM "PickingItemContribution" pic
-                INNER JOIN "User" u ON u."id" = pic."userId"
-                WHERE pic."orderId" = ${orderId}
-                  AND pic."quantity" > 0
-                ORDER BY pic."pickingItemId" ASC, pic."createdAt" ASC
-            `,
-        );
-        return rows as PickingItemContributionRow[];
-    }
-
-    private async listPickingUnpickRequestRows(orderId: number, dbClient: any = prisma): Promise<PickingUnpickRequestRow[]> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    pur."id",
-                    pur."orderId",
-                    pur."pickingItemId",
-                    pur."requesterUserId",
-                    pur."quantity",
-                    pur."status",
-                    pur."note",
-                    pur."resolvedByUserId",
-                    pur."resolvedAt",
-                    pur."createdAt",
-                    pur."updatedAt",
-                    requester."firstName" AS "requesterFirstName",
-                    requester."lastName" AS "requesterLastName",
-                    requester."email" AS "requesterEmail",
-                    resolver."firstName" AS "resolvedByFirstName",
-                    resolver."lastName" AS "resolvedByLastName",
-                    resolver."email" AS "resolvedByEmail"
-                FROM "PickingUnpickRequest" pur
-                INNER JOIN "User" requester ON requester."id" = pur."requesterUserId"
-                LEFT JOIN "User" resolver ON resolver."id" = pur."resolvedByUserId"
-                WHERE pur."orderId" = ${orderId}
-                ORDER BY pur."createdAt" DESC
-            `,
-        );
-        return rows as PickingUnpickRequestRow[];
-    }
-
-    private async listPickingOrderItemDetailRows(orderId: number, dbClient: any = prisma): Promise<PickingOrderItemDetailRow[]> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    "id",
-                    "orderId",
-                    "orderItemId",
-                    "pickingItemId",
-                    "variantId",
-                    "pickedQuantity",
-                    "createdAt",
-                    "updatedAt"
-                FROM "PickingOrderItemDetail"
-                WHERE "orderId" = ${orderId}
-                ORDER BY "orderItemId" ASC
-            `,
-        );
-        return rows as PickingOrderItemDetailRow[];
-    }
-
-    private buildPickingOrderItemDetailMap(rows: PickingOrderItemDetailRow[]): Map<number, PickingOrderItemDetailRow> {
-        const map = new Map<number, PickingOrderItemDetailRow>();
-
-        for (const row of rows) {
-            const orderItemId = Number(row?.orderItemId || 0);
-            if (!Number.isInteger(orderItemId) || orderItemId < 1) continue;
-            map.set(orderItemId, row);
-        }
-
-        return map;
     }
 
     private buildFallbackPickedAllocationByOrderItemId(order: any, sessionItems: any[]): Map<number, number> {
@@ -459,8 +257,8 @@ export class OrderService {
         }
 
         const fallbackPickedByOrderItemId = this.buildFallbackPickedAllocationByOrderItemId(order, sessionItems);
-        const existingRows = await this.listPickingOrderItemDetailRows(orderId, dbClient);
-        const existingByOrderItemId = this.buildPickingOrderItemDetailMap(existingRows);
+        const existingRows = await listPickingOrderItemDetailRows(orderId, dbClient);
+        const existingByOrderItemId = buildPickingOrderItemDetailMap(existingRows);
 
         for (const orderItem of orderItems) {
             const orderItemId = Number(orderItem?.id || 0);
@@ -522,8 +320,8 @@ export class OrderService {
             );
         }
 
-        const refreshedRows = await this.listPickingOrderItemDetailRows(orderId, dbClient);
-        return this.buildPickingOrderItemDetailMap(refreshedRows);
+        const refreshedRows = await listPickingOrderItemDetailRows(orderId, dbClient);
+        return buildPickingOrderItemDetailMap(refreshedRows);
     }
 
     private async syncOrderItemsFromPickingOrderItemDetailMap(order: any, detailMap: Map<number, PickingOrderItemDetailRow>, dbClient: any = prisma): Promise<void> {
@@ -547,102 +345,6 @@ export class OrderService {
                 },
             });
         }
-    }
-
-    private async recalculatePickingItemPickedQuantityFromDetails(
-        orderId: number,
-        pickingItemId: number,
-        dbClient: any = prisma,
-    ): Promise<number> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT COALESCE(SUM("pickedQuantity"), 0) AS "pickedQuantity"
-                FROM "PickingOrderItemDetail"
-                WHERE "orderId" = ${orderId}
-                  AND "pickingItemId" = ${pickingItemId}
-            `,
-        ) as Array<{ pickedQuantity: number }>;
-
-        const nextPickedQuantity = Math.max(0, Number(rows?.[0]?.pickedQuantity || 0));
-        await dbClient.pickingItem.update({
-            where: { id: pickingItemId },
-            data: { pickedQuantity: nextPickedQuantity },
-        });
-
-        return nextPickedQuantity;
-    }
-
-    private buildPickingItemContributionMap(rows: PickingItemContributionRow[]) {
-        const map = new Map<number, Array<{
-            id: number;
-            user: { id: number; firstName: string; lastName: string; email: string };
-            quantity: number;
-            createdAt: Date;
-            updatedAt: Date;
-        }>>();
-
-        for (const row of rows) {
-            const pickingItemId = Number(row.pickingItemId || 0);
-            if (!Number.isInteger(pickingItemId) || pickingItemId < 1) continue;
-
-            const entry = {
-                id: Number(row.id),
-                user: {
-                    id: Number(row.userId),
-                    firstName: String(row.userFirstName || ''),
-                    lastName: String(row.userLastName || ''),
-                    email: String(row.userEmail || ''),
-                },
-                quantity: Math.max(0, Number(row.quantity || 0)),
-                createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
-                updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
-            };
-
-            const bucket = map.get(pickingItemId) || [];
-            bucket.push(entry);
-            map.set(pickingItemId, bucket);
-        }
-
-        return map;
-    }
-
-    private buildPendingUnpickRequestMap(rows: PickingUnpickRequestRow[]) {
-        const map = new Map<number, Array<{
-            id: number;
-            pickingItemId: number;
-            requester: { id: number; firstName: string; lastName: string; email: string };
-            quantity: number;
-            note: string | null;
-            createdAt: Date;
-        }>>();
-
-        for (const row of rows) {
-            const status = String(row.status || '').toUpperCase();
-            if (status !== 'PENDING') continue;
-
-            const pickingItemId = Number(row.pickingItemId || 0);
-            if (!Number.isInteger(pickingItemId) || pickingItemId < 1) continue;
-
-            const entry = {
-                id: Number(row.id),
-                pickingItemId,
-                requester: {
-                    id: Number(row.requesterUserId),
-                    firstName: String(row.requesterFirstName || ''),
-                    lastName: String(row.requesterLastName || ''),
-                    email: String(row.requesterEmail || ''),
-                },
-                quantity: Math.max(0, Number(row.quantity || 0)),
-                note: row.note || null,
-                createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
-            };
-
-            const bucket = map.get(pickingItemId) || [];
-            bucket.push(entry);
-            map.set(pickingItemId, bucket);
-        }
-
-        return map;
     }
 
     private async getPickingItemUserContribution(
@@ -2822,7 +2524,7 @@ export class OrderService {
             throw CustomError.badRequest('Ya eres el responsable principal de picking');
         }
 
-        const alreadyShared = await this.isActiveSharedResponsible(orderId, actorUserId);
+        const alreadyShared = await isActiveSharedResponsible(orderId, actorUserId);
         if (alreadyShared) {
             throw CustomError.badRequest('Ya participas como responsable compartido en este picking');
         }
@@ -2932,7 +2634,7 @@ export class OrderService {
             }
 
             await prisma.$transaction(async (tx) => {
-                await this.upsertSharedPickingResponsibility(
+                await upsertSharedPickingResponsibility(
                     orderId,
                     dto.userId,
                     actorUserId,
@@ -3041,7 +2743,7 @@ export class OrderService {
                     `,
                 );
             } else {
-                await this.upsertSharedPickingResponsibility(
+                await upsertSharedPickingResponsibility(
                     orderId,
                     Number(requestRow.requesterUserId),
                     actorUserId,
@@ -3436,7 +3138,7 @@ export class OrderService {
                 );
             }
 
-            await this.recalculatePickingItemPickedQuantityFromDetails(orderId, Number(requestRow.pickingItemId), tx);
+            await recalculatePickingItemPickedQuantityFromDetails(orderId, Number(requestRow.pickingItemId), tx);
 
             await tx.$executeRaw(
                 Prisma.sql`
@@ -3656,12 +3358,12 @@ export class OrderService {
         const pickingSession = order?.pickingSession || null;
         const sessionItems = pickingSession?.items || [];
         const [contributionRows, unpickRequestRows, pickingDetailMap] = await Promise.all([
-            this.listPickingItemContributionRows(orderId),
-            this.listPickingUnpickRequestRows(orderId),
+            listPickingItemContributionRows(orderId),
+            listPickingUnpickRequestRows(orderId),
             this.syncPickingOrderItemDetailsForOrder(order),
         ]);
-        const contributionsByItemId = this.buildPickingItemContributionMap(contributionRows);
-        const pendingUnpickRequestsByItemId = this.buildPendingUnpickRequestMap(unpickRequestRows);
+        const contributionsByItemId = buildPickingItemContributionMap(contributionRows);
+        const pendingUnpickRequestsByItemId = buildPendingUnpickRequestMap(unpickRequestRows);
         const orderItems = Array.isArray(order?.items)
             ? [...order.items].sort((a: any, b: any) => Number(a?.id || 0) - Number(b?.id || 0))
             : [];
@@ -3908,7 +3610,7 @@ export class OrderService {
             );
 
             for (const pickingItemId of uniquePickingItemIds) {
-                await this.recalculatePickingItemPickedQuantityFromDetails(orderId, Number(pickingItemId), prisma);
+                await recalculatePickingItemPickedQuantityFromDetails(orderId, Number(pickingItemId), prisma);
             }
 
             await this.syncOrderItemsFromPickingOrderItemDetailMap(refreshedOrder, detailMap, prisma);
@@ -4104,12 +3806,12 @@ export class OrderService {
                 `,
             );
 
-            const refreshedDetailRows = await this.listPickingOrderItemDetailRows(orderId, tx);
-            const refreshedDetailMap = this.buildPickingOrderItemDetailMap(refreshedDetailRows);
+            const refreshedDetailRows = await listPickingOrderItemDetailRows(orderId, tx);
+            const refreshedDetailMap = buildPickingOrderItemDetailMap(refreshedDetailRows);
             await this.syncOrderItemsFromPickingOrderItemDetailMap(order, refreshedDetailMap, tx);
 
             if (pickingItemId > 0) {
-                const nextGroupPickedQuantity = await this.recalculatePickingItemPickedQuantityFromDetails(
+                const nextGroupPickedQuantity = await recalculatePickingItemPickedQuantityFromDetails(
                     orderId,
                     pickingItemId,
                     tx,
@@ -4304,7 +4006,7 @@ export class OrderService {
                 );
             }
 
-            await this.recalculatePickingItemPickedQuantityFromDetails(order.id, pickingItemId, tx);
+            await recalculatePickingItemPickedQuantityFromDetails(order.id, pickingItemId, tx);
 
             if (pickingResponsibilityFlowEnabled && actorUserId && quantityDelta !== 0) {
                 await this.updatePickingItemUserContribution(
@@ -4548,12 +4250,12 @@ export class OrderService {
                 );
             }
 
-            const refreshedDetailRows = await this.listPickingOrderItemDetailRows(orderId, tx);
-            const refreshedDetailMap = this.buildPickingOrderItemDetailMap(refreshedDetailRows);
+            const refreshedDetailRows = await listPickingOrderItemDetailRows(orderId, tx);
+            const refreshedDetailMap = buildPickingOrderItemDetailMap(refreshedDetailRows);
             await this.syncOrderItemsFromPickingOrderItemDetailMap(order, refreshedDetailMap, tx);
 
             for (const pickingItemId of affectedPickingItemIds) {
-                const nextGroup = await this.recalculatePickingItemPickedQuantityFromDetails(orderId, pickingItemId, tx);
+                const nextGroup = await recalculatePickingItemPickedQuantityFromDetails(orderId, pickingItemId, tx);
                 const delta = nextGroup - (groupBefore.get(pickingItemId) || 0);
                 if (pickingResponsibilityFlowEnabled && actorUserId && delta !== 0) {
                     await this.updatePickingItemUserContribution(order.id, pickingItemId, Number(actorUserId), delta, tx);
@@ -5115,7 +4817,7 @@ export class OrderService {
             );
             const affectedPickingItemId = Number(detailRows?.[0]?.pickingItemId || 0);
             if (affectedPickingItemId > 0) {
-                await this.recalculatePickingItemPickedQuantityFromDetails(orderId, affectedPickingItemId, tx);
+                await recalculatePickingItemPickedQuantityFromDetails(orderId, affectedPickingItemId, tx);
             }
 
             return {
