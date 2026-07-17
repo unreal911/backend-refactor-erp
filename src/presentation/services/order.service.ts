@@ -71,6 +71,9 @@ import {
     resolveMarketplacePaymentMethod,
 } from "./order-payment.queries";
 import {
+    clampOrderItemPickedToReserved,
+    clampPickingDetailToReserved,
+    releaseOrderItemReservation,
     reserveInventoryConditional,
     reserveOrderItemConditional,
     revertInventoryReservation,
@@ -3976,11 +3979,7 @@ export class OrderService {
                 }
                 const previousStock = Number(reservation.inventory?.stock || 0);
 
-                await tx.$executeRaw`
-                    UPDATE "Inventory"
-                    SET "reservedStock" = GREATEST(0, "reservedStock" - ${take})
-                    WHERE "id" = ${reservation.inventoryId}
-                `;
+                await revertInventoryReservation(tx, reservation.inventoryId, take);
 
                 if (take >= reservationQuantity) {
                     await tx.reservation.update({ where: { id: reservation.id }, data: { status: 'RELEASED' } });
@@ -4007,36 +4006,18 @@ export class OrderService {
             if (released <= 0) {
                 throw CustomError.badRequest('No se encontro reserva por liberar para la tienda indicada');
             }
-            await tx.$executeRaw`
-                UPDATE "OrderItem"
-                SET "reserved" = GREATEST(0, "reserved" - ${released}),
-                    "status" = 'PENDING'
-                WHERE "id" = ${targetItem.id}
-            `;
+            await releaseOrderItemReservation(tx, targetItem.id, released);
 
             // C4: al liberar reserva, no puede quedar separado (picked) mas de lo que
             // ahora queda reservado. Se recorta picked del OrderItem, el detalle de
             // picking de la linea, y se recalcula el total del PickingItem asociado.
-            await tx.$executeRaw`
-                UPDATE "OrderItem"
-                SET "picked" = LEAST("picked", "reserved")
-                WHERE "id" = ${targetItem.id}
-            `;
+            await clampOrderItemPickedToReserved(tx, targetItem.id);
             const clampedItem = await tx.orderItem.findUnique({
                 where: { id: targetItem.id },
                 select: { reserved: true },
             });
             const newReserved = Math.max(0, Number(clampedItem?.reserved || 0));
-            const detailRows = await tx.$queryRaw<Array<{ pickingItemId: number | null }>>(
-                Prisma.sql`
-                    UPDATE "PickingOrderItemDetail"
-                    SET "pickedQuantity" = LEAST("pickedQuantity", ${newReserved}),
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE "orderItemId" = ${targetItem.id}
-                    RETURNING "pickingItemId"
-                `,
-            );
-            const affectedPickingItemId = Number(detailRows?.[0]?.pickingItemId || 0);
+            const affectedPickingItemId = await clampPickingDetailToReserved(tx, targetItem.id, newReserved);
             if (affectedPickingItemId > 0) {
                 await recalculatePickingItemPickedQuantityFromDetails(orderId, affectedPickingItemId, tx);
             }
