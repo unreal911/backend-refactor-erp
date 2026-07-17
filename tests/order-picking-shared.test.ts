@@ -18,6 +18,8 @@ import { OrderService } from '../src/presentation/services/order.service';
 import { DelegatePickingResponsibilityDto } from '../src/domain/dtos/delegate-picking-responsibility.dto';
 import { RequestPickingResponsibilityDto } from '../src/domain/dtos/request-picking-responsibility.dto';
 import { ResolvePickingResponsibilityRequestDto } from '../src/domain/dtos/resolve-picking-responsibility-request.dto';
+import { RequestPickingUnpickActionDto } from '../src/domain/dtos/request-picking-unpick-action.dto';
+import { ResolvePickingUnpickActionDto } from '../src/domain/dtos/resolve-picking-unpick-action.dto';
 import { PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY } from '../src/data/system-config-keys';
 import { ensurePickingResponsibilitySchema } from '../src/data/picking-responsibility-bootstrap';
 
@@ -115,6 +117,16 @@ const pickedOf = async (itemId: number) =>
 const pendingRequestId = async (orderId: number): Promise<number> => {
   const rows = await prisma.$queryRaw<Array<{ id: number }>>(
     Prisma.sql`SELECT "id" FROM "PickingResponsibilityRequest" WHERE "orderId" = ${orderId} AND "status" = 'PENDING' ORDER BY "id" DESC LIMIT 1`,
+  );
+  return Number(rows?.[0]?.id || 0);
+};
+
+const pickingItemIdOf = async (orderId: number): Promise<number> =>
+  Number((await prisma.pickingItem.findFirst({ where: { session: { orderId } } }))?.id || 0);
+
+const pendingUnpickId = async (orderId: number): Promise<number> => {
+  const rows = await prisma.$queryRaw<Array<{ id: number }>>(
+    Prisma.sql`SELECT "id" FROM "PickingUnpickRequest" WHERE "orderId" = ${orderId} AND "status" = 'PENDING' ORDER BY "id" DESC LIMIT 1`,
   );
   return Number(rows?.[0]?.id || 0);
 };
@@ -334,5 +346,72 @@ describe('Picking compartido: trazabilidad al restar y concurrencia', () => {
     const picked = await pickedOf(itemId);
     expect(picked).toBe(5);
     expect(picked).toBeLessThanOrEqual(5);
+  }, 30_000);
+});
+
+describe('Picking compartido: solicitud de unpick (retirar unidades de otro)', () => {
+  // Escenario base: A separa 3, B (compartido) separa +2 (total 5). B quiere
+  // retirar unidades separadas por A -> debe SOLICITARLO (no puede restarlas solo).
+  async function seedMixedPicking(svc: OrderService) {
+    const { order, itemId } = await seedPickingOrder(userAId, 5);
+    await grantSharedToB(svc, order.id);
+    await svc.updatePickingOrderItem(order.id, itemId, 3, userAId); // A contribuye 3
+    await svc.updatePickingOrderItem(order.id, itemId, 5, userBId); // B contribuye 2
+    return { order, itemId, pickingItemId: await pickingItemIdOf(order.id) };
+  }
+
+  it('solicitar + APROBAR retira las unidades de otro y baja el separado', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const svc = new OrderService();
+    const { order, itemId, pickingItemId } = await seedMixedPicking(svc);
+
+    // B solicita retirar 3 (las de A). maxRequestable = 5 - contribucionB(2) = 3.
+    const [, reqDto] = RequestPickingUnpickActionDto.create({ quantity: 3 });
+    await svc.requestPickingUnpickAction(order.id, pickingItemId, reqDto!, userBId);
+
+    // A (principal) aprueba -> retira 3 -> separado baja a 2.
+    const [, apprDto] = ResolvePickingUnpickActionDto.create({ action: 'APPROVE' });
+    await svc.resolvePickingUnpickAction(order.id, await pendingUnpickId(order.id), apprDto!, userAId);
+    expect(await pickedOf(itemId)).toBe(2);
+  }, 30_000);
+
+  it('RECHAZAR la solicitud deja el separado intacto', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const svc = new OrderService();
+    const { order, itemId, pickingItemId } = await seedMixedPicking(svc);
+
+    const [, reqDto] = RequestPickingUnpickActionDto.create({ quantity: 3 });
+    await svc.requestPickingUnpickAction(order.id, pickingItemId, reqDto!, userBId);
+
+    const [, rejDto] = ResolvePickingUnpickActionDto.create({ action: 'REJECT' });
+    await svc.resolvePickingUnpickAction(order.id, await pendingUnpickId(order.id), rejDto!, userAId);
+    expect(await pickedOf(itemId)).toBe(5); // sin cambios
+  }, 30_000);
+
+  it('no se puede resolver la propia solicitud', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const svc = new OrderService();
+    const { order, pickingItemId } = await seedMixedPicking(svc);
+
+    const [, reqDto] = RequestPickingUnpickActionDto.create({ quantity: 3 });
+    await svc.requestPickingUnpickAction(order.id, pickingItemId, reqDto!, userBId);
+
+    const [, apprDto] = ResolvePickingUnpickActionDto.create({ action: 'APPROVE' });
+    await expect(
+      svc.resolvePickingUnpickAction(order.id, await pendingUnpickId(order.id), apprDto!, userBId),
+    ).rejects.toThrow(/tu propia solicitud/i);
+  }, 30_000);
+
+  it('no hay solicitud si el item solo tiene unidades propias', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const svc = new OrderService();
+    const { order, itemId } = await seedPickingOrder(userAId, 5);
+    await svc.updatePickingOrderItem(order.id, itemId, 3, userAId); // solo A separo
+    const pickingItemId = await pickingItemIdOf(order.id);
+
+    const [, reqDto] = RequestPickingUnpickActionDto.create({ quantity: 1 });
+    await expect(
+      svc.requestPickingUnpickAction(order.id, pickingItemId, reqDto!, userAId),
+    ).rejects.toThrow(/solo hay unidades separadas por ti/i);
   }, 30_000);
 });
