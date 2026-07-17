@@ -651,10 +651,16 @@ export class OrderService {
                     estado: comprobante.estado,
                 };
             } catch (error) {
+                // La venta NO se bloquea, pero el fallo debe ser visible: los fallos de
+                // envio dejan un Comprobante en ERROR (reconciliable por orderId); los
+                // fallos previos a crear la fila solo tenian este log. Exponemos el
+                // motivo en la respuesta para que el POS avise al operador.
+                const detalle = error instanceof Error ? error.message : String(error);
                 console.error(
                     `[SUNAT] No se pudo emitir el comprobante de la orden ${order.code}:`,
-                    error instanceof Error ? error.message : error,
+                    error,
                 );
+                order.comprobanteError = detalle;
             }
         }
 
