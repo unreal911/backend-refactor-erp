@@ -71,6 +71,11 @@ import {
     resolveMarketplacePaymentMethod,
 } from "./order-payment.queries";
 import {
+    reserveInventoryConditional,
+    reserveOrderItemConditional,
+    revertInventoryReservation,
+} from "./order-reservation.queries";
+import {
     approveResponsibilityRequestsByRequester,
     buildPickingResponsibilityContext,
     cancelPickingArtifactsOnOrderClose,
@@ -3647,12 +3652,7 @@ export class OrderService {
             }
             let inventoryUpdated = 0;
             for (let attempt = 0; attempt < 3 && take > 0; attempt++) {
-                inventoryUpdated = await tx.$executeRaw`
-                    UPDATE "Inventory"
-                    SET "reservedStock" = "reservedStock" + ${take}
-                    WHERE "id" = ${remoteInventory.id}
-                      AND "stock" - "reservedStock" >= ${take}
-                `;
+                inventoryUpdated = await reserveInventoryConditional(tx, remoteInventory.id, take);
                 if (inventoryUpdated > 0) {
                     break;
                 }
@@ -3671,22 +3671,11 @@ export class OrderService {
             // Reserva atomica a nivel item: no permitir reservar mas que lo solicitado.
             // fulfillmentStoreId solo se fija si esta vacio (la 1ra reserva define la
             // tienda primaria; no se pisa en reservas multi-tienda posteriores).
-            const itemUpdated = await tx.$executeRaw`
-                UPDATE "OrderItem"
-                SET "reserved" = "reserved" + ${take},
-                    "status" = 'PENDING',
-                    "fulfillmentStoreId" = COALESCE("fulfillmentStoreId", ${sourceStoreId})
-                WHERE "id" = ${targetItem.id}
-                  AND "reserved" + ${take} <= "quantity"
-            `;
+            const itemUpdated = await reserveOrderItemConditional(tx, targetItem.id, take, sourceStoreId);
             if (itemUpdated === 0) {
                 // El item se lleno por otra operacion: revertir el incremento de
                 // inventario para no dejar reservado colgado.
-                await tx.$executeRaw`
-                    UPDATE "Inventory"
-                    SET "reservedStock" = GREATEST(0, "reservedStock" - ${take})
-                    WHERE "id" = ${remoteInventory.id}
-                `;
+                await revertInventoryReservation(tx, remoteInventory.id, take);
                 throw CustomError.badRequest('El item ya tiene toda su cantidad reservada por otra operacion. Refresca el pedido e intenta de nuevo.');
             }
 
@@ -3835,31 +3824,15 @@ export class OrderService {
                     }
                     const take = Math.min(remaining, available);
 
-                    const inventoryUpdated = await tx.$executeRaw`
-                        UPDATE "Inventory"
-                        SET "reservedStock" = "reservedStock" + ${take}
-                        WHERE "id" = ${inventory.id}
-                          AND "stock" - "reservedStock" >= ${take}
-                    `;
+                    const inventoryUpdated = await reserveInventoryConditional(tx, inventory.id, take);
                     if (inventoryUpdated === 0) {
                         continue;
                     }
 
-                    const itemUpdated = await tx.$executeRaw`
-                        UPDATE "OrderItem"
-                        SET "reserved" = "reserved" + ${take},
-                            "status" = 'PENDING',
-                            "fulfillmentStoreId" = COALESCE("fulfillmentStoreId", ${inventory.storeId})
-                        WHERE "id" = ${item.id}
-                          AND "reserved" + ${take} <= "quantity"
-                    `;
+                    const itemUpdated = await reserveOrderItemConditional(tx, Number(item.id), take, Number(inventory.storeId));
                     if (itemUpdated === 0) {
                         // Revertir el incremento de inventario si la linea ya se lleno.
-                        await tx.$executeRaw`
-                            UPDATE "Inventory"
-                            SET "reservedStock" = GREATEST(0, "reservedStock" - ${take})
-                            WHERE "id" = ${inventory.id}
-                        `;
+                        await revertInventoryReservation(tx, inventory.id, take);
                         continue;
                     }
 
