@@ -24,418 +24,45 @@ import {
     RETURN_RESPONSIBILITY_MANAGEMENT_KEY,
 } from "../../data/system-config-keys";
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
-
-type MarketplacePaymentMethod = {
-    id: number;
-    name: string;
-    code: string;
-    displayOrder: number;
-    isActive: boolean;
-};
-
-type MarketplacePaymentSettings = {
-    enabled: boolean;
-    allowedPaymentMethodIds: number[];
-    includeIgv: boolean;
-    autoReserveStock: boolean;
-};
-
-type MarketplaceGuideItem = {
-    colorName?: string;
-    sizeName?: string;
-    displayVariantId?: number;
-};
-
-type OrderItemReservationSuggestion = {
-    inventoryId: number;
-    storeId: number;
-    storeName: string;
-    storeCode?: string | null;
-    storeType?: string | null;
-    stock: number;
-    reservedStock: number;
-    availableStock: number;
-    recommendedQuantity: number;
-    isCurrentFulfillmentStore: boolean;
-    isSourceStore: boolean;
-};
-
-type PickingSharedResponsibilityRow = {
-    id: number;
-    orderId: number;
-    userId: number;
-    assignedByUserId: number | null;
-    source: string;
-    note: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    userFirstName: string | null;
-    userLastName: string | null;
-    userEmail: string | null;
-    assignedByFirstName: string | null;
-    assignedByLastName: string | null;
-    assignedByEmail: string | null;
-};
-
-type PickingResponsibilityRequestRow = {
-    id: number;
-    orderId: number;
-    requesterUserId: number;
-    mode: string;
-    status: string;
-    note: string | null;
-    resolvedByUserId: number | null;
-    resolvedAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-    requesterFirstName: string | null;
-    requesterLastName: string | null;
-    requesterEmail: string | null;
-    resolvedByFirstName: string | null;
-    resolvedByLastName: string | null;
-    resolvedByEmail: string | null;
-};
-
-type PickingResponsibilityContext = {
-    enabled: boolean;
-    primaryResponsible: {
-        id: number;
-        firstName: string;
-        lastName: string;
-        email: string;
-    } | null;
-    sharedResponsibles: Array<{
-        id: number;
-        user: {
-            id: number;
-            firstName: string;
-            lastName: string;
-            email: string;
-        };
-        source: string;
-        note: string | null;
-        assignedBy: {
-            id: number;
-            firstName: string;
-            lastName: string;
-            email: string;
-        } | null;
-        createdAt: Date;
-        updatedAt: Date;
-    }>;
-    pendingRequests: Array<{
-        id: number;
-        requester: {
-            id: number;
-            firstName: string;
-            lastName: string;
-            email: string;
-        };
-        mode: PickingResponsibilityMode;
-        note: string | null;
-        createdAt: Date;
-    }>;
-};
-
-type PickingItemContributionRow = {
-    id: number;
-    orderId: number;
-    pickingItemId: number;
-    userId: number;
-    quantity: number;
-    createdAt: Date;
-    updatedAt: Date;
-    userFirstName: string | null;
-    userLastName: string | null;
-    userEmail: string | null;
-};
-
-type PickingUnpickRequestRow = {
-    id: number;
-    orderId: number;
-    pickingItemId: number;
-    requesterUserId: number;
-    quantity: number;
-    status: string;
-    note: string | null;
-    resolvedByUserId: number | null;
-    resolvedAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-    requesterFirstName: string | null;
-    requesterLastName: string | null;
-    requesterEmail: string | null;
-    resolvedByFirstName: string | null;
-    resolvedByLastName: string | null;
-    resolvedByEmail: string | null;
-};
-
-type PickingOrderItemDetailRow = {
-    id: number;
-    orderId: number;
-    orderItemId: number;
-    pickingItemId: number | null;
-    variantId: number;
-    pickedQuantity: number;
-    createdAt: Date;
-    updatedAt: Date;
-};
+import {
+    MarketplaceGuideItem,
+    MarketplacePaymentMethod,
+    MarketplacePaymentSettings,
+    OrderItemReservationSuggestion,
+    PickingItemContributionRow,
+    PickingOrderItemDetailRow,
+    PickingResponsibilityContext,
+    PickingResponsibilityRequestRow,
+    PickingSharedResponsibilityRow,
+    PickingUnpickRequestRow,
+} from "./order.types";
+import {
+    applyGuideToVariant,
+    buildMarketplaceNote,
+    buildMarketplaceOrderScopeWhere,
+    decodeMarketplaceGuideItems,
+    detectSalesChannel,
+    encodeMarketplaceGuideItems,
+    isSimpleColorToken,
+    isSimpleSizeToken,
+    mapPickingItemStatus,
+    mapPickingResponsibilityRequestRows,
+    mapPickingSharedResponsibilityRows,
+    mapPublicOrderStatus,
+    mapSimpleUser,
+    normalizePickingResponsibilityMode,
+    normalizePositiveIds,
+    parseBooleanSetting,
+    parseNumberArraySetting,
+    resolvePreferredResponsibleUserId,
+    resolveTaxAmount,
+    sanitizeOrderVariantsForPresentation,
+    sanitizeVariantForPresentation,
+    upsertMarketplaceGuideItemsInNote,
+} from "./order.helpers";
 
 export class OrderService {
-    private readonly simpleColorName = '__SIN_COLOR__';
-    private readonly simpleSizeName = '__SIN_TALLA__';
-    private readonly marketplaceGuideItemsNotePrefix = 'MKT_GUIDE_ITEMS:';
-
     constructor() {}
-
-    private isSimpleColorToken(name?: string | null): boolean {
-        return String(name || '').trim() === this.simpleColorName;
-    }
-
-    private isSimpleSizeToken(name?: string | null): boolean {
-        return String(name || '').trim() === this.simpleSizeName;
-    }
-
-    private sanitizeVariantForPresentation(variant: any) {
-        if (!variant) return variant;
-
-        // Modelo unificado: dimension ausente = colorId/sizeId null. Se toleran
-        // centinelas viejos (__SIN_*) por si quedaran datos sin migrar.
-        const hasColor = variant?.colorId != null && !this.isSimpleColorToken(variant?.color?.name);
-        const hasSize = variant?.sizeId != null && !this.isSimpleSizeToken(variant?.size?.name);
-
-        const normalizedColor = hasColor
-            ? variant.color
-            : { id: 0, name: hasSize ? 'Sin color' : 'Unico' };
-
-        const normalizedSize = hasSize
-            ? variant.size
-            : { id: 0, name: hasColor ? 'Sin talla' : 'Unica' };
-
-        return {
-            ...variant,
-            color: normalizedColor,
-            size: normalizedSize,
-        };
-    }
-
-    private encodeMarketplaceGuideItems(items: Array<{
-        colorName?: string | undefined;
-        sizeName?: string | undefined;
-        displayVariantId?: number | undefined;
-    }>, keepEmpty = false): string | null {
-        const mapped = items
-            .map((item) => ({
-                colorName: typeof item.colorName === 'string' ? item.colorName.trim() : '',
-                sizeName: typeof item.sizeName === 'string' ? item.sizeName.trim() : '',
-                displayVariantId: Number(item.displayVariantId || 0),
-            }));
-        // keepEmpty preserva la alineacion posicional (indice = posicion del item en
-        // el pedido). Sin el, se descartan las entradas vacias (comportamiento original
-        // al crear el pedido desde marketplace, donde todos los items traen guide).
-        const normalized = (keepEmpty ? mapped : mapped.filter((item) => item.colorName.length > 0 || item.sizeName.length > 0))
-            .map((item) => ({
-                colorName: item.colorName || undefined,
-                sizeName: item.sizeName || undefined,
-                displayVariantId: item.displayVariantId > 0 ? item.displayVariantId : undefined,
-            }));
-
-        if (!normalized.length || (!keepEmpty && normalized.every((item) => !item.colorName && !item.sizeName))) {
-            return null;
-        }
-
-        return Buffer.from(JSON.stringify(normalized), 'utf8').toString('base64');
-    }
-
-    /**
-     * Reescribe (o inserta) el token MKT_GUIDE_ITEMS: dentro del `note` del pedido,
-     * conservando el resto de metadatos. Devuelve el note actualizado.
-     */
-    private upsertMarketplaceGuideItemsInNote(note: string | null | undefined, encoded: string | null): string {
-        const parts = String(note || '')
-            .split('|')
-            .map((part) => part.trim())
-            .filter((part) => part.length > 0 && !part.startsWith(this.marketplaceGuideItemsNotePrefix));
-        if (encoded) {
-            parts.push(`${this.marketplaceGuideItemsNotePrefix}${encoded}`);
-        }
-        return parts.join(' | ');
-    }
-
-    private decodeMarketplaceGuideItems(note?: string | null): MarketplaceGuideItem[] {
-        const text = String(note || '').trim();
-        if (!text) return [];
-
-        const parts = text.split('|').map((part) => part.trim());
-        const token = parts.find((part) => part.startsWith(this.marketplaceGuideItemsNotePrefix));
-        if (!token) return [];
-
-        const payload = token.slice(this.marketplaceGuideItemsNotePrefix.length).trim();
-        if (!payload) return [];
-
-        try {
-            const raw = Buffer.from(payload, 'base64').toString('utf8');
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) return [];
-
-            return parsed.map((entry: any) => {
-                const guide: MarketplaceGuideItem = {};
-
-                if (typeof entry?.colorName === 'string' && entry.colorName.trim().length > 0) {
-                    guide.colorName = entry.colorName.trim();
-                }
-
-                if (typeof entry?.sizeName === 'string' && entry.sizeName.trim().length > 0) {
-                    guide.sizeName = entry.sizeName.trim();
-                }
-
-                if (Number.isInteger(Number(entry?.displayVariantId)) && Number(entry?.displayVariantId) > 0) {
-                    guide.displayVariantId = Number(entry.displayVariantId);
-                }
-
-                return guide;
-            });
-        } catch {
-            return [];
-        }
-    }
-
-    private applyGuideToVariant(variant: any, guide: MarketplaceGuideItem | undefined) {
-        if (!variant || !guide) return variant;
-
-        const colorName = String(guide.colorName || '').trim();
-        const sizeName = String(guide.sizeName || '').trim();
-        if (!colorName && !sizeName) {
-            return variant;
-        }
-
-        const color = colorName
-            ? { ...(variant?.color || { id: 0, hex: null }), name: colorName }
-            : variant?.color;
-        const size = sizeName
-            ? { ...(variant?.size || { id: 0 }), name: sizeName }
-            : variant?.size;
-
-        return {
-            ...variant,
-            color,
-            size,
-        };
-    }
-
-    private sanitizeOrderVariantsForPresentation(order: any) {
-        if (!order) return order;
-        const guideItems = this.decodeMarketplaceGuideItems(order?.note);
-
-        const sanitizedItems = Array.isArray(order?.items)
-            ? order.items.map((item: any, index: number) => ({
-                ...item,
-                fulfillmentStoreId: item?.fulfillmentStoreId || order?.fulfillmentStoreId || order?.sourceStoreId || null,
-                fulfillmentStore: item?.fulfillmentStore || order?.fulfillmentStore || order?.sourceStore || null,
-                variant: this.applyGuideToVariant(
-                    this.sanitizeVariantForPresentation(item?.variant),
-                    guideItems[index],
-                ),
-            }))
-            : [];
-
-        const sanitizedPickingSession = order?.pickingSession
-            ? {
-                ...order.pickingSession,
-                items: Array.isArray(order.pickingSession?.items)
-                    ? order.pickingSession.items.map((item: any) => ({
-                        ...item,
-                        variant: this.sanitizeVariantForPresentation(item?.variant),
-                    }))
-                    : [],
-            }
-            : order?.pickingSession;
-
-        const sanitizedReservations = Array.isArray(order?.reservations)
-            ? order.reservations.map((reservation: any) => ({
-                ...reservation,
-                inventory: reservation?.inventory
-                    ? {
-                        ...reservation.inventory,
-                        variant: this.sanitizeVariantForPresentation(reservation.inventory?.variant),
-                    }
-                    : reservation?.inventory,
-            }))
-            : [];
-
-        return {
-            ...order,
-            items: sanitizedItems,
-            pickingSession: sanitizedPickingSession,
-            reservations: sanitizedReservations,
-        };
-    }
-
-    private buildMarketplaceOrderScopeWhere() {
-        return {
-            OR: [
-                { note: { contains: 'CHANNEL: ECOMMERCE', mode: 'insensitive' as const } },
-                { code: { startsWith: 'MK-' } },
-            ],
-        };
-    }
-
-    private resolvePreferredResponsibleUserId(...candidates: Array<number | null | undefined>): number | null {
-        for (const candidate of candidates) {
-            const parsed = Number(candidate);
-            if (Number.isInteger(parsed) && parsed > 0) {
-                return parsed;
-            }
-        }
-
-        return null;
-    }
-
-    private detectSalesChannel(note?: string | null, code?: string | null): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
-        const text = (note || '').toUpperCase();
-        const orderCode = String(code || '').trim().toUpperCase();
-        if (text.includes('POS-') || text.includes('METODO DE PAGO')) {
-            return 'POS';
-        }
-        if (text.includes('ECOMMERCE') || orderCode.startsWith('MK-')) {
-            return 'ECOMMERCE';
-        }
-        return 'INTERNAL';
-    }
-
-    private parseBooleanSetting(rawValue: string | null | undefined, fallback: boolean): boolean {
-        const normalized = String(rawValue || '').trim().toLowerCase();
-        if (!normalized) return fallback;
-        if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') return true;
-        if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') return false;
-        return fallback;
-    }
-
-    private parseNumberArraySetting(rawValue: string | null | undefined): number[] {
-        if (!rawValue) return [];
-
-        try {
-            const parsed = JSON.parse(rawValue);
-            if (Array.isArray(parsed)) {
-                return this.normalizePositiveIds(parsed);
-            }
-        } catch {
-            // fallback CSV mode
-        }
-
-        return this.normalizePositiveIds(String(rawValue).split(','));
-    }
-
-    private normalizePositiveIds(values: unknown[]): number[] {
-        const unique = new Set<number>();
-        for (const value of values) {
-            const parsed = Number(value);
-            if (Number.isInteger(parsed) && parsed > 0) {
-                unique.add(parsed);
-            }
-        }
-        return Array.from(unique.values());
-    }
 
     private async getSystemSettingValue(key: string, dbClient: any = prisma): Promise<string | null> {
         const rowsRaw = await dbClient.$queryRaw(
@@ -448,65 +75,19 @@ export class OrderService {
     private async isReturnResponsibilityManagementEnabled(dbClient: any = prisma): Promise<boolean> {
         try {
             const setting = await this.getSystemSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY, dbClient);
-            return this.parseBooleanSetting(setting, true);
+            return parseBooleanSetting(setting, true);
         } catch {
             return true;
         }
     }
 
-    private normalizePickingResponsibilityMode(rawValue: unknown, fallback: PickingResponsibilityMode = 'SHARED'): PickingResponsibilityMode {
-        const normalized = String(rawValue || '').trim().toUpperCase();
-        return normalized === 'TRANSFER' ? 'TRANSFER' : fallback;
-    }
-
     private async isPickingResponsibilityFlowEnabled(dbClient: any = prisma): Promise<boolean> {
         try {
             const setting = await this.getSystemSettingValue(PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY, dbClient);
-            return this.parseBooleanSetting(setting, false);
+            return parseBooleanSetting(setting, false);
         } catch {
             return false;
         }
-    }
-
-    private mapPickingSharedResponsibilityRows(rows: PickingSharedResponsibilityRow[]) {
-        return rows.map((row) => ({
-            id: Number(row.id),
-            user: {
-                id: Number(row.userId),
-                firstName: String(row.userFirstName || ''),
-                lastName: String(row.userLastName || ''),
-                email: String(row.userEmail || ''),
-            },
-            source: String(row.source || 'DELEGATION'),
-            note: row.note || null,
-            assignedBy: row.assignedByUserId
-                ? {
-                    id: Number(row.assignedByUserId),
-                    firstName: String(row.assignedByFirstName || ''),
-                    lastName: String(row.assignedByLastName || ''),
-                    email: String(row.assignedByEmail || ''),
-                }
-                : null,
-            createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
-            updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
-        }));
-    }
-
-    private mapPickingResponsibilityRequestRows(rows: PickingResponsibilityRequestRow[]) {
-        return rows
-            .filter((row) => String(row.status || '').toUpperCase() === 'PENDING')
-            .map((row) => ({
-                id: Number(row.id),
-                requester: {
-                    id: Number(row.requesterUserId),
-                    firstName: String(row.requesterFirstName || ''),
-                    lastName: String(row.requesterLastName || ''),
-                    email: String(row.requesterEmail || ''),
-                },
-                mode: this.normalizePickingResponsibilityMode(row.mode, 'SHARED'),
-                note: row.note || null,
-                createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
-            }));
     }
 
     private async listPickingSharedResponsibilityRows(orderId: number, dbClient: any = prisma): Promise<PickingSharedResponsibilityRow[]> {
@@ -591,8 +172,8 @@ export class OrderService {
         return {
             enabled,
             primaryResponsible,
-            sharedResponsibles: this.mapPickingSharedResponsibilityRows(sharedRows),
-            pendingRequests: this.mapPickingResponsibilityRequestRows(requestRows),
+            sharedResponsibles: mapPickingSharedResponsibilityRows(sharedRows),
+            pendingRequests: mapPickingResponsibilityRequestRows(requestRows),
         };
     }
 
@@ -1154,18 +735,11 @@ export class OrderService {
         ]);
 
         return {
-            enabled: this.parseBooleanSetting(enabledRaw, false),
-            allowedPaymentMethodIds: this.parseNumberArraySetting(allowedIdsRaw),
-            includeIgv: this.parseBooleanSetting(includeIgvRaw, true),
-            autoReserveStock: this.parseBooleanSetting(autoReserveStockRaw, false),
+            enabled: parseBooleanSetting(enabledRaw, false),
+            allowedPaymentMethodIds: parseNumberArraySetting(allowedIdsRaw),
+            includeIgv: parseBooleanSetting(includeIgvRaw, true),
+            autoReserveStock: parseBooleanSetting(autoReserveStockRaw, false),
         };
-    }
-
-    private resolveTaxAmount(subtotal: number, includeIgv: boolean): number {
-        if (!includeIgv) {
-            return 0;
-        }
-        return subtotal * 0.18;
     }
 
     private async listActivePaymentMethods(dbClient: any = prisma): Promise<MarketplacePaymentMethod[]> {
@@ -1231,78 +805,6 @@ export class OrderService {
         return selectedMethod;
     }
 
-    private mapPublicOrderStatus(status: OrderStatusEnum): 'Proforma recibida' | 'En revision' | 'Esperando stock' | 'Confirmado' | 'En preparacion' | 'Listo para entrega' | 'Entregado' | 'Cancelado pendiente de devolucion' | 'Cancelado' {
-        const map: Record<OrderStatusEnum, 'Proforma recibida' | 'En revision' | 'Esperando stock' | 'Confirmado' | 'En preparacion' | 'Listo para entrega' | 'Entregado' | 'Cancelado pendiente de devolucion' | 'Cancelado'> = {
-            [OrderStatusEnum.PENDING]: 'Proforma recibida',
-            [OrderStatusEnum.CONFIRMED]: 'Confirmado',
-            [OrderStatusEnum.WAITING_TRANSFER]: 'Esperando stock',
-            [OrderStatusEnum.PREPARING]: 'En preparacion',
-            [OrderStatusEnum.READY]: 'Listo para entrega',
-            [OrderStatusEnum.DELIVERED]: 'Entregado',
-            [OrderStatusEnum.RETURN_PENDING]: 'Cancelado pendiente de devolucion',
-            [OrderStatusEnum.CANCELLED]: 'Cancelado',
-            [OrderStatusEnum.WAITING_STOCK]: 'Esperando stock',
-        };
-        return map[status];
-    }
-
-    private mapSimpleUser(user: any) {
-        if (!user) {
-            return null;
-        }
-
-        return {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-        };
-    }
-
-    private buildMarketplaceNote(
-        dto: CreateMarketplaceOrderDto,
-        autoNote?: string,
-        paymentMethod?: MarketplacePaymentMethod | null,
-    ): string {
-        const chunks: string[] = ['CHANNEL: ECOMMERCE', 'ORIGIN: MARKETPLACE'];
-        chunks.push(`DELIVERY_TYPE: ${dto.deliveryType}`);
-
-        if (dto.companyName) chunks.push(`EMPRESA: ${dto.companyName}`);
-        if (dto.ruc) chunks.push(`RUC: ${dto.ruc}`);
-        if (dto.deliveryType === 'DELIVERY') {
-            if (dto.deliveryAddress) chunks.push(`DIRECCION: ${dto.deliveryAddress}`);
-            if (dto.deliveryReference) chunks.push(`REFERENCIA: ${dto.deliveryReference}`);
-        }
-        if (dto.deliveryType === 'PICKUP' && dto.pickupStoreId) {
-            chunks.push(`RECOJO_TIENDA_ID: ${dto.pickupStoreId}`);
-        }
-        if (paymentMethod) {
-            chunks.push(`METODO_PAGO_ID: ${paymentMethod.id}`);
-            chunks.push(`METODO_PAGO: ${paymentMethod.name}`);
-        }
-        const encodedGuideItems = this.encodeMarketplaceGuideItems(
-            (dto.items || []).map((item) => {
-                const guide: { colorName?: string; sizeName?: string; displayVariantId?: number } = {};
-                if (item.colorName) {
-                    guide.colorName = item.colorName;
-                }
-                if (item.sizeName) {
-                    guide.sizeName = item.sizeName;
-                }
-                if (item.displayVariantId && item.displayVariantId > 0) {
-                    guide.displayVariantId = item.displayVariantId;
-                }
-                return guide;
-            }),
-        );
-        if (encodedGuideItems) {
-            chunks.push(`${this.marketplaceGuideItemsNotePrefix}${encodedGuideItems}`);
-        }
-        if (dto.note) chunks.push(`NOTA_CLIENTE: ${dto.note}`);
-        if (autoNote) chunks.push(autoNote);
-
-        return chunks.join(' | ');
-    }
-
     private resolvePickedQuantity(orderItem: any, order?: any): number {
         const pickedFromOrderItem = Math.max(0, Number(orderItem?.picked || 0));
         const orderItemsForVariant = this.getOrderItemsForVariant(order, Number(orderItem?.variantId || 0));
@@ -1319,12 +821,6 @@ export class OrderService {
             (sessionItem: any) => Number(sessionItem.variantId) === Number(orderItem?.variantId),
         );
         return Number(pickedFromSession?.pickedQuantity || 0);
-    }
-
-    private mapPickingItemStatus(pickedQuantity: number, requestedQuantity: number): 'PENDING' | 'PARTIAL' | 'COMPLETED' {
-        if (pickedQuantity <= 0) return 'PENDING';
-        if (pickedQuantity >= requestedQuantity) return 'COMPLETED';
-        return 'PARTIAL';
     }
 
     private getReservedQuantityForVariant(order: any, variantId: number): number {
@@ -1385,7 +881,7 @@ export class OrderService {
                 pickedQuantity,
                 pendingQuantity: pendingPickingQuantity,
                 pendingPickingQuantity,
-                pickingStatus: this.mapPickingItemStatus(pickedQuantity, requestedQuantity),
+                pickingStatus: mapPickingItemStatus(pickedQuantity, requestedQuantity),
                 removed: Boolean(item.removedAt),
             };
         };
@@ -1418,7 +914,7 @@ export class OrderService {
     }
 
     private mapOrderWithPresentationData(order: any) {
-        const sanitizedOrder = this.sanitizeOrderVariantsForPresentation(order);
+        const sanitizedOrder = sanitizeOrderVariantsForPresentation(order);
         const responsible = sanitizedOrder.sellerUser || sanitizedOrder.pickerUser || sanitizedOrder.dispenserUser || null;
         const responsibleRole = sanitizedOrder.sellerUser
             ? 'SELLER'
@@ -1446,7 +942,7 @@ export class OrderService {
 
         const baseMappedOrder = {
             ...sanitizedOrder,
-            salesChannel: this.detectSalesChannel(sanitizedOrder.note, sanitizedOrder.code),
+            salesChannel: detectSalesChannel(sanitizedOrder.note, sanitizedOrder.code),
             primaryResponsible: responsible
                 ? {
                     id: responsible.id,
@@ -1462,9 +958,9 @@ export class OrderService {
                     acceptanceStatus: returnAcceptanceStatus,
                     acceptedAt: sanitizedOrder.returnResponsibilityAcceptedAt
                         || (shouldTreatInitialReturnAsAccepted ? sanitizedOrder.returnRequestedAt || sanitizedOrder.updatedAt || null : null),
-                    cancelledBy: this.mapSimpleUser(returnCancelledByUser),
-                    responsible: this.mapSimpleUser(returnFallbackUser),
-                    delegatedBy: this.mapSimpleUser(sanitizedOrder.returnResponsibilityDelegatedBy),
+                    cancelledBy: mapSimpleUser(returnCancelledByUser),
+                    responsible: mapSimpleUser(returnFallbackUser),
+                    delegatedBy: mapSimpleUser(sanitizedOrder.returnResponsibilityDelegatedBy),
                 }
                 : null,
         };
@@ -1749,7 +1245,7 @@ export class OrderService {
         const orderFulfillmentStoreId = uniqueFulfillmentStoreIds.length === 1
             ? uniqueFulfillmentStoreIds[0] ?? null
             : dto.fulfillmentStoreId ?? null;
-        const isPosOrder = this.detectSalesChannel(dto.note) === 'POS';
+        const isPosOrder = detectSalesChannel(dto.note) === 'POS';
         const hasRemoteFulfillment = resolvedFulfillmentStoreIds.some((storeId) => Number(storeId) !== Number(dto.sourceStoreId));
         const shouldConsumeDirectStock = isPosOrder && !hasRemoteFulfillment;
 
@@ -1781,7 +1277,7 @@ export class OrderService {
         // Calcular totales con el precio validado.
         const subtotal = dto.items.reduce((sum, item) => sum + item.quantity * resolveUnitPrice(item), 0);
         const includeIgv = dto.applyIgv === undefined ? true : dto.applyIgv;
-        const tax = this.resolveTaxAmount(subtotal, includeIgv);
+        const tax = resolveTaxAmount(subtotal, includeIgv);
         const total = subtotal + tax;
 
         // C1+C2: check de stock, creacion de la orden y reservas/decrementos en una
@@ -2121,7 +1617,7 @@ export class OrderService {
                 });
             }
 
-            const tax = this.resolveTaxAmount(subtotal, marketplaceSettings.includeIgv);
+            const tax = resolveTaxAmount(subtotal, marketplaceSettings.includeIgv);
             const total = subtotal + tax;
             const status = OrderStatusEnum.PENDING;
 
@@ -2138,7 +1634,7 @@ export class OrderService {
                     subtotal,
                     tax,
                     total,
-                    note: this.buildMarketplaceNote(
+                    note: buildMarketplaceNote(
                         dto,
                         autoReserveStock
                             ? 'RESERVA: automatica segun stock disponible. Proforma sujeta a validacion interna'
@@ -2277,7 +1773,7 @@ export class OrderService {
         const order = await prisma.order.findFirst({
             where: {
                 code,
-                ...this.buildMarketplaceOrderScopeWhere(),
+                ...buildMarketplaceOrderScopeWhere(),
             },
             include: this.orderDetailInclude,
         });
@@ -2302,7 +1798,7 @@ export class OrderService {
         return {
             code: mapped.code,
             status: mapped.status,
-            publicStatus: this.mapPublicOrderStatus(mapped.status as OrderStatusEnum),
+            publicStatus: mapPublicOrderStatus(mapped.status as OrderStatusEnum),
             createdAt: mapped.createdAt,
             clientName: mapped.clientName,
             clientPhone: mapped.clientPhone,
@@ -2331,7 +1827,7 @@ export class OrderService {
             where: {
                 code: dto.code,
                 clientPhone: dto.phone,
-                ...this.buildMarketplaceOrderScopeWhere(),
+                ...buildMarketplaceOrderScopeWhere(),
             },
             include: this.orderDetailInclude,
         });
@@ -2361,7 +1857,7 @@ export class OrderService {
         return {
             code: mapped.code,
             status: mapped.status,
-            publicStatus: this.mapPublicOrderStatus(mapped.status as OrderStatusEnum),
+            publicStatus: mapPublicOrderStatus(mapped.status as OrderStatusEnum),
             createdAt: mapped.createdAt,
             items,
             hasPending,
@@ -2376,7 +1872,7 @@ export class OrderService {
             where: {
                 clientPhone: dto.phone,
                 ...(dto.email ? { clientEmail: dto.email } : {}),
-                ...this.buildMarketplaceOrderScopeWhere(),
+                ...buildMarketplaceOrderScopeWhere(),
             },
             include: {
                 items: true,
@@ -2414,7 +1910,7 @@ export class OrderService {
             where: {
                 AND: [
                     { OR: fallbackOr },
-                    this.buildMarketplaceOrderScopeWhere(),
+                    buildMarketplaceOrderScopeWhere(),
                 ],
             },
             include: {
@@ -2458,7 +1954,7 @@ export class OrderService {
             return {
                 code: order.code,
                 status: order.status,
-                publicStatus: this.mapPublicOrderStatus(order.status as OrderStatusEnum),
+                publicStatus: mapPublicOrderStatus(order.status as OrderStatusEnum),
                 createdAt: order.createdAt,
                 totals: {
                     subtotal: Number(order.subtotal || 0),
@@ -2549,7 +2045,7 @@ export class OrderService {
     }
 
     private async reserveMarketplaceGuideForConfirmation(order: any, dbClient: any, responsibleUserId?: number | null) {
-        if (this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+        if (detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
             return;
         }
 
@@ -2579,7 +2075,7 @@ export class OrderService {
     }
 
     private async attachReservationSuggestions(order: any, dbClient: any = prisma) {
-        if (!order || this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+        if (!order || detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
             return order;
         }
 
@@ -2874,7 +2370,7 @@ export class OrderService {
         const targetStatus = dto.status as OrderStatusEnum;
         const isEcommerceGuideConfirmationRetry = currentStatus === OrderStatusEnum.CONFIRMED
             && targetStatus === OrderStatusEnum.CONFIRMED
-            && this.detectSalesChannel(order?.note, order?.code) === 'ECOMMERCE'
+            && detectSalesChannel(order?.note, order?.code) === 'ECOMMERCE'
             && !order.reservations.some((reservation: any) => reservation.status === 'ACTIVE');
 
         // Validar transicion de estados
@@ -2937,7 +2433,7 @@ export class OrderService {
             const orderUpdateData: any = { updatedAt: new Date() };
 
             if (pickingResponsibilityFlowEnabled && targetStatus === OrderStatusEnum.CONFIRMED) {
-                const confirmedByUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+                const confirmedByUserId = resolvePreferredResponsibleUserId(responsibleUserId);
                 if (!confirmedByUserId) {
                     throw CustomError.unauthorized('No se pudo identificar al usuario que confirmo el pedido');
                 }
@@ -2988,7 +2484,7 @@ export class OrderService {
             };
 
             if (isCancellationRequest) {
-                const cancelledById = this.resolvePreferredResponsibleUserId(
+                const cancelledById = resolvePreferredResponsibleUserId(
                     responsibleUserId,
                     order.dispenserUserId,
                     order.pickerUserId,
@@ -3034,10 +2530,10 @@ export class OrderService {
             }
 
             if (isReturnCompletion) {
-                let actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+                let actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
 
                 if (returnResponsibilityManagementEnabled) {
-                    const expectedResponsibleUserId = this.resolvePreferredResponsibleUserId(
+                    const expectedResponsibleUserId = resolvePreferredResponsibleUserId(
                         order.returnResponsibleUserId,
                         order.cancelledByUserId,
                         order.dispenserUserId,
@@ -3067,7 +2563,7 @@ export class OrderService {
                         orderUpdateData.returnResponsibilityAcceptedAt = order.returnResponsibilityAcceptedAt || new Date();
                     }
                 } else {
-                    actorUserId = this.resolvePreferredResponsibleUserId(
+                    actorUserId = resolvePreferredResponsibleUserId(
                         responsibleUserId,
                         order.dispenserUserId,
                         order.pickerUserId,
@@ -3182,7 +2678,7 @@ export class OrderService {
                     Prisma.sql`
                         UPDATE "PickingResponsibilityRequest"
                         SET "status" = 'CANCELLED',
-                            "resolvedByUserId" = ${this.resolvePreferredResponsibleUserId(responsibleUserId)},
+                            "resolvedByUserId" = ${resolvePreferredResponsibleUserId(responsibleUserId)},
                             "resolvedAt" = CURRENT_TIMESTAMP,
                             "updatedAt" = CURRENT_TIMESTAMP
                         WHERE "orderId" = ${orderId}
@@ -3194,7 +2690,7 @@ export class OrderService {
                     Prisma.sql`
                         UPDATE "PickingUnpickRequest"
                         SET "status" = 'CANCELLED',
-                            "resolvedByUserId" = ${this.resolvePreferredResponsibleUserId(responsibleUserId)},
+                            "resolvedByUserId" = ${resolvePreferredResponsibleUserId(responsibleUserId)},
                             "resolvedAt" = CURRENT_TIMESTAMP,
                             "updatedAt" = CURRENT_TIMESTAMP
                         WHERE "orderId" = ${orderId}
@@ -3241,7 +2737,7 @@ export class OrderService {
 
         const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
         if (dto.roleType === 'picker' && pickingResponsibilityFlowEnabled) {
-            const actorId = this.resolvePreferredResponsibleUserId(actorUserId);
+            const actorId = resolvePreferredResponsibleUserId(actorUserId);
             if (!actorId) {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que delega picking');
             }
@@ -3297,7 +2793,7 @@ export class OrderService {
     }
 
     async requestPickingResponsibility(orderId: number, dto: RequestPickingResponsibilityDto, requesterUserId?: number) {
-        const actorUserId = this.resolvePreferredResponsibleUserId(requesterUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(requesterUserId);
         if (!actorUserId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que solicita responsabilidad');
         }
@@ -3331,7 +2827,7 @@ export class OrderService {
             throw CustomError.badRequest('Ya participas como responsable compartido en este picking');
         }
 
-        const mode = this.normalizePickingResponsibilityMode(dto.mode, 'SHARED');
+        const mode = normalizePickingResponsibilityMode(dto.mode, 'SHARED');
         const existingPending = await prisma.$queryRaw<Array<{ id: number }>>(
             Prisma.sql`
                 SELECT "id"
@@ -3371,7 +2867,7 @@ export class OrderService {
     }
 
     async delegatePickingResponsibility(orderId: number, dto: DelegatePickingResponsibilityDto, delegatedByUserId?: number) {
-        const actorUserId = this.resolvePreferredResponsibleUserId(delegatedByUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(delegatedByUserId);
         if (!actorUserId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que delega picking');
         }
@@ -3381,7 +2877,7 @@ export class OrderService {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
 
-        const mode = this.normalizePickingResponsibilityMode(dto.mode, 'TRANSFER');
+        const mode = normalizePickingResponsibilityMode(dto.mode, 'TRANSFER');
         const order = await this.ensurePrimaryPickerCanDelegate(orderId, actorUserId);
 
         const targetUser = await prisma.user.findUnique({
@@ -3469,7 +2965,7 @@ export class OrderService {
         dto: ResolvePickingResponsibilityRequestDto,
         resolvedByUserId?: number,
     ) {
-        const actorUserId = this.resolvePreferredResponsibleUserId(resolvedByUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(resolvedByUserId);
         if (!actorUserId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que resuelve la solicitud');
         }
@@ -3521,7 +3017,7 @@ export class OrderService {
             return this.getOrderPicking(orderId);
         }
 
-        const requestMode = this.normalizePickingResponsibilityMode(requestRow.mode, 'SHARED');
+        const requestMode = normalizePickingResponsibilityMode(requestRow.mode, 'SHARED');
         await prisma.$transaction(async (tx) => {
             if (requestMode === 'TRANSFER') {
                 await tx.order.update({
@@ -3576,7 +3072,7 @@ export class OrderService {
         dto: RequestPickingUnpickActionDto,
         requesterUserId?: number,
     ) {
-        const actorUserId = this.resolvePreferredResponsibleUserId(requesterUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(requesterUserId);
         if (!actorUserId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que solicita la accion');
         }
@@ -3692,7 +3188,7 @@ export class OrderService {
         dto: ResolvePickingUnpickActionDto,
         resolvedByUserId?: number,
     ) {
-        const actorUserId = this.resolvePreferredResponsibleUserId(resolvedByUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(resolvedByUserId);
         if (!actorUserId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que resuelve la solicitud');
         }
@@ -3968,7 +3464,7 @@ export class OrderService {
             throw CustomError.badRequest('La gestion de responsabilidades de devolucion esta desactivada en configuracion');
         }
 
-        const actorId = this.resolvePreferredResponsibleUserId(delegatedByUserId);
+        const actorId = resolvePreferredResponsibleUserId(delegatedByUserId);
         if (!actorId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que delega la devolucion');
         }
@@ -3994,7 +3490,7 @@ export class OrderService {
             throw CustomError.badRequest(`El usuario con ID ${dto.userId} no existe`);
         }
 
-        const currentReturnResponsibleId = this.resolvePreferredResponsibleUserId(
+        const currentReturnResponsibleId = resolvePreferredResponsibleUserId(
             order.returnResponsibleUserId,
             order.cancelledByUserId,
             order.dispenserUserId,
@@ -4036,7 +3532,7 @@ export class OrderService {
             throw CustomError.badRequest('La gestion de responsabilidades de devolucion esta desactivada en configuracion');
         }
 
-        const actorId = this.resolvePreferredResponsibleUserId(userId);
+        const actorId = resolvePreferredResponsibleUserId(userId);
         if (!actorId) {
             throw CustomError.unauthorized('No se pudo identificar al usuario que acepta la devolucion');
         }
@@ -4054,7 +3550,7 @@ export class OrderService {
             throw CustomError.badRequest('Solo pedidos en devolucion pendiente permiten aceptar responsabilidad');
         }
 
-        const expectedResponsibleUserId = this.resolvePreferredResponsibleUserId(
+        const expectedResponsibleUserId = resolvePreferredResponsibleUserId(
             order.returnResponsibleUserId,
             order.cancelledByUserId,
             order.dispenserUserId,
@@ -4202,7 +3698,7 @@ export class OrderService {
                 Math.min(maxPickableQuantity, Number(detail?.pickedQuantity ?? item?.picked ?? 0)),
             );
             const missingQuantity = Math.max(0, requestedQuantity - pickedQuantity);
-            const itemStatus = this.mapPickingItemStatus(pickedQuantity, requestedQuantity);
+            const itemStatus = mapPickingItemStatus(pickedQuantity, requestedQuantity);
             const effectivePickingItemId = Number(detail?.pickingItemId || 0) > 0
                 ? Number(detail?.pickingItemId || 0)
                 : (sessionItem?.id ?? null);
@@ -4272,8 +3768,8 @@ export class OrderService {
         }
 
         const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
-        const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
-        const assignedUserId = this.resolvePreferredResponsibleUserId(order.pickerUserId, responsibleUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
+        const assignedUserId = resolvePreferredResponsibleUserId(order.pickerUserId, responsibleUserId);
 
         if (pickingResponsibilityFlowEnabled) {
             if (!actorUserId) {
@@ -4294,17 +3790,17 @@ export class OrderService {
                 orderId: order.id,
                 status: 'IN_PROGRESS',
                 assignedUserId: pickingResponsibilityFlowEnabled
-                    ? this.resolvePreferredResponsibleUserId(order.pickerUserId, actorUserId)
+                    ? resolvePreferredResponsibleUserId(order.pickerUserId, actorUserId)
                     : assignedUserId,
             },
             update: {
                 status: 'IN_PROGRESS',
                 assignedUserId: pickingResponsibilityFlowEnabled
-                    ? this.resolvePreferredResponsibleUserId(order.pickerUserId, actorUserId)
+                    ? resolvePreferredResponsibleUserId(order.pickerUserId, actorUserId)
                     : assignedUserId,
             },
         });
-        const defaultContributionUserId = this.resolvePreferredResponsibleUserId(
+        const defaultContributionUserId = resolvePreferredResponsibleUserId(
             order.pickerUserId,
             session.assignedUserId,
             actorUserId,
@@ -4423,7 +3919,7 @@ export class OrderService {
             data: {
                 status: OrderStatusEnum.PREPARING,
                 pickerUserId: pickingResponsibilityFlowEnabled
-                    ? this.resolvePreferredResponsibleUserId(order.pickerUserId, actorUserId)
+                    ? resolvePreferredResponsibleUserId(order.pickerUserId, actorUserId)
                     : assignedUserId,
             },
         });
@@ -4470,7 +3966,7 @@ export class OrderService {
         }
 
         const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
-        const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
 
         if (pickingResponsibilityFlowEnabled) {
             if (!actorUserId) {
@@ -4552,8 +4048,8 @@ export class OrderService {
         }
 
         const nextPickerUserId = pickingResponsibilityFlowEnabled
-            ? this.resolvePreferredResponsibleUserId(order.pickerUserId, currentSessionAssignedUserId, actorUserId)
-            : this.resolvePreferredResponsibleUserId(
+            ? resolvePreferredResponsibleUserId(order.pickerUserId, currentSessionAssignedUserId, actorUserId)
+            : resolvePreferredResponsibleUserId(
                 order.pickerUserId,
                 currentSessionAssignedUserId,
                 responsibleUserId,
@@ -4683,7 +4179,7 @@ export class OrderService {
 
         const order = pickingItem.session.order;
         const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
-        const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         const validStatuses = [
             OrderStatusEnum.CONFIRMED,
             OrderStatusEnum.PREPARING,
@@ -4822,8 +4318,8 @@ export class OrderService {
         });
 
         const nextPickerUserId = pickingResponsibilityFlowEnabled
-            ? this.resolvePreferredResponsibleUserId(order.pickerUserId, pickingItem.session.assignedUserId, actorUserId)
-            : this.resolvePreferredResponsibleUserId(
+            ? resolvePreferredResponsibleUserId(order.pickerUserId, pickingItem.session.assignedUserId, actorUserId)
+            : resolvePreferredResponsibleUserId(
                 order.pickerUserId,
                 pickingItem.session.assignedUserId,
                 responsibleUserId,
@@ -4867,7 +4363,7 @@ export class OrderService {
         });
 
         const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
-        const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         if (pickingResponsibilityFlowEnabled) {
             if (!actorUserId) {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que finaliza picking');
@@ -4883,7 +4379,7 @@ export class OrderService {
             }
         }
 
-        const assignedUserId = this.resolvePreferredResponsibleUserId(
+        const assignedUserId = resolvePreferredResponsibleUserId(
             picking.pickingSession.assignedUser?.id,
             currentOrder?.pickerUserId,
             pickingResponsibilityFlowEnabled ? actorUserId : responsibleUserId,
@@ -4963,7 +4459,7 @@ export class OrderService {
         }
 
         const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
-        const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         if (pickingResponsibilityFlowEnabled) {
             if (!actorUserId) {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que actualiza picking');
@@ -5004,7 +4500,7 @@ export class OrderService {
 
         const currentSessionAssignedUserId = order.pickingSession.assignedUserId ?? null;
         const pickingSessionId = Number(order.pickingSession.id);
-        const nextPickerUserId = this.resolvePreferredResponsibleUserId(
+        const nextPickerUserId = resolvePreferredResponsibleUserId(
             order.pickerUserId,
             currentSessionAssignedUserId,
             pickingResponsibilityFlowEnabled ? actorUserId : responsibleUserId,
@@ -5253,7 +4749,7 @@ export class OrderService {
                     orderId,
                     // Ledger por tienda por item: se ancla a la linea concreta.
                     orderItemId: targetItem.id,
-                    reservedById: this.resolvePreferredResponsibleUserId(responsibleUserId),
+                    reservedById: resolvePreferredResponsibleUserId(responsibleUserId),
                 },
             });
 
@@ -5264,7 +4760,7 @@ export class OrderService {
                     previousStock: Number(remoteInventory.stock || 0),
                     newStock: Number(remoteInventory.stock || 0),
                     note: `Reserva creada desde detalle de pedido ${order.code}`,
-                    responsibleUserId: this.resolvePreferredResponsibleUserId(responsibleUserId),
+                    responsibleUserId: resolvePreferredResponsibleUserId(responsibleUserId),
                     inventoryId: remoteInventory.id,
                     reservationId: reservation.id,
                 },
@@ -5324,7 +4820,7 @@ export class OrderService {
      * condicional que `reserveRemoteStock` (no sobre-reserva bajo concurrencia).
      */
     async reserveAllRecommendedForOrder(orderId: number, responsibleUserId?: number | null) {
-        const reservedById = this.resolvePreferredResponsibleUserId(responsibleUserId);
+        const reservedById = resolvePreferredResponsibleUserId(responsibleUserId);
         const result = await prisma.$transaction(async (tx) => {
             const order: any = await tx.order.findUnique({
                 where: { id: orderId },
@@ -5520,7 +5016,7 @@ export class OrderService {
                 ? Math.min(Math.round(Number(quantity)), reservedQuantity)
                 : reservedQuantity;
 
-            const actorUserId = this.resolvePreferredResponsibleUserId(responsibleUserId);
+            const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
             const activeReservations = (order.reservations || [])
                 .filter((reservation: any) => (
                     reservation.status === 'ACTIVE'
@@ -5662,7 +5158,7 @@ export class OrderService {
             if (!order) {
                 throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
             }
-            if (this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+            if (detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
                 throw CustomError.badRequest('Solo se puede marcar faltante en proformas ecommerce');
             }
 
@@ -5958,7 +5454,7 @@ export class OrderService {
         );
 
         const settings = await this.getMarketplacePaymentSettings(tx);
-        const tax = this.resolveTaxAmount(subtotal, settings.includeIgv);
+        const tax = resolveTaxAmount(subtotal, settings.includeIgv);
         const total = subtotal + tax;
 
         await tx.order.update({
@@ -5974,7 +5470,7 @@ export class OrderService {
         if (!order) {
             throw CustomError.notFound('El pedido no existe');
         }
-        if (this.detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+        if (detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
             throw CustomError.badRequest(`Solo se puede ${action} en proformas ecommerce`);
         }
         const status = String(order.status || '').toUpperCase();
@@ -6055,7 +5551,7 @@ export class OrderService {
             // posicional: el item nuevo queda al final (mayor id) => ultimo indice.
             if (hasGuide) {
                 const existingItems: Array<{ id: number }> = Array.isArray(order?.items) ? order.items : [];
-                const decoded = this.decodeMarketplaceGuideItems(order?.note);
+                const decoded = decodeMarketplaceGuideItems(order?.note);
                 const rebuilt: Array<{ colorName?: string | undefined; sizeName?: string | undefined; displayVariantId?: number | undefined }> =
                     existingItems.map((_item, index) => decoded[index] || {});
                 rebuilt.push({
@@ -6063,8 +5559,8 @@ export class OrderService {
                     sizeName: guideSizeName || undefined,
                     displayVariantId: guideDisplayVariantId > 0 ? guideDisplayVariantId : undefined,
                 });
-                const encoded = this.encodeMarketplaceGuideItems(rebuilt, true);
-                const nextNote = this.upsertMarketplaceGuideItemsInNote(order?.note, encoded);
+                const encoded = encodeMarketplaceGuideItems(rebuilt, true);
+                const nextNote = upsertMarketplaceGuideItemsInNote(order?.note, encoded);
                 await tx.order.update({ where: { id: orderId }, data: { note: nextNote } });
             }
 
