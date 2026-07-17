@@ -71,11 +71,17 @@ import {
     resolveMarketplacePaymentMethod,
 } from "./order-payment.queries";
 import {
+    approveResponsibilityRequestsByRequester,
     buildPickingResponsibilityContext,
+    cancelPickingArtifactsOnOrderClose,
     canUserOperatePicking,
     ensurePrimaryPickerCanDelegate,
+    findPendingResponsibilityRequestId,
+    getResponsibilityRequestById,
+    insertResponsibilityRequest,
     isPickingResponsibilityFlowEnabled,
     isReturnResponsibilityManagementEnabled,
+    resolveResponsibilityRequestById,
 } from "./order-responsibility.queries";
 import {
     allocateQuantityAcrossOrderItems,
@@ -1786,38 +1792,10 @@ export class OrderService {
             });
 
             if (nextOrderStatus === OrderStatusEnum.CANCELLED || nextOrderStatus === OrderStatusEnum.DELIVERED) {
-                await tx.$executeRaw(
-                    Prisma.sql`
-                        UPDATE "PickingSharedResponsibility"
-                        SET "isActive" = false,
-                            "updatedAt" = CURRENT_TIMESTAMP
-                        WHERE "orderId" = ${orderId}
-                          AND "isActive" = true
-                    `,
-                );
-
-                await tx.$executeRaw(
-                    Prisma.sql`
-                        UPDATE "PickingResponsibilityRequest"
-                        SET "status" = 'CANCELLED',
-                            "resolvedByUserId" = ${resolvePreferredResponsibleUserId(responsibleUserId)},
-                            "resolvedAt" = CURRENT_TIMESTAMP,
-                            "updatedAt" = CURRENT_TIMESTAMP
-                        WHERE "orderId" = ${orderId}
-                          AND "status" = 'PENDING'
-                    `,
-                );
-
-                await tx.$executeRaw(
-                    Prisma.sql`
-                        UPDATE "PickingUnpickRequest"
-                        SET "status" = 'CANCELLED',
-                            "resolvedByUserId" = ${resolvePreferredResponsibleUserId(responsibleUserId)},
-                            "resolvedAt" = CURRENT_TIMESTAMP,
-                            "updatedAt" = CURRENT_TIMESTAMP
-                        WHERE "orderId" = ${orderId}
-                          AND "status" = 'PENDING'
-                    `,
+                await cancelPickingArtifactsOnOrderClose(
+                    orderId,
+                    resolvePreferredResponsibleUserId(responsibleUserId),
+                    tx,
                 );
             }
         });
@@ -1950,40 +1928,12 @@ export class OrderService {
         }
 
         const mode = normalizePickingResponsibilityMode(dto.mode, 'SHARED');
-        const existingPending = await prisma.$queryRaw<Array<{ id: number }>>(
-            Prisma.sql`
-                SELECT "id"
-                FROM "PickingResponsibilityRequest"
-                WHERE "orderId" = ${orderId}
-                  AND "requesterUserId" = ${actorUserId}
-                  AND "status" = 'PENDING'
-                  AND "mode" = ${mode}
-                LIMIT 1
-            `,
-        );
-
-        if (existingPending.length > 0) {
+        const existingPendingId = await findPendingResponsibilityRequestId(orderId, actorUserId, mode);
+        if (existingPendingId !== null) {
             throw CustomError.badRequest('Ya tienes una solicitud pendiente para este pedido');
         }
 
-        await prisma.$executeRaw(
-            Prisma.sql`
-                INSERT INTO "PickingResponsibilityRequest" (
-                    "orderId",
-                    "requesterUserId",
-                    "mode",
-                    "status",
-                    "note"
-                )
-                VALUES (
-                    ${orderId},
-                    ${actorUserId},
-                    ${mode},
-                    'PENDING',
-                    ${dto.note ?? null}
-                )
-            `,
-        );
+        await insertResponsibilityRequest(orderId, actorUserId, mode, dto.note);
 
         return this.getOrderPicking(orderId);
     }
@@ -2035,18 +1985,7 @@ export class OrderService {
                     `,
                 );
 
-                await tx.$executeRaw(
-                    Prisma.sql`
-                        UPDATE "PickingResponsibilityRequest"
-                        SET "status" = 'APPROVED',
-                            "resolvedByUserId" = ${actorUserId},
-                            "resolvedAt" = CURRENT_TIMESTAMP,
-                            "updatedAt" = CURRENT_TIMESTAMP
-                        WHERE "orderId" = ${orderId}
-                          AND "requesterUserId" = ${dto.userId}
-                          AND "status" = 'PENDING'
-                    `,
-                );
+                await approveResponsibilityRequestsByRequester(orderId, dto.userId, actorUserId, tx);
             });
         } else {
             if (Number(order.pickerUserId || 0) === Number(dto.userId)) {
@@ -2063,18 +2002,7 @@ export class OrderService {
                     tx,
                 );
 
-                await tx.$executeRaw(
-                    Prisma.sql`
-                        UPDATE "PickingResponsibilityRequest"
-                        SET "status" = 'APPROVED',
-                            "resolvedByUserId" = ${actorUserId},
-                            "resolvedAt" = CURRENT_TIMESTAMP,
-                            "updatedAt" = CURRENT_TIMESTAMP
-                        WHERE "orderId" = ${orderId}
-                          AND "requesterUserId" = ${dto.userId}
-                          AND "status" = 'PENDING'
-                    `,
-                );
+                await approveResponsibilityRequestsByRequester(orderId, dto.userId, actorUserId, tx);
             });
         }
 
@@ -2099,26 +2027,11 @@ export class OrderService {
 
         await ensurePrimaryPickerCanDelegate(orderId, actorUserId, this.orderDetailInclude);
 
-        const rows = await prisma.$queryRaw<Array<{
-            id: number;
-            requesterUserId: number;
-            mode: string;
-            status: string;
-        }>>(
-            Prisma.sql`
-                SELECT "id", "requesterUserId", "mode", "status"
-                FROM "PickingResponsibilityRequest"
-                WHERE "id" = ${requestId}
-                  AND "orderId" = ${orderId}
-                LIMIT 1
-            `,
-        );
-
-        if (!rows.length) {
+        const requestRow = await getResponsibilityRequestById(orderId, requestId);
+        if (!requestRow) {
             throw CustomError.notFound('No se encontro la solicitud de responsabilidad');
         }
 
-        const requestRow = rows[0]!;
         const currentStatus = String(requestRow.status || '').toUpperCase();
         if (currentStatus !== 'PENDING') {
             throw CustomError.badRequest('La solicitud ya fue resuelta anteriormente');
@@ -2126,16 +2039,7 @@ export class OrderService {
 
         const action = String(dto.action || '').toUpperCase();
         if (action === 'REJECT') {
-            await prisma.$executeRaw(
-                Prisma.sql`
-                    UPDATE "PickingResponsibilityRequest"
-                    SET "status" = 'REJECTED',
-                        "resolvedByUserId" = ${actorUserId},
-                        "resolvedAt" = CURRENT_TIMESTAMP,
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE "id" = ${requestId}
-                `,
-            );
+            await resolveResponsibilityRequestById(requestId, 'REJECTED', actorUserId);
             return this.getOrderPicking(orderId);
         }
 
@@ -2173,16 +2077,7 @@ export class OrderService {
                 );
             }
 
-            await tx.$executeRaw(
-                Prisma.sql`
-                    UPDATE "PickingResponsibilityRequest"
-                    SET "status" = 'APPROVED',
-                        "resolvedByUserId" = ${actorUserId},
-                        "resolvedAt" = CURRENT_TIMESTAMP,
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE "id" = ${requestId}
-                `,
-            );
+            await resolveResponsibilityRequestById(requestId, 'APPROVED', actorUserId, tx);
         });
 
         return this.getOrderPicking(orderId);
