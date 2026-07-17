@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
+import { isReturnResponsibilityManagementEnabled } from '../src/presentation/services/order-responsibility.queries';
 import { InventoryService } from '../src/presentation/services/inventory.service';
 import { ensureInventoryIntegritySchema } from '../src/data/inventory-integrity-bootstrap';
 
@@ -506,7 +507,7 @@ describe('Concurrencia real contra Postgres', () => {
 
     // Requiere el flujo de responsabilidad de devolucion activo (default true).
     // Si estuviera desactivado, no hay responsable que trazar -> se omite.
-    const flowEnabled = await (new OrderService() as any).isReturnResponsibilityManagementEnabled();
+    const flowEnabled = await isReturnResponsibilityManagementEnabled();
     if (!flowEnabled) return ctx.skip();
 
     // Pedido CONFIRMED con mercaderia YA separada (picked=quantity). Al cancelar,
