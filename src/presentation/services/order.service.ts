@@ -80,6 +80,21 @@ import {
     listActivePaymentMethods,
     resolveMarketplacePaymentMethod,
 } from "./order-payment.queries";
+import {
+    allocateQuantityAcrossOrderItems,
+    buildFallbackPickedAllocationByOrderItemId,
+    generateOrderCode,
+    getOrderItemMaxPickableQuantity,
+    getOrderItemsForVariant,
+    getRequestedQuantityForVariant,
+    getReservedQuantityForVariant,
+    mapOrderItemStatusFromPicked,
+    mapOrderWithPickingSummary,
+    mapOrderWithPresentationData,
+    resolveMaxPickableQuantity,
+    resolvePickedQuantity,
+    resolveReservedByOrderItem,
+} from "./order-presentation";
 
 export class OrderService {
     constructor() {}
@@ -170,64 +185,6 @@ export class OrderService {
         return order;
     }
 
-    private buildFallbackPickedAllocationByOrderItemId(order: any, sessionItems: any[]): Map<number, number> {
-        const fallback = new Map<number, number>();
-        const orderItems = Array.isArray(order?.items)
-            ? [...order.items].sort((a: any, b: any) => Number(a?.id || 0) - Number(b?.id || 0))
-            : [];
-        const orderItemsByVariant = new Map<number, any[]>();
-
-        for (const item of orderItems) {
-            const variantId = Number(item?.variantId || 0);
-            if (!Number.isInteger(variantId) || variantId < 1) continue;
-            const bucket = orderItemsByVariant.get(variantId) || [];
-            bucket.push(item);
-            orderItemsByVariant.set(variantId, bucket);
-        }
-
-        for (const [variantId, variantOrderItems] of orderItemsByVariant.entries()) {
-            const hasPersistedPicked = variantOrderItems.some((item: any) => Number(item?.picked || 0) > 0);
-
-            if (hasPersistedPicked) {
-                for (const item of variantOrderItems) {
-                    const orderItemId = Number(item?.id || 0);
-                    if (!Number.isInteger(orderItemId) || orderItemId < 1) continue;
-                    fallback.set(orderItemId, Math.max(0, Number(item?.picked || 0)));
-                }
-                continue;
-            }
-
-            const sessionItem = sessionItems.find((candidate: any) => Number(candidate?.variantId || 0) === variantId);
-            const pickedFromSession = Math.max(0, Number(sessionItem?.pickedQuantity || 0));
-            const pickedAllocations = this.allocateQuantityAcrossOrderItems(variantOrderItems, pickedFromSession);
-
-            pickedAllocations.forEach((quantity, orderItemId) => {
-                fallback.set(orderItemId, Math.max(0, Number(quantity || 0)));
-            });
-        }
-
-        return fallback;
-    }
-
-    private getOrderItemMaxPickableQuantity(order: any, orderItem: any): number {
-        const requestedQuantity = Math.max(0, Number(orderItem?.quantity || 0));
-        if (requestedQuantity <= 0) {
-            return 0;
-        }
-
-        const reservedQuantity = Math.max(0, Number(orderItem?.reserved || 0));
-        if (reservedQuantity > 0) {
-            return Math.min(requestedQuantity, reservedQuantity);
-        }
-
-        const reservedByVariant = this.getReservedQuantityForVariant(order, Number(orderItem?.variantId || 0));
-        if (reservedByVariant <= 0) {
-            return 0;
-        }
-
-        return Math.min(requestedQuantity, reservedByVariant);
-    }
-
     private async syncPickingOrderItemDetailsForOrder(
         order: any,
         dbClient: any = prisma,
@@ -255,7 +212,7 @@ export class OrderService {
             pickingItemIdByVariant.set(variantId, pickingItemId);
         }
 
-        const fallbackPickedByOrderItemId = this.buildFallbackPickedAllocationByOrderItemId(order, sessionItems);
+        const fallbackPickedByOrderItemId = buildFallbackPickedAllocationByOrderItemId(order, sessionItems);
         const existingRows = await listPickingOrderItemDetailRows(orderId, dbClient);
         const existingByOrderItemId = buildPickingOrderItemDetailMap(existingRows);
 
@@ -270,7 +227,7 @@ export class OrderService {
                 ? pickingItemIdForVariant
                 : null;
 
-            const rowLimit = this.getOrderItemMaxPickableQuantity(order, orderItem);
+            const rowLimit = getOrderItemMaxPickableQuantity(order, orderItem);
             const existing = existingByOrderItemId.get(orderItemId);
             const basePickedQuantity = options?.forcePickedFromOrderItems
                 ? Math.max(0, Number(orderItem?.picked || 0))
@@ -331,10 +288,10 @@ export class OrderService {
             if (!Number.isInteger(orderItemId) || orderItemId < 1) continue;
 
             const requestedQuantity = Math.max(0, Number(orderItem?.quantity || 0));
-            const rowLimit = this.getOrderItemMaxPickableQuantity(order, orderItem);
+            const rowLimit = getOrderItemMaxPickableQuantity(order, orderItem);
             const pickedFromDetail = Math.max(0, Number(detailMap.get(orderItemId)?.pickedQuantity || 0));
             const nextPickedQuantity = Math.min(requestedQuantity, rowLimit, pickedFromDetail);
-            const nextStatus = this.mapOrderItemStatusFromPicked(nextPickedQuantity, requestedQuantity);
+            const nextStatus = mapOrderItemStatusFromPicked(nextPickedQuantity, requestedQuantity);
 
             await dbClient.orderItem.update({
                 where: { id: orderItemId },
@@ -344,169 +301,6 @@ export class OrderService {
                 },
             });
         }
-    }
-
-    private resolvePickedQuantity(orderItem: any, order?: any): number {
-        const pickedFromOrderItem = Math.max(0, Number(orderItem?.picked || 0));
-        const orderItemsForVariant = this.getOrderItemsForVariant(order, Number(orderItem?.variantId || 0));
-        if (orderItemsForVariant.length > 1) {
-            return pickedFromOrderItem;
-        }
-
-        if (pickedFromOrderItem > 0) {
-            return pickedFromOrderItem;
-        }
-
-        const sessionItems = order?.pickingSession?.items || [];
-        const pickedFromSession = sessionItems.find(
-            (sessionItem: any) => Number(sessionItem.variantId) === Number(orderItem?.variantId),
-        );
-        return Number(pickedFromSession?.pickedQuantity || 0);
-    }
-
-    private getReservedQuantityForVariant(order: any, variantId: number): number {
-        if (!order || !Array.isArray(order.reservations)) {
-            return 0;
-        }
-
-        return order.reservations
-            .filter((reservation: any) =>
-                Number(reservation?.variantId) === Number(variantId) &&
-                (reservation.status === 'ACTIVE' || reservation.status === 'COMPLETED'))
-            .reduce((sum: number, reservation: any) => sum + Math.max(0, Number(reservation.quantity || 0)), 0);
-    }
-
-    private resolveMaxPickableQuantity(order: any, variantId: number, requestedQuantity: number): number {
-        const safeRequested = Math.max(0, Number(requestedQuantity || 0));
-        if (safeRequested <= 0) {
-            return 0;
-        }
-
-        const reservedByVariant = this.getReservedQuantityForVariant(order, variantId);
-        return Math.max(0, Math.min(safeRequested, reservedByVariant));
-    }
-
-    private mapOrderWithPickingSummary(order: any) {
-        const allItems = Array.isArray(order?.items) ? order.items : [];
-        // Los items eliminados (soft-delete) NO forman parte del pedido operativo:
-        // se excluyen de items/totales/picking y se exponen aparte en removedItems.
-        const items = allItems.filter((item: any) => !item.removedAt);
-        const totalRequested = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
-        const totalPicked = items.reduce((sum: number, item: any) => {
-            const pickedQuantity = this.resolvePickedQuantity(item, order);
-            return sum + Math.min(Number(item.quantity || 0), pickedQuantity);
-        }, 0);
-
-        const progress = totalRequested > 0 ? Math.round((totalPicked / totalRequested) * 100) : 0;
-        const mapItem = (item: any) => {
-            const requestedQuantity = Number(item.quantity || 0);
-            const reservedQuantity = Number(item.reserved || 0);
-            const pendingStockQuantity = Math.max(0, requestedQuantity - reservedQuantity);
-            const pickedQuantity = this.resolvePickedQuantity(item, order);
-            const maxPickableQuantity = Math.max(0, Math.min(requestedQuantity, reservedQuantity));
-            const pendingPickingQuantity = Math.max(0, requestedQuantity - pickedQuantity);
-            const storedUnitPrice = Number(item.unitPrice || 0);
-            const variantPrice = Number(item?.variant?.price || 0);
-            const unitPrice = storedUnitPrice > 0 ? storedUnitPrice : Math.max(0, variantPrice);
-            const storedSubtotal = Number(item.subtotal || 0);
-            const subtotal = storedSubtotal > 0 ? storedSubtotal : requestedQuantity * unitPrice;
-
-            return {
-                ...item,
-                unitPrice,
-                subtotal,
-                requestedQuantity,
-                reservedQuantity,
-                maxPickableQuantity,
-                pendingStockQuantity,
-                pickedQuantity,
-                pendingQuantity: pendingPickingQuantity,
-                pendingPickingQuantity,
-                pickingStatus: mapPickingItemStatus(pickedQuantity, requestedQuantity),
-                removed: Boolean(item.removedAt),
-            };
-        };
-        const mappedItems = items.map(mapItem);
-        const removedMappedItems = allItems
-            .filter((item: any) => item.removedAt)
-            .map(mapItem);
-        const computedSubtotal = mappedItems
-            .reduce((sum: number, item: any) => sum + Number(item.subtotal || 0), 0);
-        const orderSubtotal = Number(order?.subtotal || 0);
-        const orderTax = Number(order?.tax || 0);
-        const orderTotal = Number(order?.total || 0);
-        const subtotal = orderSubtotal > 0 ? orderSubtotal : computedSubtotal;
-        const tax = orderTax > 0 ? orderTax : 0;
-        const total = orderTotal > 0 ? orderTotal : subtotal + tax;
-
-        return {
-            ...order,
-            subtotal,
-            tax,
-            total,
-            items: mappedItems,
-            removedItems: removedMappedItems,
-            pickingSummary: {
-                totalRequested,
-                totalPicked,
-                progress,
-            },
-        };
-    }
-
-    private mapOrderWithPresentationData(order: any) {
-        const sanitizedOrder = sanitizeOrderVariantsForPresentation(order);
-        const responsible = sanitizedOrder.sellerUser || sanitizedOrder.pickerUser || sanitizedOrder.dispenserUser || null;
-        const responsibleRole = sanitizedOrder.sellerUser
-            ? 'SELLER'
-            : sanitizedOrder.pickerUser
-                ? 'PICKER'
-                : sanitizedOrder.dispenserUser
-                    ? 'DISPENSER'
-                    : null;
-        const returnFallbackUser = sanitizedOrder.returnResponsibleUser
-            || sanitizedOrder.cancelledByUser
-            || sanitizedOrder.dispenserUser
-            || sanitizedOrder.pickerUser
-            || sanitizedOrder.sellerUser
-            || null;
-        const returnCancelledByUser = sanitizedOrder.cancelledByUser || returnFallbackUser;
-        const hasReturnDelegation = Boolean(sanitizedOrder.returnResponsibilityDelegatedById || sanitizedOrder.returnResponsibilityDelegatedBy);
-        const rawReturnStatus = sanitizedOrder.returnResponsibilityStatus || null;
-        const shouldTreatInitialReturnAsAccepted = (sanitizedOrder.status as OrderStatusEnum) === OrderStatusEnum.RETURN_PENDING
-            && !hasReturnDelegation
-            && returnFallbackUser
-            && (!rawReturnStatus || rawReturnStatus === 'PENDING');
-        const returnAcceptanceStatus = shouldTreatInitialReturnAsAccepted
-            ? 'ACCEPTED'
-            : rawReturnStatus;
-
-        const baseMappedOrder = {
-            ...sanitizedOrder,
-            salesChannel: detectSalesChannel(sanitizedOrder.note, sanitizedOrder.code),
-            primaryResponsible: responsible
-                ? {
-                    id: responsible.id,
-                    firstName: responsible.firstName,
-                    lastName: responsible.lastName,
-                    role: responsibleRole,
-                }
-                : null,
-            returnWorkflow: sanitizedOrder.returnRequestedAt || returnFallbackUser || returnAcceptanceStatus
-                ? {
-                    requestedAt: sanitizedOrder.returnRequestedAt || null,
-                    returnedAt: sanitizedOrder.returnedAt || null,
-                    acceptanceStatus: returnAcceptanceStatus,
-                    acceptedAt: sanitizedOrder.returnResponsibilityAcceptedAt
-                        || (shouldTreatInitialReturnAsAccepted ? sanitizedOrder.returnRequestedAt || sanitizedOrder.updatedAt || null : null),
-                    cancelledBy: mapSimpleUser(returnCancelledByUser),
-                    responsible: mapSimpleUser(returnFallbackUser),
-                    delegatedBy: mapSimpleUser(sanitizedOrder.returnResponsibilityDelegatedBy),
-                }
-                : null,
-        };
-
-        return this.mapOrderWithPickingSummary(baseMappedOrder);
     }
 
     private async attachPickingResponsibilityData(order: any, dbClient: any = prisma) {
@@ -590,78 +384,6 @@ export class OrderService {
         }
     }
 
-    private mapOrderItemStatusFromPicked(pickedQuantity: number, requestedQuantity: number): 'PENDING' | 'PARTIAL' | 'PICKED' {
-        if (pickedQuantity <= 0) return 'PENDING';
-        if (pickedQuantity >= requestedQuantity) return 'PICKED';
-        return 'PARTIAL';
-    }
-
-    private getOrderItemsForVariant(order: any, variantId: number): any[] {
-        if (!order || !Array.isArray(order.items)) {
-            return [];
-        }
-
-        return order.items
-            .filter((item: any) => Number(item?.variantId) === Number(variantId))
-            .sort((a: any, b: any) => Number(a?.id || 0) - Number(b?.id || 0));
-    }
-
-    private getRequestedQuantityForVariant(order: any, variantId: number): number {
-        return this.getOrderItemsForVariant(order, variantId)
-            .reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.quantity || 0)), 0);
-    }
-
-    private allocateQuantityAcrossOrderItems(orderItems: any[], totalQuantity: number): Map<number, number> {
-        const allocations = new Map<number, number>();
-        let remaining = Math.max(0, Number(totalQuantity || 0));
-
-        for (const item of orderItems) {
-            const requestedQuantity = Math.max(0, Number(item?.quantity || 0));
-            const orderItemId = Number(item?.id || 0);
-            const allocatedQuantity = Math.max(0, Math.min(requestedQuantity, remaining));
-
-            if (orderItemId > 0) {
-                allocations.set(orderItemId, allocatedQuantity);
-            }
-
-            remaining = Math.max(0, remaining - allocatedQuantity);
-            if (remaining <= 0) {
-                // no-op: mantenemos el recorrido para asignar 0 explicito en las lineas restantes
-            }
-        }
-
-        return allocations;
-    }
-
-    /**
-     * Reservado por linea para la vista de picking. La VERDAD es `OrderItem.reserved`
-     * (reserve/release lo mantienen atomico por item, y es lo que valida
-     * `reserveRemoteStock`). Con variante compartida NO se debe repartir el total de
-     * forma voraz: eso "adelantaba" la reserva a las primeras filas y pintaba las
-     * ultimas como pendientes aunque estuvieran llenas (=> el error al pulsar +).
-     * Solo si NO hay tracking por linea (todo 0 pero existen reservas legacy) se
-     * cae al reparto voraz como respaldo.
-     */
-    private resolveReservedByOrderItem(variantOrderItems: any[], totalReservedForVariant: number): Map<number, number> {
-        const sumPerItem = variantOrderItems.reduce(
-            (sum: number, item: any) => sum + Math.max(0, Number(item?.reserved || 0)),
-            0,
-        );
-
-        if (sumPerItem === 0 && Number(totalReservedForVariant || 0) > 0) {
-            return this.allocateQuantityAcrossOrderItems(variantOrderItems, totalReservedForVariant);
-        }
-
-        const allocations = new Map<number, number>();
-        for (const item of variantOrderItems) {
-            const orderItemId = Number(item?.id || 0);
-            if (orderItemId > 0) {
-                allocations.set(orderItemId, Math.max(0, Number(item?.reserved || 0)));
-            }
-        }
-        return allocations;
-    }
-
     private async syncPickingAndOrderStatus(orderId: number) {
         const order = await prisma.order.findUnique({
             where: { id: orderId },
@@ -698,17 +420,6 @@ export class OrderService {
                 data: { status: nextOrderStatus },
             });
         }
-    }
-
-    /**
-     * Generar cÃ³digo Ãºnico para el pedido
-     * Formato: ORD-{YYYYMMDD}-{RANDOM}
-     */
-    private generateOrderCode(): string {
-        const now = new Date();
-        const dateString = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-        return `ORD-${dateString}-${random}`;
     }
 
     /**
@@ -870,7 +581,7 @@ export class OrderService {
             // Crear el pedido con items (precio del servidor).
             const createdOrder: any = await tx.order.create({
                 data: {
-                    code: this.generateOrderCode(),
+                    code: generateOrderCode(),
                     // Solo se referencia la columna cuando hay clave: las ventas sin
                     // idempotencia siguen funcionando aunque la migracion no este aplicada.
                     ...(dto.idempotencyKey ? { idempotencyKey: dto.idempotencyKey } : {}),
@@ -1071,7 +782,7 @@ export class OrderService {
         const variantMap = new Map<number, typeof variants[number]>();
         variants.forEach((variant) => variantMap.set(variant.id, variant));
 
-        const orderCode = this.generateOrderCode().replace('ORD-', 'MK-');
+        const orderCode = generateOrderCode().replace('ORD-', 'MK-');
         const normalizedClientName = dto.companyName
             ? `${dto.clientName} (${dto.companyName})`
             : dto.clientName;
@@ -1287,7 +998,7 @@ export class OrderService {
         }
 
         return {
-            ...this.mapOrderWithPresentationData(summary.order),
+            ...mapOrderWithPresentationData(summary.order),
             stockSummary: summary.metrics,
             reviewMessage: 'Proforma sujeta a confirmacion de disponibilidad',
         };
@@ -1300,7 +1011,7 @@ export class OrderService {
         const totalRequested = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
         const totalReserved = items.reduce((sum: number, item: any) => sum + Number(item.reserved || 0), 0);
         return {
-            ...this.mapOrderWithPresentationData(order),
+            ...mapOrderWithPresentationData(order),
             stockSummary: {
                 totalRequested,
                 totalReserved,
@@ -1335,7 +1046,7 @@ export class OrderService {
             throw CustomError.notFound('Pedido no encontrado');
         }
 
-        const mapped = this.mapOrderWithPresentationData(order);
+        const mapped = mapOrderWithPresentationData(order);
         return {
             code: mapped.code,
             status: mapped.status,
@@ -1377,7 +1088,7 @@ export class OrderService {
             throw CustomError.notFound('No se encontro un pedido con esos datos');
         }
 
-        const mapped = this.mapOrderWithPresentationData(order);
+        const mapped = mapOrderWithPresentationData(order);
         const items: Array<{
             productName: string;
             colorName: string;
@@ -1755,7 +1466,7 @@ export class OrderService {
             throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
         }
 
-        const mapped = this.mapOrderWithPresentationData(order);
+        const mapped = mapOrderWithPresentationData(order);
         const withSuggestions = await this.attachReservationSuggestions(mapped);
         return this.attachPickingResponsibilityData(withSuggestions);
     }
@@ -1872,7 +1583,7 @@ export class OrderService {
             take: dto.limit,
         });
 
-        const mappedOrders = orders.map((order) => this.mapOrderWithPresentationData(order));
+        const mappedOrders = orders.map((order) => mapOrderWithPresentationData(order));
         const total = await prisma.order.count({ where });
 
         return {
@@ -2246,7 +1957,7 @@ export class OrderService {
             include: this.orderDetailInclude,
         });
 
-        const mapped = this.mapOrderWithPresentationData(updatedOrder);
+        const mapped = mapOrderWithPresentationData(updatedOrder);
         return this.attachPickingResponsibilityData(mapped);
     }
 
@@ -2329,7 +2040,7 @@ export class OrderService {
             return order;
         });
 
-        const mapped = this.mapOrderWithPresentationData(updatedOrder);
+        const mapped = mapOrderWithPresentationData(updatedOrder);
         return this.attachPickingResponsibilityData(mapped);
     }
 
@@ -2831,7 +2542,7 @@ export class OrderService {
         }
 
         const order = pickingItem.session.order;
-        const orderItemsForVariant = this.getOrderItemsForVariant(order, Number(pickingItem.variantId));
+        const orderItemsForVariant = getOrderItemsForVariant(order, Number(pickingItem.variantId));
         if (orderItemsForVariant.length === 0) {
             throw CustomError.badRequest('La variante del item de picking no pertenece a la orden');
         }
@@ -2934,7 +2645,7 @@ export class OrderService {
                 data: { pickedQuantity: nextPickedQuantity },
             });
 
-            const pickedAllocations = this.allocateQuantityAcrossOrderItems(orderItemsForVariant, nextPickedQuantity);
+            const pickedAllocations = allocateQuantityAcrossOrderItems(orderItemsForVariant, nextPickedQuantity);
             for (const orderItem of orderItemsForVariant) {
                 const nextPickedQuantityForItem = Math.max(
                     0,
@@ -2946,7 +2657,7 @@ export class OrderService {
                     where: { id: orderItem.id },
                     data: {
                         picked: nextPickedQuantityForItem,
-                        status: this.mapOrderItemStatusFromPicked(nextPickedQuantityForItem, requestedQuantityForItem),
+                        status: mapOrderItemStatusFromPicked(nextPickedQuantityForItem, requestedQuantityForItem),
                     },
                 });
 
@@ -3060,7 +2771,7 @@ export class OrderService {
             include: this.orderDetailInclude,
         });
 
-        const mapped = this.mapOrderWithPresentationData(updatedOrder);
+        const mapped = mapOrderWithPresentationData(updatedOrder);
         return this.attachPickingResponsibilityData(mapped);
     }
 
@@ -3114,7 +2825,7 @@ export class OrderService {
             include: this.orderDetailInclude,
         });
 
-        const mapped = this.mapOrderWithPresentationData(updatedOrder);
+        const mapped = mapOrderWithPresentationData(updatedOrder);
         return this.attachPickingResponsibilityData(mapped);
     }
 
@@ -3216,8 +2927,8 @@ export class OrderService {
 
         const reservedAllocationByOrderItemId = new Map<number, number>();
         for (const [variantId, variantOrderItems] of orderItemsByVariant.entries()) {
-            const totalReservedForVariant = this.getReservedQuantityForVariant(order, variantId);
-            const reservedAllocations = this.resolveReservedByOrderItem(variantOrderItems, totalReservedForVariant);
+            const totalReservedForVariant = getReservedQuantityForVariant(order, variantId);
+            const reservedAllocations = resolveReservedByOrderItem(variantOrderItems, totalReservedForVariant);
             reservedAllocations.forEach((quantity, orderItemId) => {
                 reservedAllocationByOrderItemId.set(orderItemId, quantity);
             });
@@ -3535,7 +3246,7 @@ export class OrderService {
             throw CustomError.badRequest('No se pudo resolver el detalle de picking para el item');
         }
 
-        const rowLimit = this.getOrderItemMaxPickableQuantity(order, targetOrderItem);
+        const rowLimit = getOrderItemMaxPickableQuantity(order, targetOrderItem);
         const currentRowPickedQuantity = Math.max(0, Number(targetDetail.pickedQuantity || 0));
         const isReducingOverflow = currentRowPickedQuantity > rowLimit && pickedQuantity < currentRowPickedQuantity;
         if (pickedQuantity > rowLimit && !isReducingOverflow) {
@@ -3746,13 +3457,13 @@ export class OrderService {
             }
         }
 
-        const orderItemsForVariant = this.getOrderItemsForVariant(order, Number(pickingItem.variantId));
+        const orderItemsForVariant = getOrderItemsForVariant(order, Number(pickingItem.variantId));
         if (orderItemsForVariant.length === 0) {
             throw CustomError.badRequest('La variante del item de picking no pertenece a la orden');
         }
-        const totalRequestedForVariant = this.getRequestedQuantityForVariant(order, Number(pickingItem.variantId));
+        const totalRequestedForVariant = getRequestedQuantityForVariant(order, Number(pickingItem.variantId));
 
-        const maxAllowed = this.resolveMaxPickableQuantity(order, pickingItem.variantId, totalRequestedForVariant);
+        const maxAllowed = resolveMaxPickableQuantity(order, pickingItem.variantId, totalRequestedForVariant);
         const currentPickedQuantity = Number(pickingItem.pickedQuantity || 0);
         const isReducingOverflow = currentPickedQuantity > maxAllowed && pickedQuantity < currentPickedQuantity;
         const quantityDelta = pickedQuantity - currentPickedQuantity;
@@ -3802,7 +3513,7 @@ export class OrderService {
                 data: { pickedQuantity },
             });
 
-            const pickedAllocations = this.allocateQuantityAcrossOrderItems(orderItemsForVariant, pickedQuantity);
+            const pickedAllocations = allocateQuantityAcrossOrderItems(orderItemsForVariant, pickedQuantity);
             for (const orderItem of orderItemsForVariant) {
                 const nextPickedQuantityForItem = Math.max(
                     0,
@@ -3814,7 +3525,7 @@ export class OrderService {
                     where: { id: orderItem.id },
                     data: {
                         picked: nextPickedQuantityForItem,
-                        status: this.mapOrderItemStatusFromPicked(nextPickedQuantityForItem, requestedQuantityForItem),
+                        status: mapOrderItemStatusFromPicked(nextPickedQuantityForItem, requestedQuantityForItem),
                     },
                 });
 
@@ -4030,7 +3741,7 @@ export class OrderService {
                     variantId: Number(orderItem?.variantId || 0),
                     pickingItemId: Number(detail?.pickingItemId || 0),
                     current: Math.max(0, Number(detail?.pickedQuantity || 0)),
-                    limit: this.getOrderItemMaxPickableQuantity(order, orderItem),
+                    limit: getOrderItemMaxPickableQuantity(order, orderItem),
                 };
             })
             .filter((row) => row.orderItemId > 0 && row.limit > row.current);

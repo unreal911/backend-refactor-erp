@@ -23,6 +23,7 @@ vi.mock('../src/data/prisma', () => {
 
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
+import { resolveReservedByOrderItem } from '../src/presentation/services/order-presentation';
 
 const VARIANT = 10;
 const STORE = 2;
@@ -144,7 +145,7 @@ describe('OrderService.resolveReservedByOrderItem — reserved real por linea (f
       { id: 903, quantity: 4, reserved: 2 }, // Negro M
       { id: 904, quantity: 5, reserved: 5 }, // Negro L (lleno)
     ];
-    const map: Map<number, number> = svc().resolveReservedByOrderItem(items, 12);
+    const map: Map<number, number> = resolveReservedByOrderItem(items, 12);
 
     // Cada linea muestra su reserved real: Negro L = 5 (lleno), no 0.
     expect(map.get(901)).toBe(0);
@@ -160,7 +161,7 @@ describe('OrderService.resolveReservedByOrderItem — reserved real por linea (f
       { id: 903, quantity: 4, reserved: 0 },
       { id: 904, quantity: 5, reserved: 0 },
     ];
-    const map: Map<number, number> = svc().resolveReservedByOrderItem(items, 12);
+    const map: Map<number, number> = resolveReservedByOrderItem(items, 12);
 
     expect(map.get(901)).toBe(5);
     expect(map.get(902)).toBe(5);
