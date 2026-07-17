@@ -16,10 +16,6 @@ import { ResolvePickingResponsibilityRequestDto } from "../../domain/dtos/resolv
 import { RequestPickingUnpickActionDto } from "../../domain/dtos/request-picking-unpick-action.dto";
 import { ResolvePickingUnpickActionDto } from "../../domain/dtos/resolve-picking-unpick-action.dto";
 import {
-    MARKETPLACE_AUTO_RESERVE_STOCK_KEY,
-    MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY,
-    MARKETPLACE_INCLUDE_IGV_KEY,
-    MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY,
     PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY,
     RETURN_RESPONSIBILITY_MANAGEMENT_KEY,
 } from "../../data/system-config-keys";
@@ -51,9 +47,7 @@ import {
     mapPublicOrderStatus,
     mapSimpleUser,
     normalizePickingResponsibilityMode,
-    normalizePositiveIds,
     parseBooleanSetting,
-    parseNumberArraySetting,
     resolvePreferredResponsibleUserId,
     resolveTaxAmount,
     sanitizeOrderVariantsForPresentation,
@@ -80,6 +74,12 @@ import {
     getSystemSettingValue,
     lockOrderRow,
 } from "./order.queries";
+import {
+    filterAllowedPaymentMethods,
+    getMarketplacePaymentSettings,
+    listActivePaymentMethods,
+    resolveMarketplacePaymentMethod,
+} from "./order-payment.queries";
 
 export class OrderService {
     constructor() {}
@@ -344,85 +344,6 @@ export class OrderService {
                 },
             });
         }
-    }
-
-    private async getMarketplacePaymentSettings(dbClient: any = prisma): Promise<MarketplacePaymentSettings> {
-        const [enabledRaw, allowedIdsRaw, includeIgvRaw, autoReserveStockRaw] = await Promise.all([
-            getSystemSettingValue(MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY, dbClient),
-            getSystemSettingValue(MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY, dbClient),
-            getSystemSettingValue(MARKETPLACE_INCLUDE_IGV_KEY, dbClient),
-            getSystemSettingValue(MARKETPLACE_AUTO_RESERVE_STOCK_KEY, dbClient),
-        ]);
-
-        return {
-            enabled: parseBooleanSetting(enabledRaw, false),
-            allowedPaymentMethodIds: parseNumberArraySetting(allowedIdsRaw),
-            includeIgv: parseBooleanSetting(includeIgvRaw, true),
-            autoReserveStock: parseBooleanSetting(autoReserveStockRaw, false),
-        };
-    }
-
-    private async listActivePaymentMethods(dbClient: any = prisma): Promise<MarketplacePaymentMethod[]> {
-        const rows = await dbClient.$queryRaw(
-            Prisma.sql`
-                SELECT
-                    "id",
-                    "name",
-                    "code",
-                    "displayOrder",
-                    "isActive"
-                FROM "PaymentMethod"
-                WHERE "isActive" = true
-                ORDER BY "displayOrder" ASC, "name" ASC
-            `,
-        ) as MarketplacePaymentMethod[];
-
-        return rows.map((row) => ({
-            id: Number(row.id),
-            name: String(row.name),
-            code: String(row.code),
-            displayOrder: Number(row.displayOrder || 0),
-            isActive: Boolean(row.isActive),
-        }));
-    }
-
-    private filterAllowedPaymentMethods(methods: MarketplacePaymentMethod[], settings: MarketplacePaymentSettings): MarketplacePaymentMethod[] {
-        if (settings.allowedPaymentMethodIds.length === 0) {
-            return methods;
-        }
-
-        const allowedSet = new Set(settings.allowedPaymentMethodIds);
-        const filtered = methods.filter((method) => allowedSet.has(Number(method.id)));
-
-        return filtered.length > 0 ? filtered : methods;
-    }
-
-    private async resolveMarketplacePaymentMethod(
-        paymentMethodId: number | undefined,
-        dbClient: any = prisma,
-    ): Promise<MarketplacePaymentMethod | null> {
-        const settings = await this.getMarketplacePaymentSettings(dbClient);
-        if (!settings.enabled) {
-            return null;
-        }
-
-        const activeMethods = await this.listActivePaymentMethods(dbClient);
-        const availableMethods = this.filterAllowedPaymentMethods(activeMethods, settings);
-
-        if (availableMethods.length === 0) {
-            throw CustomError.badRequest('No hay metodos de pago disponibles para el marketplace');
-        }
-
-        if (!paymentMethodId) {
-            throw CustomError.badRequest('Selecciona un metodo de pago para continuar');
-        }
-
-        const selectedMethod = availableMethods.find((method) => Number(method.id) === Number(paymentMethodId));
-        if (!selectedMethod) {
-            throw CustomError.badRequest('El metodo de pago seleccionado no esta disponible');
-        }
-
-        return selectedMethod;
     }
 
     private resolvePickedQuantity(orderItem: any, order?: any): number {
@@ -1110,8 +1031,8 @@ export class OrderService {
         }
 
         const [selectedPaymentMethod, marketplaceSettings] = await Promise.all([
-            this.resolveMarketplacePaymentMethod(dto.paymentMethodId),
-            this.getMarketplacePaymentSettings(),
+            resolveMarketplacePaymentMethod(dto.paymentMethodId),
+            getMarketplacePaymentSettings(),
         ]);
 
         const sourceStore = await prisma.store.findFirst({
@@ -1546,10 +1467,10 @@ export class OrderService {
     }
 
     async getMarketplaceCheckoutPaymentMethods() {
-        const settings = await this.getMarketplacePaymentSettings();
-        const activeMethods = await this.listActivePaymentMethods();
+        const settings = await getMarketplacePaymentSettings();
+        const activeMethods = await listActivePaymentMethods();
         const availableMethods = settings.enabled
-            ? this.filterAllowedPaymentMethods(activeMethods, settings)
+            ? filterAllowedPaymentMethods(activeMethods, settings)
             : [];
 
         return {
@@ -5045,7 +4966,7 @@ export class OrderService {
             0,
         );
 
-        const settings = await this.getMarketplacePaymentSettings(tx);
+        const settings = await getMarketplacePaymentSettings(tx);
         const tax = resolveTaxAmount(subtotal, settings.includeIgv);
         const total = subtotal + tax;
 
