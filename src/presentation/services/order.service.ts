@@ -15,10 +15,6 @@ import { RequestPickingResponsibilityDto } from "../../domain/dtos/request-picki
 import { ResolvePickingResponsibilityRequestDto } from "../../domain/dtos/resolve-picking-responsibility-request.dto";
 import { RequestPickingUnpickActionDto } from "../../domain/dtos/request-picking-unpick-action.dto";
 import { ResolvePickingUnpickActionDto } from "../../domain/dtos/resolve-picking-unpick-action.dto";
-import {
-    PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY,
-    RETURN_RESPONSIBILITY_MANAGEMENT_KEY,
-} from "../../data/system-config-keys";
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
 import {
     MarketplaceGuideItem,
@@ -42,12 +38,9 @@ import {
     isSimpleColorToken,
     isSimpleSizeToken,
     mapPickingItemStatus,
-    mapPickingResponsibilityRequestRows,
-    mapPickingSharedResponsibilityRows,
     mapPublicOrderStatus,
     mapSimpleUser,
     normalizePickingResponsibilityMode,
-    parseBooleanSetting,
     resolvePreferredResponsibleUserId,
     resolveTaxAmount,
     sanitizeOrderVariantsForPresentation,
@@ -62,8 +55,6 @@ import {
     isActiveSharedResponsible,
     listPickingItemContributionRows,
     listPickingOrderItemDetailRows,
-    listPickingResponsibilityRequestRows,
-    listPickingSharedResponsibilityRows,
     listPickingUnpickRequestRows,
     recalculatePickingItemPickedQuantityFromDetails,
     updatePickingItemUserContribution,
@@ -71,7 +62,6 @@ import {
 } from "./order-picking.queries";
 import {
     assertPickableUnderLock,
-    getSystemSettingValue,
     lockOrderRow,
 } from "./order.queries";
 import {
@@ -80,6 +70,13 @@ import {
     listActivePaymentMethods,
     resolveMarketplacePaymentMethod,
 } from "./order-payment.queries";
+import {
+    buildPickingResponsibilityContext,
+    canUserOperatePicking,
+    ensurePrimaryPickerCanDelegate,
+    isPickingResponsibilityFlowEnabled,
+    isReturnResponsibilityManagementEnabled,
+} from "./order-responsibility.queries";
 import {
     allocateQuantityAcrossOrderItems,
     buildFallbackPickedAllocationByOrderItemId,
@@ -100,92 +97,6 @@ import {
 
 export class OrderService {
     constructor() {}
-
-    private async isReturnResponsibilityManagementEnabled(dbClient: any = prisma): Promise<boolean> {
-        try {
-            const setting = await getSystemSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY, dbClient);
-            return parseBooleanSetting(setting, true);
-        } catch {
-            return true;
-        }
-    }
-
-    private async isPickingResponsibilityFlowEnabled(dbClient: any = prisma): Promise<boolean> {
-        try {
-            const setting = await getSystemSettingValue(PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY, dbClient);
-            return parseBooleanSetting(setting, false);
-        } catch {
-            return false;
-        }
-    }
-
-    private async buildPickingResponsibilityContext(
-        orderId: number,
-        primaryResponsibleUser: any | null,
-        dbClient: any = prisma,
-    ): Promise<PickingResponsibilityContext> {
-        const enabled = await this.isPickingResponsibilityFlowEnabled(dbClient);
-        const [sharedRows, requestRows] = await Promise.all([
-            listPickingSharedResponsibilityRows(orderId, dbClient),
-            listPickingResponsibilityRequestRows(orderId, dbClient),
-        ]);
-
-        const primaryResponsible = primaryResponsibleUser
-            ? {
-                id: Number(primaryResponsibleUser.id),
-                firstName: String(primaryResponsibleUser.firstName || ''),
-                lastName: String(primaryResponsibleUser.lastName || ''),
-                email: String(primaryResponsibleUser.email || ''),
-            }
-            : null;
-
-        return {
-            enabled,
-            primaryResponsible,
-            sharedResponsibles: mapPickingSharedResponsibilityRows(sharedRows),
-            pendingRequests: mapPickingResponsibilityRequestRows(requestRows),
-        };
-    }
-
-    private async canUserOperatePicking(orderId: number, actorUserId: number, primaryResponsibleUserId?: number | null, dbClient: any = prisma): Promise<boolean> {
-        const flowEnabled = await this.isPickingResponsibilityFlowEnabled(dbClient);
-        if (!flowEnabled) {
-            return true;
-        }
-
-        if (Number(primaryResponsibleUserId || 0) === Number(actorUserId)) {
-            return true;
-        }
-
-        return isActiveSharedResponsible(orderId, actorUserId, dbClient);
-    }
-
-    private async ensurePrimaryPickerCanDelegate(orderId: number, actorUserId: number, dbClient: any = prisma): Promise<any> {
-        const order = await dbClient.order.findUnique({
-            where: { id: orderId },
-            include: this.orderDetailInclude,
-        });
-
-        if (!order) {
-            throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
-        }
-
-        const flowEnabled = await this.isPickingResponsibilityFlowEnabled(dbClient);
-        if (!flowEnabled) {
-            return order;
-        }
-
-        const primaryUserId = Number(order.pickerUserId || 0);
-        if (!primaryUserId) {
-            throw CustomError.badRequest('La orden no tiene responsable principal de picking');
-        }
-
-        if (primaryUserId !== Number(actorUserId)) {
-            throw CustomError.forbidden('Solo el responsable principal puede delegar picking');
-        }
-
-        return order;
-    }
 
     private async syncPickingOrderItemDetailsForOrder(
         order: any,
@@ -310,7 +221,7 @@ export class OrderService {
             return order;
         }
 
-        const context = await this.buildPickingResponsibilityContext(
+        const context = await buildPickingResponsibilityContext(
             Number(order.id),
             order.pickerUser || order.pickingSession?.assignedUser || null,
             dbClient,
@@ -1601,7 +1512,7 @@ export class OrderService {
             throw CustomError.badRequest(`No se puede cambiar de ${order.status} a ${dto.status}`);
         }
 
-        const returnResponsibilityManagementEnabled = await this.isReturnResponsibilityManagementEnabled();
+        const returnResponsibilityManagementEnabled = await isReturnResponsibilityManagementEnabled();
 
         await prisma.$transaction(async (tx) => {
             // Guarda anti-doble-transicion (C1): se toma el lock de fila del pedido y
@@ -1617,7 +1528,7 @@ export class OrderService {
                 throw CustomError.badRequest('El pedido cambio de estado en otra operacion. Refresca e intenta de nuevo.');
             }
 
-            const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled(tx);
+            const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled(tx);
             const isReturnCompletion = currentStatus === OrderStatusEnum.RETURN_PENDING && targetStatus === OrderStatusEnum.CANCELLED;
             const isCancellationRequest = (targetStatus === OrderStatusEnum.CANCELLED && currentStatus !== OrderStatusEnum.RETURN_PENDING)
                 || targetStatus === OrderStatusEnum.RETURN_PENDING;
@@ -1946,7 +1857,7 @@ export class OrderService {
             throw CustomError.badRequest(`El usuario con ID ${dto.userId} no existe`);
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         if (dto.roleType === 'picker' && pickingResponsibilityFlowEnabled) {
             const actorId = resolvePreferredResponsibleUserId(actorUserId);
             if (!actorId) {
@@ -2009,7 +1920,7 @@ export class OrderService {
             throw CustomError.unauthorized('No se pudo identificar al usuario que solicita responsabilidad');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         if (!pickingResponsibilityFlowEnabled) {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
@@ -2083,13 +1994,13 @@ export class OrderService {
             throw CustomError.unauthorized('No se pudo identificar al usuario que delega picking');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         if (!pickingResponsibilityFlowEnabled) {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
 
         const mode = normalizePickingResponsibilityMode(dto.mode, 'TRANSFER');
-        const order = await this.ensurePrimaryPickerCanDelegate(orderId, actorUserId);
+        const order = await ensurePrimaryPickerCanDelegate(orderId, actorUserId, this.orderDetailInclude);
 
         const targetUser = await prisma.user.findUnique({
             where: { id: dto.userId },
@@ -2181,12 +2092,12 @@ export class OrderService {
             throw CustomError.unauthorized('No se pudo identificar al usuario que resuelve la solicitud');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         if (!pickingResponsibilityFlowEnabled) {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
 
-        await this.ensurePrimaryPickerCanDelegate(orderId, actorUserId);
+        await ensurePrimaryPickerCanDelegate(orderId, actorUserId, this.orderDetailInclude);
 
         const rows = await prisma.$queryRaw<Array<{
             id: number;
@@ -2288,7 +2199,7 @@ export class OrderService {
             throw CustomError.unauthorized('No se pudo identificar al usuario que solicita la accion');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         if (!pickingResponsibilityFlowEnabled) {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
@@ -2328,7 +2239,7 @@ export class OrderService {
             throw CustomError.badRequest('La orden no permite solicitudes de unpick en su estado actual');
         }
 
-        const canOperate = await this.canUserOperatePicking(
+        const canOperate = await canUserOperatePicking(
             orderId,
             actorUserId,
             pickingItem.session.order.pickerUserId ?? pickingItem.session.assignedUserId ?? null,
@@ -2404,7 +2315,7 @@ export class OrderService {
             throw CustomError.unauthorized('No se pudo identificar al usuario que resuelve la solicitud');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         if (!pickingResponsibilityFlowEnabled) {
             throw CustomError.badRequest('El flujo de responsabilidad en picking esta desactivado');
         }
@@ -2470,7 +2381,7 @@ export class OrderService {
             throw CustomError.badRequest('La solicitud no corresponde a la orden indicada');
         }
 
-        const canOperate = await this.canUserOperatePicking(
+        const canOperate = await canUserOperatePicking(
             orderId,
             actorUserId,
             pickingItem.session.order.pickerUserId ?? pickingItem.session.assignedUserId ?? null,
@@ -2670,7 +2581,7 @@ export class OrderService {
      * Delegar responsabilidad de devolucion de una orden cancelada
      */
     async delegateReturnResponsibility(orderId: number, dto: DelegateOrderReturnDto, delegatedByUserId?: number) {
-        const returnResponsibilityManagementEnabled = await this.isReturnResponsibilityManagementEnabled();
+        const returnResponsibilityManagementEnabled = await isReturnResponsibilityManagementEnabled();
         if (!returnResponsibilityManagementEnabled) {
             throw CustomError.badRequest('La gestion de responsabilidades de devolucion esta desactivada en configuracion');
         }
@@ -2738,7 +2649,7 @@ export class OrderService {
      * Aceptar responsabilidad de devolucion
      */
     async acceptReturnResponsibility(orderId: number, userId?: number) {
-        const returnResponsibilityManagementEnabled = await this.isReturnResponsibilityManagementEnabled();
+        const returnResponsibilityManagementEnabled = await isReturnResponsibilityManagementEnabled();
         if (!returnResponsibilityManagementEnabled) {
             throw CustomError.badRequest('La gestion de responsabilidades de devolucion esta desactivada en configuracion');
         }
@@ -2978,7 +2889,7 @@ export class OrderService {
             throw CustomError.badRequest('La orden no tiene reservas activas para iniciar picking');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         const assignedUserId = resolvePreferredResponsibleUserId(order.pickerUserId, responsibleUserId);
 
@@ -2988,7 +2899,7 @@ export class OrderService {
             }
 
             if (Number(order.pickerUserId || 0) > 0) {
-                const canOperate = await this.canUserOperatePicking(order.id, actorUserId, order.pickerUserId);
+                const canOperate = await canUserOperatePicking(order.id, actorUserId, order.pickerUserId);
                 if (!canOperate) {
                     throw CustomError.forbidden('No tienes responsabilidad asignada en este picking');
                 }
@@ -3176,7 +3087,7 @@ export class OrderService {
             throw CustomError.badRequest('La orden no permite actualizar picking en su estado actual');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
 
         if (pickingResponsibilityFlowEnabled) {
@@ -3184,7 +3095,7 @@ export class OrderService {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que actualiza picking');
             }
 
-            const canOperate = await this.canUserOperatePicking(
+            const canOperate = await canUserOperatePicking(
                 order.id,
                 actorUserId,
                 order.pickerUserId ?? order.pickingSession.assignedUserId ?? null,
@@ -3389,7 +3300,7 @@ export class OrderService {
         }
 
         const order = pickingItem.session.order;
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         const validStatuses = [
             OrderStatusEnum.CONFIRMED,
@@ -3406,7 +3317,7 @@ export class OrderService {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que actualiza picking');
             }
 
-            const canOperate = await this.canUserOperatePicking(
+            const canOperate = await canUserOperatePicking(
                 order.id,
                 actorUserId,
                 order.pickerUserId ?? pickingItem.session.assignedUserId ?? null,
@@ -3573,14 +3484,14 @@ export class OrderService {
             select: { pickerUserId: true },
         });
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         if (pickingResponsibilityFlowEnabled) {
             if (!actorUserId) {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que finaliza picking');
             }
 
-            const canOperate = await this.canUserOperatePicking(
+            const canOperate = await canUserOperatePicking(
                 orderId,
                 actorUserId,
                 currentOrder?.pickerUserId ?? picking.pickingSession.assignedUser?.id ?? null,
@@ -3669,13 +3580,13 @@ export class OrderService {
             throw CustomError.badRequest('La orden no permite actualizar picking en su estado actual');
         }
 
-        const pickingResponsibilityFlowEnabled = await this.isPickingResponsibilityFlowEnabled();
+        const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
         const actorUserId = resolvePreferredResponsibleUserId(responsibleUserId);
         if (pickingResponsibilityFlowEnabled) {
             if (!actorUserId) {
                 throw CustomError.unauthorized('No se pudo identificar al usuario que actualiza picking');
             }
-            const canOperate = await this.canUserOperatePicking(
+            const canOperate = await canUserOperatePicking(
                 order.id,
                 actorUserId,
                 order.pickerUserId ?? order.pickingSession.assignedUserId ?? null,
