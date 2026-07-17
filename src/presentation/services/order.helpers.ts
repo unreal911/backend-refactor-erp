@@ -266,7 +266,9 @@ export function normalizePositiveIds(values: unknown[]): number[] {
 
 export function normalizePickingResponsibilityMode(rawValue: unknown, fallback: PickingResponsibilityMode = 'SHARED'): PickingResponsibilityMode {
     const normalized = String(rawValue || '').trim().toUpperCase();
-    return normalized === 'TRANSFER' ? 'TRANSFER' : fallback;
+    if (normalized === 'TRANSFER') return 'TRANSFER';
+    if (normalized === 'SHARED') return 'SHARED';
+    return fallback;
 }
 
 export function mapPickingSharedResponsibilityRows(rows: PickingSharedResponsibilityRow[]) {
