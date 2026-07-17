@@ -261,13 +261,20 @@ export class ProductService {
         };
     }
 
-    private resolveProductVariantMode(variants: any[]): 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY' {
+    // Ejes reales (color/talla) del producto según sus variantes, sin centinelas de nombre.
+    // Sin variantes = matriz por defecto (consistente con resolveProductVariantMode).
+    private resolveProductAxes(variants: any[]): { hasColor: boolean; hasSize: boolean } {
         if (!Array.isArray(variants) || variants.length === 0) {
-            return 'MATRIX';
+            return { hasColor: true, hasSize: true };
         }
+        return {
+            hasColor: variants.some((variant: any) => variant?.colorId != null),
+            hasSize: variants.some((variant: any) => variant?.sizeId != null),
+        };
+    }
 
-        const hasColor = variants.some((variant: any) => variant?.colorId != null);
-        const hasSize = variants.some((variant: any) => variant?.sizeId != null);
+    private resolveProductVariantMode(variants: any[]): 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY' {
+        const { hasColor, hasSize } = this.resolveProductAxes(variants);
         return this.deriveVariantMode(hasColor, hasSize);
     }
 
@@ -849,12 +856,15 @@ export class ProductService {
             const mappedProducts = products.map((product: any) => {
                 const mappedVariants = (product.variants || []).map((variant: any) => this.mapVariantForResponse(variant));
                 const marketplaceConfig = marketplaceConfigByProductId.get(Number(product.id));
+                const axes = this.resolveProductAxes(product.variants || []);
                 return {
                     ...ProductEntity.fromObject(product),
                     category: product.category,
                     variantCount: mappedVariants.length,
                     imageCount: product.images?.length || 0,
-                    variantMode: this.resolveProductVariantMode(product.variants || []),
+                    variantMode: this.deriveVariantMode(axes.hasColor, axes.hasSize),
+                    hasColor: axes.hasColor,
+                    hasSize: axes.hasSize,
                     marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                     marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
                     marketplaceColorImages: marketplaceConfig?.colorImages || [],
@@ -914,13 +924,16 @@ export class ProductService {
             const mkColorById = new Map(mkColors.map((color) => [Number(color.id), color]));
             const mkSizeById = new Map(mkSizes.map((size) => [Number(size.id), size]));
 
+            const axes = this.resolveProductAxes(product.variants || []);
             return {
                 ...ProductEntity.fromObject(product),
                 afectacionIgv: product.afectacionIgv ?? '10',
                 category: product.category,
                 variantCount: mappedVariants.length,
                 imageCount: (product.images || []).length,
-                variantMode: this.resolveProductVariantMode(product.variants || []),
+                variantMode: this.deriveVariantMode(axes.hasColor, axes.hasSize),
+                hasColor: axes.hasColor,
+                hasSize: axes.hasSize,
                 marketplaceVariantColorIds: marketplaceConfig?.colorIds || [],
                 marketplaceVariantSizeIds: marketplaceConfig?.sizeIds || [],
                 marketplaceColorImages: marketplaceConfig?.colorImages || [],
