@@ -492,12 +492,20 @@ export class OrderService {
                 where: { id: { in: lockIds } },
                 select: { id: true, storeId: true, variantId: true, stock: true, reservedStock: true },
             });
-            const lockedByKey = new Map<string, { stock: number; reservedStock: number }>();
+            // Snapshot bajo lock reutilizable: evita re-resolver inventario (N+1) en el
+            // loop de reservas/consumo de abajo. runningStock lleva el stock corriente
+            // por inventario para que dos lineas de la misma variante calculen bien
+            // previousStock/newStock sin re-leer la fila.
+            const lockedByKey = new Map<string, { id: number; stock: number; reservedStock: number }>();
+            const runningStock = new Map<number, number>();
             lockedInventories.forEach((inventory) => {
+                const stock = Number(inventory.stock || 0);
                 lockedByKey.set(`${inventory.storeId}:${inventory.variantId}`, {
-                    stock: Number(inventory.stock || 0),
+                    id: inventory.id,
+                    stock,
                     reservedStock: Number(inventory.reservedStock || 0),
                 });
+                runningStock.set(inventory.id, stock);
             });
             for (const pair of storeVariantPairs) {
                 const locked = lockedByKey.get(`${pair.storeId}:${pair.variantId}`);
@@ -567,10 +575,13 @@ export class OrderService {
             // Reservar (o consumir en POS directo) por item, dentro de la tx.
             for (const item of createdOrder.items) {
                 const storeToUse = item.fulfillmentStoreId || createdOrder.fulfillmentStoreId || createdOrder.sourceStoreId;
-                const inventory = await this.getOrCreateInventory(storeToUse, item.variantId, tx);
+                // Reusar la fila ya asegurada y bloqueada arriba; fallback defensivo por
+                // si el par no estuviera en el snapshot (no deberia ocurrir).
+                const inventory = lockedByKey.get(`${storeToUse}:${item.variantId}`)
+                    ?? await this.getOrCreateInventory(storeToUse, item.variantId, tx);
 
                 if (shouldConsumeDirectStock) {
-                    const previousStock = Number(inventory.stock || 0);
+                    const previousStock = runningStock.get(inventory.id) ?? Number((inventory as { stock?: unknown }).stock || 0);
                     const newStock = previousStock - item.quantity;
                     if (newStock < 0) {
                         // Defensa en profundidad: nunca dejar stock negativo.
@@ -581,6 +592,7 @@ export class OrderService {
                         where: { id: inventory.id },
                         data: { stock: { decrement: item.quantity } },
                     });
+                    runningStock.set(inventory.id, newStock);
 
                     await tx.inventoryMovement.create({
                         data: {
