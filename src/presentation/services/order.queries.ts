@@ -21,6 +21,18 @@ export async function lockOrderRow(tx: any, orderId: number): Promise<void> {
     );
 }
 
+// C6: relee quantity/reserved de la linea con lock de fila, para calcular el
+// faltante sobre valores no-stale (otra reserva concurrente queda serializada).
+export async function lockOrderItemForUpdate(
+    tx: any,
+    orderItemId: number,
+): Promise<{ quantity: number; reserved: number } | null> {
+    const rows = await tx.$queryRaw(
+        Prisma.sql`SELECT "quantity", "reserved" FROM "OrderItem" WHERE "id" = ${orderItemId} FOR UPDATE`,
+    ) as Array<{ quantity: number; reserved: number }>;
+    return rows?.[0] ?? null;
+}
+
 // G3: bloquea la fila del pedido y re-valida que siga en un estado que permite
 // separar (picking). Serializa las escrituras de `picked` contra una
 // cancelacion/entrega concurrente (que tambien toma el lock), evitando marcar
