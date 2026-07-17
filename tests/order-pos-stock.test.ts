@@ -238,4 +238,55 @@ describe('OrderService POS stock fulfillment', () => {
     });
     expect(prisma.reservation.create).not.toHaveBeenCalled();
   });
+
+  it('dos lineas de la misma variante en POS directo descuentan encadenando el stock corriente', async () => {
+    const localInventory = {
+      id: 11,
+      storeId: 1,
+      variantId: 10,
+      stock: 8,
+      reservedStock: 0,
+    };
+
+    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria manana' } as never);
+    vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
+      { id: 10, product: { name: 'Polo' } },
+    ] as never);
+    // getOrCreateInventory del primer loop resuelve el par (1:10) una sola vez;
+    // el segundo loop ya NO re-consulta (usa el snapshot bajo lock).
+    vi.mocked(prisma.inventory.findUnique).mockResolvedValueOnce(localInventory as never);
+    vi.mocked(prisma.inventory.findMany).mockResolvedValueOnce([localInventory] as never);
+    vi.mocked(prisma.order.create).mockResolvedValueOnce({
+      id: 502,
+      code: 'ORD-POS-502',
+      status: 'DELIVERED',
+      sourceStoreId: 1,
+      fulfillmentStoreId: 1,
+      items: [
+        { id: 902, variantId: 10, quantity: 2, unitPrice: 18, subtotal: 36, fulfillmentStoreId: 1 },
+        { id: 903, variantId: 10, quantity: 3, unitPrice: 18, subtotal: 54, fulfillmentStoreId: 1 },
+      ],
+    } as never);
+
+    const [, dto] = CreateOrderDto.create({
+      sourceStoreId: 1,
+      note: 'Metodo de pago: Efectivo | Ref: POS-125',
+      items: [
+        { variantId: 10, quantity: 2, unitPrice: 18 },
+        { variantId: 10, quantity: 3, unitPrice: 18 },
+      ],
+    });
+
+    await new OrderService().createOrder(dto!);
+
+    // El inventario se resolvio una unica vez (fin del N+1 del segundo loop).
+    expect(prisma.inventory.findUnique).toHaveBeenCalledTimes(1);
+    // Dos movimientos OUT encadenados: 8->6 y 6->3 (no dos veces 8->6/8->5).
+    expect(prisma.inventoryMovement.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({ type: 'OUT', quantity: 2, previousStock: 8, newStock: 6, inventoryId: 11 }),
+    });
+    expect(prisma.inventoryMovement.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({ type: 'OUT', quantity: 3, previousStock: 6, newStock: 3, inventoryId: 11 }),
+    });
+  });
 });
