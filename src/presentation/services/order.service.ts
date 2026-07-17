@@ -83,11 +83,13 @@ import {
 import {
     allocateQuantityAcrossOrderItems,
     buildFallbackPickedAllocationByOrderItemId,
+    buildMarketplaceOrderResponse,
     generateOrderCode,
     getOrderItemMaxPickableQuantity,
     getOrderItemsForVariant,
     getRequestedQuantityForVariant,
     getReservedQuantityForVariant,
+    mapMarketplaceOrderSummaries,
     mapOrderItemStatusFromPicked,
     mapOrderWithPickingSummary,
     mapOrderWithPresentationData,
@@ -737,7 +739,7 @@ export class OrderService {
                 include: this.orderDetailInclude,
             });
             if (existing) {
-                return this.buildMarketplaceOrderResponse(existing);
+                return buildMarketplaceOrderResponse(existing);
             }
         }
 
@@ -991,7 +993,7 @@ export class OrderService {
                     include: this.orderDetailInclude,
                 });
                 if (existing) {
-                    return this.buildMarketplaceOrderResponse(existing);
+                    return buildMarketplaceOrderResponse(existing);
                 }
             }
             throw error;
@@ -1006,21 +1008,6 @@ export class OrderService {
 
     // C4: arma la respuesta del marketplace desde una orden existente (replay
     // idempotente), con el mismo shape que devuelve createMarketplaceOrder.
-    private buildMarketplaceOrderResponse(order: any) {
-        const items = Array.isArray(order.items) ? order.items : [];
-        const totalRequested = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
-        const totalReserved = items.reduce((sum: number, item: any) => sum + Number(item.reserved || 0), 0);
-        return {
-            ...mapOrderWithPresentationData(order),
-            stockSummary: {
-                totalRequested,
-                totalReserved,
-                totalPending: Math.max(0, totalRequested - totalReserved),
-            },
-            reviewMessage: 'Proforma sujeta a confirmacion de disponibilidad',
-        };
-    }
-
     async getMarketplaceOrderByCode(code: string, verifier?: { phone?: string; email?: string }) {
         const order = await prisma.order.findFirst({
             where: {
@@ -1135,7 +1122,7 @@ export class OrderService {
             take: dto.take,
         });
 
-        return this.mapMarketplaceOrderSummaries(orders);
+        return mapMarketplaceOrderSummaries(orders);
     }
 
     async listMarketplaceOrdersByCustomerProfile(customer: { phone: string; email: string }, take: number = 20) {
@@ -1174,7 +1161,7 @@ export class OrderService {
             take,
         });
 
-        return this.mapMarketplaceOrderSummaries(orders);
+        return mapMarketplaceOrderSummaries(orders);
     }
 
     async getMarketplaceCheckoutPaymentMethods() {
@@ -1194,34 +1181,6 @@ export class OrderService {
                 code: method.code,
             })),
         };
-    }
-
-    private mapMarketplaceOrderSummaries(orders: Array<any>) {
-        return orders.map((order) => {
-            const totalRequested = (order.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
-            const totalReserved = (order.items || []).reduce((sum: number, item: any) => sum + Number(item.reserved || 0), 0);
-            const pendingUnits = Math.max(0, totalRequested - totalReserved);
-            const hasPending = pendingUnits > 0;
-
-            return {
-                code: order.code,
-                status: order.status,
-                publicStatus: mapPublicOrderStatus(order.status as OrderStatusEnum),
-                createdAt: order.createdAt,
-                totals: {
-                    subtotal: Number(order.subtotal || 0),
-                    tax: Number(order.tax || 0),
-                    total: Number(order.total || 0),
-                },
-                requestedUnits: totalRequested,
-                reservedUnits: totalReserved,
-                pendingUnits,
-                hasPending,
-                reviewMessage: hasPending
-                    ? 'Proforma en revision: hay cantidades pendientes por confirmar'
-                    : 'Proforma confirmada para preparacion',
-            };
-        });
     }
 
     async listMarketplaceStores() {

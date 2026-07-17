@@ -2,6 +2,7 @@ import { OrderStatusEnum } from "../../domain/dtos/update-order-status.dto";
 import {
     detectSalesChannel,
     mapPickingItemStatus,
+    mapPublicOrderStatus,
     mapSimpleUser,
     sanitizeOrderVariantsForPresentation,
 } from "./order.helpers";
@@ -312,4 +313,47 @@ export function mapOrderWithPresentationData(order: any) {
     };
 
     return mapOrderWithPickingSummary(baseMappedOrder);
+}
+
+export function buildMarketplaceOrderResponse(order: any) {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const totalRequested = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+    const totalReserved = items.reduce((sum: number, item: any) => sum + Number(item.reserved || 0), 0);
+    return {
+        ...mapOrderWithPresentationData(order),
+        stockSummary: {
+            totalRequested,
+            totalReserved,
+            totalPending: Math.max(0, totalRequested - totalReserved),
+        },
+        reviewMessage: 'Proforma sujeta a confirmacion de disponibilidad',
+    };
+}
+
+export function mapMarketplaceOrderSummaries(orders: Array<any>) {
+    return orders.map((order) => {
+        const totalRequested = (order.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+        const totalReserved = (order.items || []).reduce((sum: number, item: any) => sum + Number(item.reserved || 0), 0);
+        const pendingUnits = Math.max(0, totalRequested - totalReserved);
+        const hasPending = pendingUnits > 0;
+
+        return {
+            code: order.code,
+            status: order.status,
+            publicStatus: mapPublicOrderStatus(order.status as OrderStatusEnum),
+            createdAt: order.createdAt,
+            totals: {
+                subtotal: Number(order.subtotal || 0),
+                tax: Number(order.tax || 0),
+                total: Number(order.total || 0),
+            },
+            requestedUnits: totalRequested,
+            reservedUnits: totalReserved,
+            pendingUnits,
+            hasPending,
+            reviewMessage: hasPending
+                ? 'Proforma en revision: hay cantidades pendientes por confirmar'
+                : 'Proforma confirmada para preparacion',
+        };
+    });
 }
