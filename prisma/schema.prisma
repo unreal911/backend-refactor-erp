@@ -584,6 +584,9 @@ model OrderReturn {
   reason String
   note String?
 
+  // Merma: si es false, la devolucion NO repone stock (mercaderia inservible).
+  restock Boolean @default(true)
+
   // Responsable de registrar la devolucion (FK a User a nivel BD).
   responsibleUserId Int?
 

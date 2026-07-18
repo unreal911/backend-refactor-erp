@@ -205,7 +205,7 @@ export class SunatController {
         }
     };
 
-    // GET /api/sunat/comprobantes?tipo=&estado=&desde=&hasta=&q=&skip=&take=
+    // GET /api/sunat/comprobantes?tipo=&estado=&desde=&hasta=&q=&orderId=&skip=&take=
     listarComprobantes = async (req: Request, res: Response): Promise<void> => {
         try {
             const q = req.query as Record<string, string | undefined>;
@@ -217,6 +217,7 @@ export class SunatController {
                 desde: q.desde,
                 hasta: q.hasta,
                 q: q.q,
+                orderId: q.orderId ? Number(q.orderId) : undefined,
                 skip: q.skip ? Number(q.skip) : undefined,
                 take: q.take ? Number(q.take) : undefined,
             }));

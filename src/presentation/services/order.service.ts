@@ -4173,6 +4173,7 @@ export class OrderService {
         dto: {
             reason: string;
             note?: string | null;
+            restock?: boolean;
             items: Array<{ orderItemId: number; quantity: number }>;
         },
         responsibleUserId?: number,
@@ -4184,6 +4185,8 @@ export class OrderService {
         if (!reason) {
             throw CustomError.badRequest('Debes indicar el motivo de la devolucion');
         }
+        // Merma: restock=false NO repone stock (mercaderia inservible). Default true.
+        const restock = dto?.restock !== false;
         const requestedItems = Array.isArray(dto?.items) ? dto.items : [];
         if (requestedItems.length === 0) {
             throw CustomError.badRequest('Debes indicar al menos una linea a devolver');
@@ -4247,26 +4250,30 @@ export class OrderService {
                 }
 
                 const variantId = Number(orderItem.variantId);
-                const inventory = await this.getOrCreateInventory(restockStoreId, variantId, tx);
-                const previousStock = Number(inventory.stock || 0);
-                const newStock = previousStock + quantity;
+                // Merma (restock=false): no toca inventario ni genera movimiento;
+                // la unidad se cuenta como devuelta pero se descarta (inservible).
+                if (restock) {
+                    const inventory = await this.getOrCreateInventory(restockStoreId, variantId, tx);
+                    const previousStock = Number(inventory.stock || 0);
+                    const newStock = previousStock + quantity;
 
-                await tx.inventory.update({
-                    where: { id: inventory.id },
-                    data: { stock: { increment: quantity } },
-                });
+                    await tx.inventory.update({
+                        where: { id: inventory.id },
+                        data: { stock: { increment: quantity } },
+                    });
 
-                await tx.inventoryMovement.create({
-                    data: {
-                        type: 'IN',
-                        quantity,
-                        previousStock,
-                        newStock,
-                        note: `Reposicion por devolucion de orden ${order.code} (${reason})`,
-                        responsibleUserId: responsibleUserId ?? null,
-                        inventoryId: inventory.id,
-                    },
-                });
+                    await tx.inventoryMovement.create({
+                        data: {
+                            type: 'IN',
+                            quantity,
+                            previousStock,
+                            newStock,
+                            note: `Reposicion por devolucion de orden ${order.code} (${reason})`,
+                            responsibleUserId: responsibleUserId ?? null,
+                            inventoryId: inventory.id,
+                        },
+                    });
+                }
 
                 await tx.orderItem.update({
                     where: { id: orderItemId },
@@ -4286,6 +4293,7 @@ export class OrderService {
                     storeId: restockStoreId,
                     reason,
                     note: dto?.note ? String(dto.note).trim() || null : null,
+                    restock,
                     responsibleUserId: responsibleUserId ?? null,
                     totalQuantity,
                     totalAmount,
