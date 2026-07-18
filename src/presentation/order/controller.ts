@@ -1476,7 +1476,7 @@ export class OrderController {
      */
     registerOrderReturn = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const { reason, note, items } = req.body || {};
+        const { reason, note, restock, items } = req.body || {};
 
         if (!id || isNaN(Number(id))) {
             return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -1488,6 +1488,7 @@ export class OrderController {
                 {
                     reason: String(reason || ''),
                     note: note ?? null,
+                    restock: restock !== false, // default true; false = merma (no repone)
                     items: Array.isArray(items)
                         ? items.map((it: any) => ({
                             orderItemId: Number(it?.orderItemId || 0),

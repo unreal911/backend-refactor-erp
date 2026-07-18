@@ -79,6 +79,7 @@ export interface ListarComprobantesFiltros {
     desde?: string | undefined; // YYYY-MM-DD
     hasta?: string | undefined; // YYYY-MM-DD
     q?: string | undefined; // serie o numero
+    orderId?: number | undefined; // filtro exacto por pedido de origen (deep-link)
     skip?: number | undefined;
     take?: number | undefined;
 }
@@ -1098,6 +1099,9 @@ export class ComprobanteService {
         const where: Prisma.ComprobanteWhereInput = {};
         if (filtros.tipo) where.tipo = filtros.tipo;
         if (filtros.estado) where.estado = filtros.estado;
+        if (filtros.orderId && Number.isInteger(filtros.orderId) && filtros.orderId > 0) {
+            where.orderId = filtros.orderId;
+        }
 
         if (filtros.desde || filtros.hasta) {
             const rango: Prisma.DateTimeFilter = {};

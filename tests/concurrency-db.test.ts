@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
 import { isReturnResponsibilityManagementEnabled } from '../src/presentation/services/order-responsibility.queries';
+import { DelegateOrderReturnDto } from '../src/domain/dtos/delegate-order-return.dto';
 import { InventoryService } from '../src/presentation/services/inventory.service';
 import { ensureInventoryIntegritySchema } from '../src/data/inventory-integrity-bootstrap';
 
@@ -167,6 +168,62 @@ async function seedPickingOrder(opts: { stock: number; quantity: number; picked:
   });
   createdPickingSessionIds.push(session.id);
   return { variant, inventory, order };
+}
+
+// Crea un usuario extra (para delegar/aceptar entre dos personas distintas).
+// Reutiliza cualquier rol existente y limpia el usuario en afterAll.
+async function createExtraUser(label: string): Promise<number> {
+  const role = await prisma.role.findFirst();
+  const roleId = role ? role.id : (await prisma.role.create({ data: { name: `IT Role ${uniq}-${label}` } })).id;
+  if (!role) createdRoleIds.push(roleId);
+  const user = await prisma.user.create({
+    data: {
+      firstName: 'IT',
+      lastName: label,
+      email: `it-${label}-${uniq}-${seq}@test.local`,
+      password: 'x',
+      roleId,
+    },
+  });
+  createdUserIds.push(user.id);
+  return user.id;
+}
+
+// Siembra un pedido en RETURN_PENDING con responsable de devolucion asignado.
+// Base para los tests directos de delegate/accept (no requiere sesion de picking).
+async function seedReturnPendingOrder(opts: {
+  responsibleUserId: number;
+  status: 'PENDING' | 'ACCEPTED';
+}) {
+  const { variant } = await seedScenario({ stock: 5, reserved: 5 });
+  const order = await prisma.order.create({
+    data: {
+      code: `IT-RETRESP-${uniq}-${seq}`,
+      status: 'RETURN_PENDING',
+      sourceStoreId: storeId,
+      fulfillmentStoreId: storeId,
+      sellerUserId: userId,
+      cancelledByUserId: opts.responsibleUserId,
+      returnResponsibleUserId: opts.responsibleUserId,
+      returnResponsibilityStatus: opts.status,
+      returnRequestedAt: new Date(),
+      returnResponsibilityAcceptedAt: opts.status === 'ACCEPTED' ? new Date() : null,
+      items: {
+        create: [
+          { variantId: variant.id, quantity: 5, reserved: 5, picked: 5, unitPrice: 10, subtotal: 50, status: 'PICKED' },
+        ],
+      },
+    },
+    include: { items: true },
+  });
+  createdOrderIds.push(order.id);
+  return { order };
+}
+
+function delegateDto(targetUserId: number): DelegateOrderReturnDto {
+  const [error, dto] = DelegateOrderReturnDto.create({ userId: targetUserId });
+  if (error || !dto) throw new Error(`DTO invalido en test: ${error}`);
+  return dto;
 }
 
 afterAll(async () => {
@@ -469,6 +526,55 @@ describe('Concurrencia real contra Postgres', () => {
     expect(returns.every((r) => r.responsibleUserId === userId)).toBe(true);
   }, 30_000);
 
+  it('G4 merma: restock=false NO repone stock pero cuenta como devuelta', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+
+    // Pedido DELIVERED, linea de 5, inventario ya refleja la salida (stock=5).
+    const { variant, inventory } = await seedScenario({ stock: 5, reserved: 0 });
+    const order = await prisma.order.create({
+      data: {
+        code: `IT-MERMA-${uniq}-${seq}`,
+        status: 'DELIVERED',
+        sourceStoreId: storeId,
+        fulfillmentStoreId: storeId,
+        sellerUserId: userId,
+        items: {
+          create: [
+            { variantId: variant.id, quantity: 5, reserved: 5, picked: 5, unitPrice: 10, subtotal: 50, status: 'PICKED' },
+          ],
+        },
+      },
+      include: { items: true },
+    });
+    createdOrderIds.push(order.id);
+    const lineId = order.items[0].id;
+
+    const svc = new OrderService();
+
+    // Devuelve 2 como MERMA (restock:false): stock intacto, pero cuenta como devuelta.
+    await svc.registerOrderReturn(order.id, { reason: 'roto', restock: false, items: [{ orderItemId: lineId, quantity: 2 }] }, userId);
+    let freshInv = await prisma.inventory.findUnique({ where: { id: inventory.id } });
+    expect(freshInv?.stock).toBe(5); // NO repuso
+    let freshLine = await prisma.orderItem.findUnique({ where: { id: lineId } });
+    expect(freshLine?.returnedQuantity).toBe(2); // sí cuenta como devuelta
+    // No se genero movimiento de inventario por la merma.
+    const movs = await prisma.inventoryMovement.count({ where: { inventoryId: inventory.id } });
+    expect(movs).toBe(0);
+
+    // Devuelve las 3 restantes con reposicion (default true): stock sube a 8.
+    await svc.registerOrderReturn(order.id, { reason: 'defecto', items: [{ orderItemId: lineId, quantity: 3 }] }, userId);
+    freshInv = await prisma.inventory.findUnique({ where: { id: inventory.id } });
+    expect(freshInv?.stock).toBe(8); // 5 + 3 repuestas (la merma no sumo)
+    freshLine = await prisma.orderItem.findUnique({ where: { id: lineId } });
+    expect(freshLine?.returnedQuantity).toBe(5);
+    const freshOrder = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(freshOrder?.returnedAt).not.toBeNull(); // todo devuelto -> cerrado
+
+    // El flag restock quedo registrado por devolucion (una merma, una reposicion).
+    const returns = await prisma.orderReturn.findMany({ where: { orderId: order.id }, orderBy: { id: 'asc' } });
+    expect(returns.map((r) => r.restock)).toEqual([false, true]);
+  }, 30_000);
+
   it('G4: no se puede devolver un pedido que no fue entregado', async (ctx) => {
     if (!dbReady) return ctx.skip();
 
@@ -541,5 +647,130 @@ describe('Concurrencia real contra Postgres', () => {
 
     const freshInv = await prisma.inventory.findUnique({ where: { id: inventory.id } });
     expect(freshInv?.reservedStock).toBe(0); // reserva liberada al cerrar
+  }, 30_000);
+
+  // --- Endpoints directos delegate/accept de responsabilidad de devolucion ---
+  // (antes solo se cubria la asignacion automatica y el guard de cierre).
+
+  it('delegateReturnResponsibility: responsable actual delega a otro -> queda PENDING de aceptacion', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    const target = await createExtraUser('delg-target');
+    // Pedido asignado a `userId` (responsable actual y cancelador).
+    const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'ACCEPTED' });
+
+    const svc = new OrderService();
+    await svc.delegateReturnResponsibility(order.id, delegateDto(target), userId);
+
+    const fresh = await prisma.order.findUnique({ where: { id: order.id } });
+    // Cambio de titular: ahora responde `target`, delegado por `userId`, PENDING de aceptar.
+    expect(fresh?.returnResponsibleUserId).toBe(target);
+    expect(fresh?.returnResponsibilityDelegatedById).toBe(userId);
+    expect(fresh?.returnResponsibilityStatus).toBe('PENDING');
+    expect(fresh?.returnResponsibilityAcceptedAt).toBeNull();
+    expect(fresh?.status).toBe('RETURN_PENDING'); // delegar no cierra la devolucion
+  }, 30_000);
+
+  it('delegateReturnResponsibility: auto-asignarse queda ACCEPTED de inmediato', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    // El cancelador se toma la devolucion para si mismo (target === actor).
+    const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'PENDING' });
+
+    const svc = new OrderService();
+    await svc.delegateReturnResponsibility(order.id, delegateDto(userId), userId);
+
+    const fresh = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(fresh?.returnResponsibleUserId).toBe(userId);
+    expect(fresh?.returnResponsibilityStatus).toBe('ACCEPTED');
+    expect(fresh?.returnResponsibilityAcceptedAt).not.toBeNull();
+  }, 30_000);
+
+  it('delegateReturnResponsibility: un tercero (ni responsable ni cancelador) NO puede delegar', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'ACCEPTED' });
+
+    const svc = new OrderService();
+    // actor = id inexistente distinto del responsable/cancelador -> forbidden.
+    await expect(
+      svc.delegateReturnResponsibility(order.id, delegateDto(userId), userId + 100000),
+    ).rejects.toThrow(/cancelo|responsable/i);
+
+    const fresh = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(fresh?.returnResponsibleUserId).toBe(userId); // sin cambios
+  }, 30_000);
+
+  it('delegateReturnResponsibility: rechaza si el pedido no esta en RETURN_PENDING', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    // seedPickingOrder deja el pedido en CONFIRMED.
+    const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 5 });
+
+    const svc = new OrderService();
+    await expect(
+      svc.delegateReturnResponsibility(order.id, delegateDto(userId), userId),
+    ).rejects.toThrow(/devolucion pendiente/i);
+  }, 30_000);
+
+  it('delegateReturnResponsibility: rechaza si el usuario destino no existe', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'ACCEPTED' });
+
+    const svc = new OrderService();
+    await expect(
+      svc.delegateReturnResponsibility(order.id, delegateDto(userId + 100000), userId),
+    ).rejects.toThrow(/no existe/i);
+  }, 30_000);
+
+  it('acceptReturnResponsibility: el responsable asignado acepta -> ACCEPTED con fecha', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    // Delegado a `target`, aun PENDING de aceptar.
+    const target = await createExtraUser('acc-target');
+    const { order } = await seedReturnPendingOrder({ responsibleUserId: target, status: 'PENDING' });
+
+    const svc = new OrderService();
+    await svc.acceptReturnResponsibility(order.id, target);
+
+    const fresh = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(fresh?.returnResponsibleUserId).toBe(target);
+    expect(fresh?.returnResponsibilityStatus).toBe('ACCEPTED');
+    expect(fresh?.returnResponsibilityAcceptedAt).not.toBeNull();
+    expect(fresh?.status).toBe('RETURN_PENDING'); // aceptar no cierra la devolucion
+  }, 30_000);
+
+  it('acceptReturnResponsibility: un usuario distinto al asignado NO puede aceptar', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'PENDING' });
+
+    const svc = new OrderService();
+    await expect(
+      svc.acceptReturnResponsibility(order.id, userId + 100000),
+    ).rejects.toThrow(/responsable/i);
+
+    const fresh = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(fresh?.returnResponsibilityStatus).toBe('PENDING'); // sin cambios
+  }, 30_000);
+
+  it('acceptReturnResponsibility: rechaza si el pedido no esta en RETURN_PENDING', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    if (!(await isReturnResponsibilityManagementEnabled())) return ctx.skip();
+
+    const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 5 });
+
+    const svc = new OrderService();
+    await expect(
+      svc.acceptReturnResponsibility(order.id, userId),
+    ).rejects.toThrow(/devolucion pendiente/i);
   }, 30_000);
 });
