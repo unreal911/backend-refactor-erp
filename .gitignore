@@ -7,6 +7,12 @@
 
 mongo/
 postgres/
+
+# Entorno local con secretos reales (NO commitear)
+.env
+.env.example
+# .env.production.example SI se commitea (solo plantilla con campos vacios)
+
 node_modules/
 dist/
 build/
