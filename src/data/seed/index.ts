@@ -2,11 +2,13 @@ import { prisma } from "../prisma";
 import { envs } from "../../config/envs";
 import { bootstrapAdminUser } from "./admin-bootstrap";
 import { seedDemoUsers } from "./demo-users-seed";
+import { seedProducts } from "./products-seed";
 import { seedBaseRolesAndPermissions } from "./roles-seed";
 import { SeedRunOptions, SeedRunSummary } from "./types";
 
 export async function runSeed(options: SeedRunOptions = {}): Promise<SeedRunSummary> {
     const includeDemoUsers = options.includeDemoUsers ?? envs.SEED_INCLUDE_DEMO_USERS;
+    const includeProducts = options.includeProducts ?? envs.SEED_INCLUDE_PRODUCTS;
     const ensureAdminFromEnv = options.ensureAdminFromEnv ?? true;
 
     const rolesSummary = await seedBaseRolesAndPermissions();
@@ -29,12 +31,24 @@ export async function runSeed(options: SeedRunOptions = {}): Promise<SeedRunSumm
         warnings.push(...demoSummary.warnings);
     }
 
+    let productsCreated: string[] = [];
+    let productsSkipped: string[] = [];
+    if (includeProducts) {
+        const productsSummary = await seedProducts();
+        productsCreated = productsSummary.created;
+        productsSkipped = productsSummary.skipped;
+        warnings.push(...productsSummary.warnings);
+    }
+
     return {
         roles: rolesSummary.roles,
         usersCreated: Array.from(usersCreated),
         usersUpdated: Array.from(usersUpdated),
+        productsCreated,
+        productsSkipped,
         warnings,
         includeDemoUsers,
+        includeProducts,
         ensureAdminFromEnv,
     };
 }

@@ -33,6 +33,7 @@ export const envs = {
     SEED_ENDPOINT_ENABLED: env.get("SEED_ENDPOINT_ENABLED").default(isProduction ? "false" : "true").asBool(),
     SEED_TRIGGER_KEY: env.get("SEED_TRIGGER_KEY").asString(),
     SEED_INCLUDE_DEMO_USERS: env.get("SEED_INCLUDE_DEMO_USERS").default(isProduction ? "false" : "true").asBool(),
+    SEED_INCLUDE_PRODUCTS: env.get("SEED_INCLUDE_PRODUCTS").default(isProduction ? "false" : "true").asBool(),
     SEED_DEMO_PASSWORD: env.get("SEED_DEMO_PASSWORD").default("password123").asString(),
     SEED_ADMIN_EMAIL: env.get("SEED_ADMIN_EMAIL").asString(),
     SEED_ADMIN_PASSWORD: env.get("SEED_ADMIN_PASSWORD").asString(),
