@@ -1,4 +1,4 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import {
@@ -17,6 +17,14 @@ import {
     listPickingResponsibilityRequestRows,
     listPickingSharedResponsibilityRows,
 } from "./order-picking.queries";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+
+function currentTenantId(): string {
+    return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+}
 
 /**
  * Consultas/guards del flujo de responsabilidad de picking y devolución.
@@ -139,6 +147,7 @@ export async function findPendingResponsibilityRequestId(
             SELECT "id"
             FROM "PickingResponsibilityRequest"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "requesterUserId" = ${requesterUserId}
               AND "status" = 'PENDING'
               AND "mode" = ${mode}
@@ -157,8 +166,22 @@ export async function insertResponsibilityRequest(
 ): Promise<void> {
     await dbClient.$executeRaw(
         Prisma.sql`
-            INSERT INTO "PickingResponsibilityRequest" ("orderId", "requesterUserId", "mode", "status", "note")
-            VALUES (${orderId}, ${requesterUserId}, ${mode}, 'PENDING', ${note ?? null})
+            INSERT INTO "PickingResponsibilityRequest" (
+                "tenantId",
+                "orderId",
+                "requesterUserId",
+                "mode",
+                "status",
+                "note"
+            )
+            VALUES (
+                ${currentTenantId()}::uuid,
+                ${orderId},
+                ${requesterUserId},
+                ${mode},
+                'PENDING',
+                ${note ?? null}
+            )
         `,
     );
 }
@@ -173,6 +196,7 @@ export async function getResponsibilityRequestById(
             SELECT "id", "requesterUserId", "mode", "status"
             FROM "PickingResponsibilityRequest"
             WHERE "id" = ${requestId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "orderId" = ${orderId}
             LIMIT 1
         `,
@@ -196,6 +220,7 @@ export async function approveResponsibilityRequestsByRequester(
                 "resolvedAt" = CURRENT_TIMESTAMP,
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "requesterUserId" = ${requesterUserId}
               AND "status" = 'PENDING'
         `,
@@ -216,6 +241,7 @@ export async function resolveResponsibilityRequestById(
                 "resolvedAt" = CURRENT_TIMESTAMP,
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "id" = ${requestId}
+              AND "tenantId" = ${currentTenantId()}::uuid
         `,
     );
 }
@@ -241,6 +267,7 @@ export async function findPendingUnpickRequestId(
             SELECT "id"
             FROM "PickingUnpickRequest"
             WHERE "pickingItemId" = ${pickingItemId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "requesterUserId" = ${requesterUserId}
               AND "status" = 'PENDING'
             LIMIT 1
@@ -259,8 +286,24 @@ export async function insertUnpickRequest(
 ): Promise<void> {
     await dbClient.$executeRaw(
         Prisma.sql`
-            INSERT INTO "PickingUnpickRequest" ("orderId", "pickingItemId", "requesterUserId", "quantity", "status", "note")
-            VALUES (${orderId}, ${pickingItemId}, ${requesterUserId}, ${quantity}, 'PENDING', ${note ?? null})
+            INSERT INTO "PickingUnpickRequest" (
+                "tenantId",
+                "orderId",
+                "pickingItemId",
+                "requesterUserId",
+                "quantity",
+                "status",
+                "note"
+            )
+            VALUES (
+                ${currentTenantId()}::uuid,
+                ${orderId},
+                ${pickingItemId},
+                ${requesterUserId},
+                ${quantity},
+                'PENDING',
+                ${note ?? null}
+            )
         `,
     );
 }
@@ -275,6 +318,7 @@ export async function getUnpickRequestById(
             SELECT "id", "orderId", "pickingItemId", "requesterUserId", "quantity", "status"
             FROM "PickingUnpickRequest"
             WHERE "id" = ${requestId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "orderId" = ${orderId}
             LIMIT 1
         `,
@@ -299,6 +343,7 @@ export async function resolveUnpickRequestById(
                 "resolvedAt" = CURRENT_TIMESTAMP,
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "id" = ${requestId}
+              AND "tenantId" = ${currentTenantId()}::uuid
         `,
     );
 }
@@ -316,6 +361,7 @@ export async function cancelPickingArtifactsOnOrderClose(
             SET "isActive" = false,
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "isActive" = true
         `,
     );
@@ -327,6 +373,7 @@ export async function cancelPickingArtifactsOnOrderClose(
                 "resolvedAt" = CURRENT_TIMESTAMP,
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "status" = 'PENDING'
         `,
     );
@@ -338,6 +385,7 @@ export async function cancelPickingArtifactsOnOrderClose(
                 "resolvedAt" = CURRENT_TIMESTAMP,
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "status" = 'PENDING'
         `,
     );

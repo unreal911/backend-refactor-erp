@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { cloudinary } from '../../config/cloudinary';
-import { prisma } from '../../data/prisma';
+import { tenantPrisma as prisma } from '../../data/tenant-prisma';
 import { UpdateOrderWorkflowSettingsDto } from '../../domain/dtos/update-order-workflow-settings.dto';
 import {
     BRAND_DISPLAY_MODE_KEY,
@@ -23,6 +23,7 @@ import {
     RETURN_RESPONSIBILITY_MANAGEMENT_KEY,
 } from '../../data/system-config-keys';
 import { CustomError } from '../../domain/errors/custom.error';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
 
 type SystemSettingRow = {
     value: string;
@@ -83,18 +84,26 @@ export class SystemConfigService {
     }
 
     private async getSettingValue(key: string): Promise<string | null> {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRaw<SystemSettingRow[]>(
-            Prisma.sql`SELECT "value" FROM "SystemSetting" WHERE "key" = ${key} LIMIT 1`,
+            Prisma.sql`
+                SELECT "value"
+                FROM "SystemSetting"
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "key" = ${key}
+                LIMIT 1
+            `,
         );
         return rows[0]?.value ?? null;
     }
 
     private async upsertSettingValue(key: string, value: string): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
         await prisma.$executeRaw(
             Prisma.sql`
-                INSERT INTO "SystemSetting" ("key", "value")
-                VALUES (${key}, ${value})
-                ON CONFLICT ("key") DO UPDATE
+                INSERT INTO "SystemSetting" ("tenantId", "key", "value")
+                VALUES (${tenantId}::uuid, ${key}, ${value})
+                ON CONFLICT ("tenantId", "key") DO UPDATE
                 SET "value" = EXCLUDED."value",
                     "updatedAt" = CURRENT_TIMESTAMP
             `,
@@ -102,12 +111,13 @@ export class SystemConfigService {
     }
 
     private async uploadCompanyLogo(file: { filename: string; data: string }): Promise<string> {
+        const tenantId = TenantDataContext.requireTenantId();
         const filenameBase = file.filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
         const payload = file.data.startsWith('data:') ? file.data : `data:image/jpeg;base64,${file.data}`;
 
         try {
             const uploadResult = await cloudinary.uploader.upload(payload, {
-                folder: 'company_assets',
+                folder: `company_assets/${tenantId}`,
                 public_id: `company_logo_${filenameBase || 'logo'}`,
                 overwrite: true,
                 resource_type: 'image',
@@ -121,11 +131,13 @@ export class SystemConfigService {
     }
 
     private async getActivePaymentMethodIds(): Promise<number[]> {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRaw<PaymentMethodIdRow[]>(
             Prisma.sql`
                 SELECT "id"
                 FROM "PaymentMethod"
-                WHERE "isActive" = true
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "isActive" = true
                 ORDER BY "displayOrder" ASC, "name" ASC
             `,
         );
@@ -136,6 +148,7 @@ export class SystemConfigService {
     }
 
     async getOrderWorkflowSettings() {
+        const tenantId = TenantDataContext.requireTenantId();
         const [
             returnResponsibilityRaw,
             pickingResponsibilityFlowRaw,
@@ -155,6 +168,7 @@ export class SystemConfigService {
             posFacturaEnabledRaw,
             brandDisplayModeRaw,
             activeMethodIds,
+            tenantProfile,
         ] = await Promise.all([
             this.getSettingValue(RETURN_RESPONSIBILITY_MANAGEMENT_KEY),
             this.getSettingValue(PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY),
@@ -174,6 +188,18 @@ export class SystemConfigService {
             this.getSettingValue(POS_FACTURA_ENABLED_KEY),
             this.getSettingValue(BRAND_DISPLAY_MODE_KEY),
             this.getActivePaymentMethodIds(),
+            prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: {
+                    name: true,
+                    legalName: true,
+                    ruc: true,
+                    address: true,
+                    contactPhone: true,
+                    contactEmail: true,
+                    logoUrl: true,
+                },
+            }),
         ]);
 
         const activeIdSet = new Set(activeMethodIds);
@@ -188,13 +214,13 @@ export class SystemConfigService {
             marketplacePaymentMethodIds: fallbackIds,
             marketplaceIncludeIgv: this.parseBoolean(marketplaceIncludeIgvRaw, true),
             marketplaceAutoReserveStock: this.parseBoolean(marketplaceAutoReserveStockRaw, false),
-            companyName: this.parseText(companyNameRaw) || 'B2B Marketplace',
-            companyLegalName: this.parseText(companyLegalNameRaw),
-            companyRuc: this.parseText(companyRucRaw),
-            companyAddress: this.parseText(companyAddressRaw),
-            companyPhone: this.parseText(companyPhoneRaw),
-            companyEmail: this.parseText(companyEmailRaw),
-            companyLogoUrl: this.parseText(companyLogoUrlRaw),
+            companyName: tenantProfile?.name || this.parseText(companyNameRaw) || 'B2B Marketplace',
+            companyLegalName: tenantProfile?.legalName || this.parseText(companyLegalNameRaw),
+            companyRuc: tenantProfile?.ruc || this.parseText(companyRucRaw),
+            companyAddress: tenantProfile?.address || this.parseText(companyAddressRaw),
+            companyPhone: tenantProfile?.contactPhone || this.parseText(companyPhoneRaw),
+            companyEmail: tenantProfile?.contactEmail || this.parseText(companyEmailRaw),
+            companyLogoUrl: tenantProfile?.logoUrl || this.parseText(companyLogoUrlRaw),
             marketplaceHeroHeading: this.parseText(marketplaceHeroHeadingRaw) || DEFAULT_MARKETPLACE_HERO_HEADING,
             posBoletaEnabled: this.parseBoolean(posBoletaEnabledRaw, false),
             posFacturaEnabled: this.parseBoolean(posFacturaEnabledRaw, false),
@@ -213,6 +239,7 @@ export class SystemConfigService {
     }
 
     async updateOrderWorkflowSettings(dto: UpdateOrderWorkflowSettingsDto) {
+        const tenantId = TenantDataContext.requireTenantId();
         const currentSettings = await this.getOrderWorkflowSettings();
         const activeMethodIds = await this.getActivePaymentMethodIds();
         const activeIdSet = new Set(activeMethodIds);
@@ -248,6 +275,22 @@ export class SystemConfigService {
         if (marketplacePaymentMethodsEnabled && marketplacePaymentMethodIds.length === 0) {
             throw CustomError.badRequest('Debes activar al menos un metodo de pago para el marketplace');
         }
+
+        await prisma.tenant.update({
+            where: { id: tenantId },
+            data: {
+                name: companyName,
+                legalName: companyLegalName || null,
+                ruc: companyRuc || null,
+                address: companyAddress || null,
+                contactPhone: companyPhone || null,
+                contactEmail: companyEmail || null,
+                logoUrl: companyLogoUrl || null,
+                ...(companyRuc !== currentSettings.companyRuc
+                    ? { rucConfirmedAt: null }
+                    : {}),
+            },
+        });
 
         await this.upsertSettingValue(
             RETURN_RESPONSIBILITY_MANAGEMENT_KEY,

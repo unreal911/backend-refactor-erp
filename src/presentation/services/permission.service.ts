@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../data/prisma';
+import { platformPrisma as prisma } from '../../data/platform-prisma';
 import {
     getDefaultPermissionsByRole,
     isWildcardPermission,
@@ -114,6 +114,35 @@ export class PermissionService {
 
     static getDefaultPermissions(roleName: string | null | undefined): string[] {
         return this.normalizePermissions(getDefaultPermissionsByRole(roleName));
+    }
+
+    static async resolvePermissionsForTenantRole(roleName: string): Promise<string[]> {
+        const normalizedRole = normalizeRoleName(roleName);
+
+        try {
+            const role = await prisma.role.findUnique({
+                where: { name: normalizedRole },
+                include: {
+                    rolePermissions: {
+                        where: {
+                            permission: {
+                                isActive: true
+                            }
+                        },
+                        include: {
+                            permission: true
+                        }
+                    }
+                }
+            });
+
+            const explicit = this.extractCodes((role?.rolePermissions || []) as RolePermissionRow[]);
+            return explicit.length > 0
+                ? explicit
+                : this.getDefaultPermissions(normalizedRole);
+        } catch {
+            return this.getDefaultPermissions(normalizedRole);
+        }
     }
 
     static async listPermissionsCatalog(): Promise<PermissionCatalogItem[]> {

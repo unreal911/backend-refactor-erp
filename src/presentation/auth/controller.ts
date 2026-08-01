@@ -2,6 +2,10 @@ import { Request, Response } from 'express';
 import { AuthService } from '../../modules/auth/services/auth.service';
 import { LoginDto } from '../../domain/dtos/login.dto';
 import { AuthRequest } from './middleware';
+import {
+    TenantAccessError,
+    TenantSelectionRequiredError,
+} from '../../modules/tenant/tenant-context.service';
 
 export class AuthController {
     static async login(req: Request, res: Response) {
@@ -14,6 +18,15 @@ export class AuthController {
             const result = await AuthService.login(loginDto!);
             res.json(result);
         } catch (error: unknown) {
+            if (error instanceof TenantSelectionRequiredError) {
+                return res.status(error.statusCode).json({
+                    message: error.message,
+                    tenants: error.tenants,
+                });
+            }
+            if (error instanceof TenantAccessError) {
+                return res.status(error.statusCode).json({ message: error.message });
+            }
             const message = error instanceof Error ? error.message : 'Error al iniciar sesion';
             const isAuthError = message === 'Credenciales invalidas' || message === 'Usuario inactivo';
 
@@ -37,13 +50,26 @@ export class AuthController {
         }
     }
 
+    static async platformLogin(req: Request, res: Response) {
+        try {
+            const [error, loginDto] = LoginDto.create(req.body);
+            if (error) {
+                return res.status(400).json({ message: error });
+            }
+            const result = await AuthService.loginPlatform(loginDto!);
+            return res.json(result);
+        } catch {
+            return res.status(401).json({ message: 'Credenciales de plataforma invalidas' });
+        }
+    }
+
     static async me(req: AuthRequest, res: Response) {
         try {
-            if (!req.user?.id) {
-                return res.status(401).json({ message: 'Usuario no autenticado' });
+            if (!req.user?.id || !req.tenant) {
+                return res.status(403).json({ message: 'Contexto de empresa requerido' });
             }
 
-            const result = await AuthService.me(req.user.id, req.user.role, req.user.permissions);
+            const result = await AuthService.me(req.user.id, req.tenant, req.user.permissions);
             res.json(result);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : 'Error al consultar usuario';

@@ -7,10 +7,11 @@ import {
     ResumenDiario,
     SunatDispatchStatus,
 } from "@prisma/client";
-import { prisma } from "../../../data/prisma";
+import { tenantPrisma as prisma } from "../../../data/tenant-prisma";
 import { CustomError } from "../../../domain/errors/custom.error";
+import { TenantDataContext } from "../../tenant/tenant-data-context";
 import { IGV_PORCENTAJE, TIPO_DOC, TIPO_DOC_IDENTIDAD, AFECTACION_IGV } from "../catalogs/sunat-catalogs";
-import { loadSunatConfig, resolveSunatConfig, SunatConfig } from "../config/sunat.config";
+import { loadSunatConfig, SunatConfig } from "../config/sunat.config";
 import { buildComprobanteXml } from "../builder/ubl.builder";
 import {
     ComprobanteData,
@@ -149,36 +150,56 @@ function estadoFromDispatch(status: SunatDispatchStatus): ComprobanteEstado {
 }
 
 export class ComprobanteService {
-    private config: SunatConfig;
-    private signer: XmlSignerService;
     private readonly zip: ZipService;
     private readonly soap: SunatSoapClient;
-    // Si el caller inyecta config, se respeta y no se lee la BD.
-    private readonly explicitConfig: boolean;
-    private ready?: Promise<void>;
+    private readonly injectedConfig: SunatConfig | null;
+    private readonly injectedSigner: XmlSignerService | null;
+    private readonly tenantRuntime = new Map<string, {
+        config: SunatConfig;
+        signer: XmlSignerService;
+    }>();
 
     constructor(config?: SunatConfig) {
-        // Base sincrona (env, BETA) para que this.config nunca sea undefined.
-        const initial = config ?? resolveSunatConfig();
-        this.config = initial;
-        this.signer = new XmlSignerService(initial);
         this.zip = new ZipService();
         this.soap = new SunatSoapClient();
-        this.explicitConfig = config !== undefined;
+        this.injectedConfig = config ?? null;
+        this.injectedSigner = config ? new XmlSignerService(config) : null;
     }
 
-    // Carga la config efectiva desde la BD (emisor activo) una sola vez.
-    // Con config inyectada o sin fila activa, mantiene la base de env (BETA).
-    private async ensureReady(): Promise<void> {
-        if (this.explicitConfig) return;
-        if (!this.ready) {
-            this.ready = (async () => {
-                const resolved = await loadSunatConfig();
-                this.config = resolved;
-                this.signer = new XmlSignerService(resolved);
-            })();
+    private get config(): SunatConfig {
+        if (this.injectedConfig) return this.injectedConfig;
+        const tenantId = TenantDataContext.requireTenantId();
+        const runtime = this.tenantRuntime.get(tenantId);
+        if (!runtime) {
+            throw new Error(
+                "La configuracion SUNAT de la empresa no fue inicializada",
+            );
         }
-        return this.ready;
+        return runtime.config;
+    }
+
+    private get signer(): XmlSignerService {
+        if (this.injectedSigner) return this.injectedSigner;
+        const tenantId = TenantDataContext.requireTenantId();
+        const runtime = this.tenantRuntime.get(tenantId);
+        if (!runtime) {
+            throw new Error(
+                "El firmador SUNAT de la empresa no fue inicializado",
+            );
+        }
+        return runtime.signer;
+    }
+
+    // Carga la configuracion de la empresa actual. El mapa se separa por
+    // tenantId para que una instancia compartida nunca reutilice otro emisor.
+    private async ensureReady(): Promise<void> {
+        if (this.injectedConfig) return;
+        const tenantId = TenantDataContext.requireTenantId();
+        const resolved = await loadSunatConfig();
+        this.tenantRuntime.set(tenantId, {
+            config: resolved,
+            signer: new XmlSignerService(resolved),
+        });
     }
 
     // -------- Emitir factura / boleta desde un Order --------

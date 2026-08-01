@@ -7,9 +7,15 @@
  *
  * Limpia todo lo creado (orden, comprobante, reservas) y revierte el reservedStock.
  */
-import { prisma } from "../data/prisma";
+import {
+    prisma,
+    runTenantDatabaseTransaction,
+} from "../data/prisma";
 import { OrderService } from "../presentation/services/order.service";
 import { ComprobanteService } from "../modules/sunat/services/comprobante.service";
+import {
+    LEGACY_TENANT_ID,
+} from "../modules/tenant/tenant-data-context";
 import { CreateOrderDto } from "../domain/dtos/create-order.dto";
 
 let passed = 0;
@@ -108,6 +114,6 @@ async function main(): Promise<void> {
     if (failed > 0) process.exit(1);
 }
 
-main()
+runTenantDatabaseTransaction(LEGACY_TENANT_ID, main)
     .catch((error) => { console.error("ERROR:", error instanceof Error ? error.message : error); process.exit(1); })
     .finally(() => prisma.$disconnect());

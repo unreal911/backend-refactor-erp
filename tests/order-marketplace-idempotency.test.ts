@@ -42,7 +42,14 @@ describe('createMarketplaceOrder — idempotencia (replay)', () => {
 
     // Replay: consulto por la clave y devolvi el pedido mapeado.
     expect(prisma.order.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { idempotencyKey: 'MK-REPLAY' } }),
+      expect.objectContaining({
+        where: {
+          tenantId_idempotencyKey: {
+            tenantId: '00000000-0000-4000-8000-000000000001',
+            idempotencyKey: 'MK-REPLAY',
+          },
+        },
+      }),
     );
     expect(result.code).toBe('MK-REPLAY');
     expect(result.stockSummary).toBeDefined();
@@ -61,7 +68,14 @@ describe('createMarketplaceOrder — idempotencia (replay)', () => {
     ).rejects.toBeTruthy();
 
     expect(prisma.order.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { idempotencyKey: 'MK-NUEVO' } }),
+      expect.objectContaining({
+        where: {
+          tenantId_idempotencyKey: {
+            tenantId: '00000000-0000-4000-8000-000000000001',
+            idempotencyKey: 'MK-NUEVO',
+          },
+        },
+      }),
     );
   });
 });

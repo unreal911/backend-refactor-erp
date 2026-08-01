@@ -1,9 +1,13 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CustomError } from "../../domain/errors/custom.error";
 import { CreateInventoryMovementDto } from "../../domain/dtos/create-inventory-movement.dto";
 import { CreateStockTransferDto } from "../../domain/dtos/create-stock-transfer.dto";
 import { CreateReservationDto } from "../../domain/dtos/create-reservation.dto";
 import { InventoryMovementType, TransferStatus, Prisma } from "@prisma/client";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
 
 interface InventoryListOptions {
     skip?: number;
@@ -440,14 +444,30 @@ export class InventoryService {
         if (transfer.status === TransferStatus.RECEIVED) {
             throw CustomError.badRequest('La transferencia ya fue recibida');
         }
+        if (transfer.status === TransferStatus.CANCELLED) {
+            throw CustomError.badRequest('La transferencia fue cancelada');
+        }
 
         const receivedTransfer = await prisma.$transaction(async (tx) => {
-            const updatedTransfer = await tx.stockTransfer.update({
-                where: { id: transferId },
+            const claimed = await tx.stockTransfer.updateMany({
+                where: {
+                    id: transferId,
+                    status: {
+                        in: [TransferStatus.PENDING, TransferStatus.IN_TRANSIT],
+                    },
+                },
                 data: {
                     status: TransferStatus.RECEIVED,
                     receivedById: userId ?? null,
                 },
+            });
+            if (claimed.count !== 1) {
+                throw CustomError.badRequest(
+                    'La transferencia ya fue recibida o cancelada',
+                );
+            }
+            const updatedTransfer = await tx.stockTransfer.findUniqueOrThrow({
+                where: { id: transferId },
             });
 
             const inventories = [] as Array<any>;
@@ -520,7 +540,99 @@ export class InventoryService {
         };
     }
 
+    async cancelStockTransfer(transferId: number, userId?: number | undefined) {
+        const transfer = await prisma.stockTransfer.findUnique({
+            where: { id: transferId },
+            include: { items: true },
+        });
+
+        if (!transfer) {
+            throw CustomError.notFound('La transferencia no existe');
+        }
+        if (transfer.status === TransferStatus.CANCELLED) {
+            throw CustomError.badRequest('La transferencia ya fue cancelada');
+        }
+        if (transfer.status === TransferStatus.RECEIVED) {
+            throw CustomError.badRequest(
+                'Una transferencia recibida no puede cancelarse',
+            );
+        }
+
+        await prisma.$transaction(async (tx) => {
+            const claimed = await tx.stockTransfer.updateMany({
+                where: {
+                    id: transferId,
+                    status: {
+                        in: [TransferStatus.PENDING, TransferStatus.IN_TRANSIT],
+                    },
+                },
+                data: { status: TransferStatus.CANCELLED },
+            });
+            if (claimed.count !== 1) {
+                throw CustomError.badRequest(
+                    'La transferencia ya fue recibida o cancelada',
+                );
+            }
+
+            for (const item of transfer.items) {
+                const inventory = await tx.inventory.findUnique({
+                    where: {
+                        storeId_variantId: {
+                            storeId: transfer.fromStoreId,
+                            variantId: item.variantId,
+                        },
+                    },
+                });
+                if (!inventory) {
+                    throw CustomError.badRequest(
+                        `No existe inventario de origen para la variante ${item.variantId}`,
+                    );
+                }
+                const updatedInventory = await tx.inventory.update({
+                    where: { id: inventory.id },
+                    data: { stock: { increment: item.quantity } },
+                });
+                await tx.inventoryMovement.create({
+                    data: {
+                        type: InventoryMovementType.ADJUSTMENT,
+                        quantity: item.quantity,
+                        previousStock: inventory.stock,
+                        newStock: updatedInventory.stock,
+                        note: transfer.note
+                            ? `Cancelación de transferencia: ${transfer.note}`
+                            : 'Cancelación de transferencia',
+                        responsibleUserId: userId ?? null,
+                        inventoryId: inventory.id,
+                        transferId,
+                    },
+                });
+            }
+        });
+
+        return prisma.stockTransfer.findUnique({
+            where: { id: transferId },
+            include: {
+                fromStore: true,
+                toStore: true,
+                createdBy: true,
+                receivedBy: true,
+                items: {
+                    include: {
+                        variant: {
+                            include: {
+                                product: true,
+                                color: true,
+                                size: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
     async createReservation(dto: CreateReservationDto, userId?: number | undefined) {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const inventory = await prisma.inventory.findUnique({ where: { id: dto.inventoryId } });
 
         if (!inventory) {
@@ -535,6 +647,7 @@ export class InventoryService {
                 UPDATE "Inventory"
                 SET "reservedStock" = "reservedStock" + ${dto.quantity}
                 WHERE "id" = ${inventory.id}
+                  AND "tenantId" = ${tenantId}::uuid
                   AND "stock" - "reservedStock" >= ${dto.quantity}
             `;
             if (reserved === 0) {
@@ -582,6 +695,7 @@ export class InventoryService {
     }
 
     async reconcileReservedStock(inventoryIds: number[] = [], userId?: number | undefined) {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const normalizedIds = Array.from(
             new Set(
                 (Array.isArray(inventoryIds) ? inventoryIds : [])
@@ -601,10 +715,23 @@ export class InventoryService {
             // incremento recien aplicado.
             if (normalizedIds.length > 0) {
                 await tx.$executeRaw(
-                    Prisma.sql`SELECT "id" FROM "Inventory" WHERE "id" IN (${Prisma.join(normalizedIds)}) FOR UPDATE`,
+                    Prisma.sql`
+                        SELECT "id"
+                        FROM "Inventory"
+                        WHERE "tenantId" = ${tenantId}::uuid
+                          AND "id" IN (${Prisma.join(normalizedIds)})
+                        FOR UPDATE
+                    `,
                 );
             } else {
-                await tx.$executeRaw(Prisma.sql`SELECT "id" FROM "Inventory" FOR UPDATE`);
+                await tx.$executeRaw(
+                    Prisma.sql`
+                        SELECT "id"
+                        FROM "Inventory"
+                        WHERE "tenantId" = ${tenantId}::uuid
+                        FOR UPDATE
+                    `,
+                );
             }
 
             const inventories = await tx.inventory.findMany({
@@ -712,6 +839,7 @@ export class InventoryService {
      * No corrige nada; para corregir usar `reconcileReservedStock`.
      */
     async auditReservedStock() {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const rows = await prisma.$queryRaw<Array<{
             id: number;
             storeId: number;
@@ -738,13 +866,17 @@ export class InventoryService {
                 LEFT JOIN (
                     SELECT "inventoryId", SUM("quantity") AS "activeReserved"
                     FROM "Reservation"
-                    WHERE "status" = 'ACTIVE'
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND "status" = 'ACTIVE'
                     GROUP BY "inventoryId"
                 ) r ON r."inventoryId" = i."id"
-                WHERE i."stock" < 0
-                   OR i."reservedStock" < 0
-                   OR i."reservedStock" > i."stock"
-                   OR i."reservedStock" <> COALESCE(r."activeReserved", 0)
+                WHERE i."tenantId" = ${tenantId}::uuid
+                  AND (
+                       i."stock" < 0
+                    OR i."reservedStock" < 0
+                    OR i."reservedStock" > i."stock"
+                    OR i."reservedStock" <> COALESCE(r."activeReserved", 0)
+                  )
                 ORDER BY i."id" ASC
             `,
         );

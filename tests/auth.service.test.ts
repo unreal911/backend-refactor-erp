@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/data/prisma', () => ({
-  prisma: {
+vi.mock('../src/data/prisma', () => {
+  const client = {
     user: {
       findUnique: vi.fn(),
     },
-  },
-}));
+  };
+  return { prisma: client, platformPrisma: client };
+});
 
 vi.mock('bcryptjs', () => ({
   default: {
@@ -22,7 +23,13 @@ vi.mock('jsonwebtoken', () => ({
 
 vi.mock('../src/presentation/services/permission.service', () => ({
   PermissionService: {
-    resolvePermissionsForUser: vi.fn(),
+    resolvePermissionsForTenantRole: vi.fn(),
+  },
+}));
+
+vi.mock('../src/modules/tenant/tenant-context.service', () => ({
+  TenantContextService: {
+    resolveForLogin: vi.fn(),
   },
 }));
 
@@ -38,6 +45,24 @@ import { prisma } from '../src/data/prisma';
 import { LoginDto } from '../src/domain/dtos/login.dto';
 import { AuthService } from '../src/presentation/services/auth.service';
 import { PermissionService } from '../src/presentation/services/permission.service';
+import { TenantContextService } from '../src/modules/tenant/tenant-context.service';
+
+const tenantContext = {
+  tenant: {
+    id: '00000000-0000-4000-8000-000000000001',
+    slug: 'legacy-main',
+    name: 'Empresa principal',
+    status: 'ACTIVE',
+    databaseMode: 'SHARED',
+    trialEndsAt: null,
+  },
+  membership: {
+    id: '10000000-0000-4000-8000-000000000001',
+    role: 'OWNER',
+    status: 'ACTIVE',
+  },
+  rbacRole: 'ADMIN',
+};
 
 describe('AuthService', () => {
   beforeEach(() => {
@@ -94,7 +119,8 @@ describe('AuthService', () => {
       role: { name: 'ADMIN' },
     } as never);
     vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
-    vi.mocked(PermissionService.resolvePermissionsForUser).mockResolvedValueOnce(['users.view'] as never);
+    vi.mocked(TenantContextService.resolveForLogin).mockResolvedValueOnce(tenantContext as never);
+    vi.mocked(PermissionService.resolvePermissionsForTenantRole).mockResolvedValueOnce(['users.view'] as never);
     vi.mocked(jwt.sign).mockReturnValueOnce('token-123' as never);
 
     const [, loginDto] = LoginDto.create({ email: 'demo@tienda.com', password: 'secret' });
@@ -102,10 +128,15 @@ describe('AuthService', () => {
 
     expect(jwt.sign).toHaveBeenCalledWith(
       {
+        scope: 'tenant',
         id: 1,
         email: 'demo@tienda.com',
         role: 'ADMIN',
         permissions: ['users.view'],
+        tenantId: tenantContext.tenant.id,
+        tenantSlug: tenantContext.tenant.slug,
+        membershipId: tenantContext.membership.id,
+        tenantRole: tenantContext.membership.role,
       },
       'test-secret',
       { expiresIn: '1h' },
@@ -119,6 +150,8 @@ describe('AuthService', () => {
         email: 'demo@tienda.com',
         role: 'ADMIN',
         permissions: ['users.view'],
+        tenant: tenantContext.tenant,
+        membership: tenantContext.membership,
       },
     });
   });
@@ -138,23 +171,21 @@ describe('AuthService', () => {
       isActive: true,
       role: null,
     } as never);
-    vi.mocked(PermissionService.resolvePermissionsForUser).mockResolvedValueOnce(['orders.view'] as never);
+    vi.mocked(PermissionService.resolvePermissionsForTenantRole).mockResolvedValueOnce(['orders.view'] as never);
 
-    const result = await AuthService.me(7, 'MANAGER', ['orders.view']);
+    const result = await AuthService.me(7, tenantContext as never, ['orders.view']);
 
-    expect(PermissionService.resolvePermissionsForUser).toHaveBeenCalledWith({
-      userId: 7,
-      roleName: 'MANAGER',
-      tokenPermissions: ['orders.view'],
-    });
+    expect(PermissionService.resolvePermissionsForTenantRole).toHaveBeenCalledWith('ADMIN');
     expect(result).toEqual({
       user: {
         id: 7,
         firstName: 'Ana',
         lastName: 'Lopez',
         email: 'ana@tienda.com',
-        role: 'MANAGER',
+        role: 'ADMIN',
         permissions: ['orders.view'],
+        tenant: tenantContext.tenant,
+        membership: tenantContext.membership,
       },
     });
   });

@@ -1,9 +1,13 @@
-import { prisma } from '../../data/prisma';
+import { platformPrisma as prisma } from '../../data/platform-prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { LoginDto } from '../../domain/dtos/login.dto';
 import { PermissionService } from './permission.service';
 import { envs } from '../../config/envs';
+import {
+    TenantContextService,
+    TenantRequestContext,
+} from '../../modules/tenant/tenant-context.service';
 
 type AuthUserPayload = {
     id: number;
@@ -17,19 +21,23 @@ type AuthUserPayload = {
 };
 
 export class AuthService {
-    private static async buildAuthUserContext(user: AuthUserPayload) {
-        const permissions = await PermissionService.resolvePermissionsForUser({
-            userId: user.id,
-            roleName: user.role.name
-        });
+    private static async buildAuthUserContext(
+        user: AuthUserPayload,
+        tenantContext: TenantRequestContext,
+    ) {
+        const permissions = await PermissionService.resolvePermissionsForTenantRole(
+            tenantContext.rbacRole,
+        );
 
         return {
             id: user.id,
             firstName: user.firstName,
             lastName: user.lastName,
             email: user.email,
-            role: user.role.name,
-            permissions
+            role: tenantContext.rbacRole,
+            permissions,
+            tenant: tenantContext.tenant,
+            membership: tenantContext.membership,
         };
     }
 
@@ -77,14 +85,26 @@ export class AuthService {
             throw new Error('Credenciales invalidas');
         }
 
-        const authUser = await this.buildAuthUserContext(user as AuthUserPayload);
+        const tenantContext = await TenantContextService.resolveForLogin(
+            user.id,
+            loginDto.tenantSlug,
+        );
+        const authUser = await this.buildAuthUserContext(
+            user as AuthUserPayload,
+            tenantContext,
+        );
 
         const token = jwt.sign(
             {
+                scope: 'tenant',
                 id: user.id,
                 email: user.email,
-                role: user.role.name,
-                permissions: authUser.permissions
+                role: tenantContext.rbacRole,
+                permissions: authUser.permissions,
+                tenantId: tenantContext.tenant.id,
+                tenantSlug: tenantContext.tenant.slug,
+                membershipId: tenantContext.membership.id,
+                tenantRole: tenantContext.membership.role,
             },
             envs.JWT_SECRET,
             { expiresIn: '1h' }
@@ -96,7 +116,11 @@ export class AuthService {
         };
     }
 
-    static async me(userId: number, fallbackRoleName?: string, tokenPermissions?: string[]) {
+    static async me(
+        userId: number,
+        tenantContext: TenantRequestContext,
+        tokenPermissions?: string[],
+    ) {
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -105,11 +129,6 @@ export class AuthService {
                 lastName: true,
                 email: true,
                 isActive: true,
-                role: {
-                    select: {
-                        name: true
-                    }
-                }
             }
         });
 
@@ -121,20 +140,9 @@ export class AuthService {
             throw new Error('Usuario inactivo');
         }
 
-        const permissionQuery: {
-            userId: number;
-            roleName: string;
-            tokenPermissions?: string[] | null;
-        } = {
-            userId: user.id,
-            roleName: user.role?.name || fallbackRoleName || ''
-        };
-
-        if (Array.isArray(tokenPermissions)) {
-            permissionQuery.tokenPermissions = tokenPermissions;
-        }
-
-        const permissions = await PermissionService.resolvePermissionsForUser(permissionQuery);
+        const permissions = await PermissionService.resolvePermissionsForTenantRole(
+            tenantContext.rbacRole,
+        );
 
         return {
             user: {
@@ -142,9 +150,63 @@ export class AuthService {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 email: user.email,
-                role: user.role?.name || fallbackRoleName || 'USER',
-                permissions
-            }
+                role: tenantContext.rbacRole,
+                permissions: permissions.length > 0 ? permissions : tokenPermissions ?? [],
+                tenant: tenantContext.tenant,
+                membership: tenantContext.membership,
+            },
+        };
+    }
+
+    static async loginPlatform(loginDto: LoginDto) {
+        const user = await prisma.user.findUnique({
+            where: { email: loginDto.email },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                password: true,
+                isActive: true,
+                platformAdmin: {
+                    select: {
+                        id: true,
+                        isActive: true,
+                    },
+                },
+            },
+        });
+
+        if (!user || !user.isActive || !user.platformAdmin?.isActive) {
+            throw new Error('Credenciales de plataforma invalidas');
+        }
+        const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+        if (!isPasswordValid) {
+            throw new Error('Credenciales de plataforma invalidas');
+        }
+
+        const token = jwt.sign(
+            {
+                scope: 'platform',
+                id: user.id,
+                email: user.email,
+                role: 'PLATFORM_ADMIN',
+                platformAdminId: user.platformAdmin.id,
+            },
+            envs.JWT_SECRET,
+            { expiresIn: '30m' },
+        );
+
+        return {
+            token,
+            user: {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                role: 'PLATFORM_ADMIN',
+                scope: 'platform',
+            },
         };
     }
 }

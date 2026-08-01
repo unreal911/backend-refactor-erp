@@ -17,18 +17,21 @@ import { registerAuthModuleRoutes } from "../modules/auth";
 import { registerInventoryModuleRoutes } from "../modules/inventory";
 import { registerOrdersModuleRoutes } from "../modules/orders";
 import { registerSunatModuleRoutes } from "../modules/sunat";
+import { registerTenantModuleRoutes } from "../modules/tenant";
+import { PublicTenantMiddleware } from "./public/tenant.middleware";
 
 export class AppRouter {
     static get router(): Router {
         const router = Router();
 
         registerAuthModuleRoutes(router);
+        registerTenantModuleRoutes(router);
 
         if (envs.SEED_ENDPOINT_ENABLED) {
             router.use("/api/seed", SeedRoute.router);
         }
 
-        router.use("/api/public", publicRoute.router);
+        router.use("/api/public", PublicTenantMiddleware.resolve, publicRoute.router);
 
         // Rutas protegidas - requieren autenticacion
         router.use("/api/categorie", AuthMiddleware.validateJWT, categoryRoute.router);

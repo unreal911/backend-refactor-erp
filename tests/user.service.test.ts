@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/data/prisma', () => ({
-  prisma: {
+vi.mock('../src/data/prisma', () => {
+  const client = {
     user: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -10,8 +10,9 @@ vi.mock('../src/data/prisma', () => ({
     role: {
       findUnique: vi.fn(),
     },
-  },
-}));
+  };
+  return { prisma: client, platformPrisma: client };
+});
 
 vi.mock('bcryptjs', () => ({
   default: {

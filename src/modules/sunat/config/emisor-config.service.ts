@@ -1,6 +1,7 @@
 import forge from "node-forge";
-import { prisma } from "../../../data/prisma";
+import { tenantPrisma as prisma } from "../../../data/tenant-prisma";
 import { CustomError } from "../../../domain/errors/custom.error";
+import { TenantDataContext } from "../../tenant/tenant-data-context";
 import { AuthService } from "../../../presentation/services/auth.service";
 import { SunatSoapClient } from "../soap/sunat-soap.client";
 import {
@@ -117,22 +118,37 @@ export class EmisorConfigService {
         return { ok: true, message: "Conexion y credenciales correctas" };
     }
 
-    // Devuelve el id de la unica fila, creandola con defaults si no existe.
+    // Devuelve el id de la unica fila de la empresa, creandola si no existe.
     private async ensureRow(): Promise<number> {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
-            `SELECT "id" FROM "SunatEmisorConfig" ORDER BY "id" ASC LIMIT 1`,
+            `SELECT "id"
+             FROM "SunatEmisorConfig"
+             WHERE "tenantId" = $1::uuid
+             LIMIT 1`,
+            tenantId,
         );
         if (rows[0]) return rows[0].id;
         const inserted = await prisma.$queryRawUnsafe<{ id: number }[]>(
-            `INSERT INTO "SunatEmisorConfig" DEFAULT VALUES RETURNING "id"`,
+            `INSERT INTO "SunatEmisorConfig" ("tenantId")
+             VALUES ($1::uuid)
+             ON CONFLICT ("tenantId") DO UPDATE
+             SET "tenantId" = EXCLUDED."tenantId"
+             RETURNING "id"`,
+            tenantId,
         );
         if (!inserted[0]) throw CustomError.internal("No se pudo inicializar la configuracion SUNAT");
         return inserted[0].id;
     }
 
     private async fetchRow(): Promise<EmisorRow | null> {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRawUnsafe<EmisorRow[]>(
-            `SELECT * FROM "SunatEmisorConfig" ORDER BY "id" ASC LIMIT 1`,
+            `SELECT *
+             FROM "SunatEmisorConfig"
+             WHERE "tenantId" = $1::uuid
+             LIMIT 1`,
+            tenantId,
         );
         return rows[0] ?? null;
     }
@@ -164,6 +180,7 @@ export class EmisorConfigService {
     }
 
     async obtener(): Promise<EmisorConfigView> {
+        TenantDataContext.requireTenantId();
         try {
             return this.toView(await this.fetchRow());
         } catch {
@@ -179,6 +196,7 @@ export class EmisorConfigService {
     }
 
     async actualizar(input: UpdateEmisorInput, updatedById?: number, adminPassword?: string): Promise<EmisorConfigView> {
+        const tenantId = TenantDataContext.requireTenantId();
         await this.ensureRow();
         const current = await this.fetchRow();
         if (!current) throw CustomError.internal("No se pudo cargar la configuracion SUNAT");
@@ -243,7 +261,8 @@ export class EmisorConfigService {
                 "activo" = $12,
                 "updatedById" = $13,
                 "updatedAt" = CURRENT_TIMESTAMP
-             WHERE "id" = $14`,
+             WHERE "id" = $14
+               AND "tenantId" = $15::uuid`,
             environment,
             ruc,
             input.razonSocial !== undefined ? clean(input.razonSocial) : current.razonSocial,
@@ -258,6 +277,7 @@ export class EmisorConfigService {
             activo,
             updatedById ?? current.updatedById,
             current.id,
+            tenantId,
         );
 
         return this.toView(await this.fetchRow());
@@ -265,6 +285,7 @@ export class EmisorConfigService {
 
     // Valida el .pfx con node-forge, extrae metadatos y guarda cifrado.
     async subirCertificado(input: SubirCertificadoInput, updatedById?: number, adminPassword?: string): Promise<EmisorConfigView> {
+        const tenantId = TenantDataContext.requireTenantId();
         if (!isSunatEncryptionConfigured()) {
             throw CustomError.badRequest("Configura SUNAT_CONFIG_ENC_KEY antes de subir el certificado");
         }
@@ -325,13 +346,15 @@ export class EmisorConfigService {
                 "certNotAfter" = $4,
                 "updatedById" = $5,
                 "updatedAt" = CURRENT_TIMESTAMP
-             WHERE "id" = $6`,
+             WHERE "id" = $6
+               AND "tenantId" = $7::uuid`,
             encryptSecret(der),
             encryptSecret(password),
             subjectCN,
             notAfter,
             updatedById ?? current?.updatedById ?? null,
             id,
+            tenantId,
         );
 
         return this.toView(await this.fetchRow());

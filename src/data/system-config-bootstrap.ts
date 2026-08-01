@@ -48,13 +48,34 @@ export async function ensureSystemConfigSchema(): Promise<void> {
         await prisma.$executeRawUnsafe(statement);
     }
 
+    await seedDefaultSystemSettings();
+}
+
+export async function seedDefaultSystemSettingsForTenant(
+    tenantId: string,
+    dbClient: Pick<typeof prisma, '$executeRawUnsafe'> = prisma,
+): Promise<void> {
     for (const setting of DEFAULT_SYSTEM_SETTINGS) {
-        await prisma.$executeRawUnsafe(
-            `INSERT INTO "SystemSetting" ("key", "value")
-             VALUES ($1, $2)
-             ON CONFLICT ("key") DO NOTHING`,
+        await dbClient.$executeRawUnsafe(
+            `INSERT INTO "SystemSetting" ("tenantId", "key", "value")
+             VALUES ($1::uuid, $2, $3)
+             ON CONFLICT ("tenantId", "key") DO NOTHING`,
+            tenantId,
             setting.key,
             setting.value,
         );
+    }
+}
+
+export async function seedDefaultSystemSettings(): Promise<void> {
+    const tenants = await prisma.tenant.findMany({
+        where: {
+            status: { in: ['TRIAL', 'ACTIVE'] },
+        },
+        select: { id: true },
+    });
+
+    for (const tenant of tenants) {
+        await seedDefaultSystemSettingsForTenant(tenant.id);
     }
 }

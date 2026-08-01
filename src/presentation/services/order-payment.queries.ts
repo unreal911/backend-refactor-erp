@@ -1,4 +1,4 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import {
@@ -10,6 +10,14 @@ import {
 import { MarketplacePaymentMethod, MarketplacePaymentSettings } from "./order.types";
 import { parseBooleanSetting, parseNumberArraySetting } from "./order.helpers";
 import { getSystemSettingValue } from "./order.queries";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+
+function currentTenantId(): string {
+    return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+}
 
 // Métodos de pago del marketplace: settings (SystemSetting) + catálogo activo
 // (PaymentMethod) + filtrado por lista permitida. Funciones puras de repositorio:
@@ -41,7 +49,8 @@ export async function listActivePaymentMethods(dbClient: any = prisma): Promise<
                 "displayOrder",
                 "isActive"
             FROM "PaymentMethod"
-            WHERE "isActive" = true
+            WHERE "tenantId" = ${currentTenantId()}::uuid
+              AND "isActive" = true
             ORDER BY "displayOrder" ASC, "name" ASC
         `,
     ) as MarketplacePaymentMethod[];

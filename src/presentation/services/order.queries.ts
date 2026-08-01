@@ -1,7 +1,15 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import { OrderStatusEnum } from "../../domain/dtos/update-order-status.dto";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+
+function currentTenantId(): string {
+    return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+}
 
 // Acceso a datos genérico de pedidos: lectura de SystemSetting y locks de
 // concurrencia (SELECT ... FOR UPDATE). Funciones puras de repositorio: reciben
@@ -9,7 +17,13 @@ import { OrderStatusEnum } from "../../domain/dtos/update-order-status.dto";
 
 export async function getSystemSettingValue(key: string, dbClient: any = prisma): Promise<string | null> {
     const rowsRaw = await dbClient.$queryRaw(
-        Prisma.sql`SELECT "value" FROM "SystemSetting" WHERE "key" = ${key} LIMIT 1`,
+        Prisma.sql`
+            SELECT "value"
+            FROM "SystemSetting"
+            WHERE "tenantId" = ${currentTenantId()}::uuid
+              AND "key" = ${key}
+            LIMIT 1
+        `,
     );
     const rows = rowsRaw as Array<{ value: string }>;
     return rows?.[0]?.value ?? null;
@@ -17,7 +31,13 @@ export async function getSystemSettingValue(key: string, dbClient: any = prisma)
 
 export async function lockOrderRow(tx: any, orderId: number): Promise<void> {
     await tx.$executeRaw(
-        Prisma.sql`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`,
+        Prisma.sql`
+            SELECT "id"
+            FROM "Order"
+            WHERE "id" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
+            FOR UPDATE
+        `,
     );
 }
 
@@ -28,7 +48,13 @@ export async function lockOrderItemForUpdate(
     orderItemId: number,
 ): Promise<{ quantity: number; reserved: number } | null> {
     const rows = await tx.$queryRaw(
-        Prisma.sql`SELECT "quantity", "reserved" FROM "OrderItem" WHERE "id" = ${orderItemId} FOR UPDATE`,
+        Prisma.sql`
+            SELECT "quantity", "reserved"
+            FROM "OrderItem"
+            WHERE "id" = ${orderItemId}
+              AND "tenantId" = ${currentTenantId()}::uuid
+            FOR UPDATE
+        `,
     ) as Array<{ quantity: number; reserved: number }>;
     return rows?.[0] ?? null;
 }

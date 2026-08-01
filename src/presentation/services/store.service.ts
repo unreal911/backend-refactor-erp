@@ -1,4 +1,4 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CreateStoreDto } from "../../domain/dtos/create-store.dto";
 import { UpdateStoreDto } from "../../domain/dtos/update-store.dto";
 import { ListStoreDto } from "../../domain/dtos/list-store.dto";
@@ -8,7 +8,7 @@ export class StoreService {
     constructor() { }
 
     async createStore(createStoreDto: CreateStoreDto) {
-        const existing = await prisma.store.findUnique({
+        const existing = await prisma.store.findFirst({
             where: { code: createStoreDto.code }
         });
 
@@ -61,7 +61,7 @@ export class StoreService {
         }
 
         if (updateStoreDto.code && updateStoreDto.code !== existing.code) {
-            const codeInUse = await prisma.store.findUnique({ where: { code: updateStoreDto.code } });
+            const codeInUse = await prisma.store.findFirst({ where: { code: updateStoreDto.code } });
             if (codeInUse) {
                 throw CustomError.badRequest(`El código ${updateStoreDto.code} ya está en uso`);
             }

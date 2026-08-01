@@ -1,6 +1,6 @@
 import { CategoryDto } from "../../domain/dtos/create-category.dto";
 import { UpdateCategoryDto } from "../../domain/dtos/update-category.dto";
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CustomError } from '../../domain/errors/custom.error';
 import { CategoryEntity } from "../../domain/entities/category.entity";
 import { ListCategoryDto } from '../../domain/dtos/list-category.dto';

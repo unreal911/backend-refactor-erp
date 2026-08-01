@@ -11,7 +11,7 @@ export class UserController {
                 return res.status(400).json({ message: error });
             }
 
-            const user = await UserService.create(createUserDto!);
+            const user = await UserService.create(createUserDto!, req.tenant?.tenant.id);
             res.status(201).json(user);
         } catch (error: any) {
             res.status(400).json({ message: error.message });
@@ -20,7 +20,7 @@ export class UserController {
 
     static async findAll(req: AuthRequest, res: Response) {
         try {
-            const users = await UserService.findAll();
+            const users = await UserService.findAll(req.tenant?.tenant.id);
             res.json(users);
         } catch (error: any) {
             res.status(500).json({ message: error.message });
@@ -30,7 +30,7 @@ export class UserController {
     static async findById(req: AuthRequest, res: Response) {
         try {
             const { id } = req.params;
-            const user = await UserService.findById(Number(id));
+            const user = await UserService.findById(Number(id), req.tenant?.tenant.id);
             res.json(user);
         } catch (error: any) {
             res.status(404).json({ message: error.message });
@@ -45,7 +45,7 @@ export class UserController {
                 return res.status(400).json({ message: error });
             }
 
-            const user = await UserService.update(Number(id), updateUserDto!);
+            const user = await UserService.update(Number(id), updateUserDto!, req.tenant?.tenant.id);
             res.json(user);
         } catch (error: any) {
             res.status(400).json({ message: error.message });
@@ -55,7 +55,7 @@ export class UserController {
     static async delete(req: AuthRequest, res: Response) {
         try {
             const { id } = req.params;
-            const result = await UserService.delete(Number(id));
+            const result = await UserService.delete(Number(id), req.tenant?.tenant.id);
             res.json(result);
         } catch (error: any) {
             res.status(400).json({ message: error.message });
@@ -71,7 +71,11 @@ export class UserController {
                 return res.status(400).json({ message: 'Nueva contraseña requerida' });
             }
 
-            const result = await UserService.changePassword(Number(id), newPassword);
+            const result = await UserService.changePassword(
+                Number(id),
+                newPassword,
+                req.tenant?.tenant.id,
+            );
             res.json(result);
         } catch (error: any) {
             res.status(400).json({ message: error.message });

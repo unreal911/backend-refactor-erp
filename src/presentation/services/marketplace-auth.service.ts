@@ -1,12 +1,13 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../data/prisma';
+import { tenantPrisma as prisma } from '../../data/tenant-prisma';
 import { envs } from '../../config/envs';
 import { CustomError } from '../../domain/errors/custom.error';
 import { RegisterMarketplaceCustomerDto } from '../../domain/dtos/register-marketplace-customer.dto';
 import { LoginMarketplaceCustomerDto } from '../../domain/dtos/login-marketplace-customer.dto';
 import { UpdateMarketplaceCustomerProfileDto } from '../../domain/dtos/update-marketplace-customer-profile.dto';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
 
 type MarketplaceCustomerRow = {
     id: number;
@@ -31,6 +32,7 @@ type MarketplaceCustomerSafe = {
 type MarketplaceTokenPayload = {
     customerId: number;
     email: string;
+    tenantId: string;
     tokenType: 'MARKETPLACE_CUSTOMER';
 };
 
@@ -46,10 +48,11 @@ export class MarketplaceAuthService {
         };
     }
 
-    private buildToken(user: MarketplaceCustomerSafe): string {
+    private buildToken(user: MarketplaceCustomerSafe, tenantId: string): string {
         const payload: MarketplaceTokenPayload = {
             customerId: user.id,
             email: user.email,
+            tenantId,
             tokenType: 'MARKETPLACE_CUSTOMER',
         };
 
@@ -57,6 +60,7 @@ export class MarketplaceAuthService {
     }
 
     private async findByEmail(email: string): Promise<MarketplaceCustomerRow | null> {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRaw<MarketplaceCustomerRow[]>(
             Prisma.sql`
                 SELECT
@@ -69,7 +73,8 @@ export class MarketplaceAuthService {
                     "password",
                     "isActive"
                 FROM "MarketplaceCustomer"
-                WHERE lower("email") = lower(${email})
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND lower("email") = lower(${email})
                 LIMIT 1
             `,
         );
@@ -78,6 +83,7 @@ export class MarketplaceAuthService {
     }
 
     async register(dto: RegisterMarketplaceCustomerDto) {
+        const tenantId = TenantDataContext.requireTenantId();
         const existing = await this.findByEmail(dto.email);
         if (existing) {
             throw CustomError.badRequest('Ya existe una cuenta con ese email');
@@ -87,6 +93,7 @@ export class MarketplaceAuthService {
         const rows = await prisma.$queryRaw<MarketplaceCustomerRow[]>(
             Prisma.sql`
                 INSERT INTO "MarketplaceCustomer" (
+                    "tenantId",
                     "firstName",
                     "lastName",
                     "email",
@@ -96,6 +103,7 @@ export class MarketplaceAuthService {
                     "isActive"
                 )
                 VALUES (
+                    ${tenantId}::uuid,
                     ${dto.firstName},
                     ${dto.lastName},
                     ${dto.email},
@@ -122,11 +130,12 @@ export class MarketplaceAuthService {
         }
 
         const user = this.toSafeUser(created);
-        const token = this.buildToken(user);
+        const token = this.buildToken(user, tenantId);
         return { token, user };
     }
 
     async login(dto: LoginMarketplaceCustomerDto) {
+        const tenantId = TenantDataContext.requireTenantId();
         const customer = await this.findByEmail(dto.email);
         if (!customer) {
             throw CustomError.unauthorized('Credenciales invalidas');
@@ -142,11 +151,12 @@ export class MarketplaceAuthService {
         }
 
         const user = this.toSafeUser(customer);
-        const token = this.buildToken(user);
+        const token = this.buildToken(user, tenantId);
         return { token, user };
     }
 
     async me(customerId: number) {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRaw<MarketplaceCustomerRow[]>(
             Prisma.sql`
                 SELECT
@@ -160,6 +170,7 @@ export class MarketplaceAuthService {
                     "isActive"
                 FROM "MarketplaceCustomer"
                 WHERE "id" = ${customerId}
+                  AND "tenantId" = ${tenantId}::uuid
                 LIMIT 1
             `,
         );
@@ -173,6 +184,7 @@ export class MarketplaceAuthService {
     }
 
     async updateProfile(customerId: number, dto: UpdateMarketplaceCustomerProfileDto) {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRaw<MarketplaceCustomerRow[]>(
             Prisma.sql`
                 UPDATE "MarketplaceCustomer"
@@ -183,6 +195,7 @@ export class MarketplaceAuthService {
                     "address" = ${dto.address === undefined ? Prisma.sql`"address"` : dto.address},
                     "updatedAt" = CURRENT_TIMESTAMP
                 WHERE "id" = ${customerId}
+                  AND "tenantId" = ${tenantId}::uuid
                 RETURNING
                     "id",
                     "firstName",

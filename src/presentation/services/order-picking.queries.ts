@@ -1,4 +1,4 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import {
     PickingItemContributionRow,
@@ -7,6 +7,14 @@ import {
     PickingSharedResponsibilityRow,
     PickingUnpickRequestRow,
 } from "./order.types";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+
+function currentTenantId(): string {
+    return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+}
 
 // Acceso a datos raw-SQL de picking (responsables compartidos, solicitudes,
 // contribuciones, detalle por item) + mapeadores row->Map. Funciones puras de
@@ -34,6 +42,7 @@ export async function listPickingSharedResponsibilityRows(orderId: number, dbCli
             INNER JOIN "User" u ON u."id" = psr."userId"
             LEFT JOIN "User" assigner ON assigner."id" = psr."assignedByUserId"
             WHERE psr."orderId" = ${orderId}
+              AND psr."tenantId" = ${currentTenantId()}::uuid
               AND psr."isActive" = true
             ORDER BY psr."createdAt" ASC
         `,
@@ -65,6 +74,7 @@ export async function listPickingResponsibilityRequestRows(orderId: number, dbCl
             INNER JOIN "User" requester ON requester."id" = prr."requesterUserId"
             LEFT JOIN "User" resolver ON resolver."id" = prr."resolvedByUserId"
             WHERE prr."orderId" = ${orderId}
+              AND prr."tenantId" = ${currentTenantId()}::uuid
             ORDER BY prr."createdAt" DESC
         `,
     );
@@ -77,6 +87,7 @@ export async function isActiveSharedResponsible(orderId: number, userId: number,
             SELECT "id"
             FROM "PickingSharedResponsibility"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "userId" = ${userId}
               AND "isActive" = true
             LIMIT 1
@@ -98,6 +109,7 @@ export async function upsertSharedPickingResponsibility(
             SELECT "id"
             FROM "PickingSharedResponsibility"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "userId" = ${userId}
             LIMIT 1
         `,
@@ -113,6 +125,7 @@ export async function upsertSharedPickingResponsibility(
                     "note" = ${note ?? null},
                     "updatedAt" = CURRENT_TIMESTAMP
                 WHERE "id" = ${existingRows[0]!.id}
+                  AND "tenantId" = ${currentTenantId()}::uuid
             `,
         );
         return;
@@ -121,6 +134,7 @@ export async function upsertSharedPickingResponsibility(
     await dbClient.$executeRaw(
         Prisma.sql`
             INSERT INTO "PickingSharedResponsibility" (
+                "tenantId",
                 "orderId",
                 "userId",
                 "assignedByUserId",
@@ -129,6 +143,7 @@ export async function upsertSharedPickingResponsibility(
                 "isActive"
             )
             VALUES (
+                ${currentTenantId()}::uuid,
                 ${orderId},
                 ${userId},
                 ${assignedByUserId},
@@ -157,6 +172,7 @@ export async function listPickingItemContributionRows(orderId: number, dbClient:
             FROM "PickingItemContribution" pic
             INNER JOIN "User" u ON u."id" = pic."userId"
             WHERE pic."orderId" = ${orderId}
+              AND pic."tenantId" = ${currentTenantId()}::uuid
               AND pic."quantity" > 0
             ORDER BY pic."pickingItemId" ASC, pic."createdAt" ASC
         `,
@@ -189,6 +205,7 @@ export async function listPickingUnpickRequestRows(orderId: number, dbClient: an
             INNER JOIN "User" requester ON requester."id" = pur."requesterUserId"
             LEFT JOIN "User" resolver ON resolver."id" = pur."resolvedByUserId"
             WHERE pur."orderId" = ${orderId}
+              AND pur."tenantId" = ${currentTenantId()}::uuid
             ORDER BY pur."createdAt" DESC
         `,
     );
@@ -209,6 +226,7 @@ export async function listPickingOrderItemDetailRows(orderId: number, dbClient: 
                 "updatedAt"
             FROM "PickingOrderItemDetail"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
             ORDER BY "orderItemId" ASC
         `,
     );
@@ -225,6 +243,7 @@ export async function recalculatePickingItemPickedQuantityFromDetails(
             SELECT COALESCE(SUM("pickedQuantity"), 0) AS "pickedQuantity"
             FROM "PickingOrderItemDetail"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "pickingItemId" = ${pickingItemId}
         `,
     ) as Array<{ pickedQuantity: number }>;
@@ -334,6 +353,7 @@ export async function getPickingItemUserContribution(
             SELECT "quantity"
             FROM "PickingItemContribution"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "pickingItemId" = ${pickingItemId}
               AND "userId" = ${userId}
             LIMIT 1
@@ -360,6 +380,7 @@ export async function updatePickingItemUserContribution(
             SELECT "id", "quantity"
             FROM "PickingItemContribution"
             WHERE "orderId" = ${orderId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "pickingItemId" = ${pickingItemId}
               AND "userId" = ${userId}
             LIMIT 1
@@ -374,12 +395,14 @@ export async function updatePickingItemUserContribution(
         await dbClient.$executeRaw(
             Prisma.sql`
                 INSERT INTO "PickingItemContribution" (
+                    "tenantId",
                     "orderId",
                     "pickingItemId",
                     "userId",
                     "quantity"
                 )
                 VALUES (
+                    ${currentTenantId()}::uuid,
                     ${orderId},
                     ${pickingItemId},
                     ${userId},
@@ -398,6 +421,7 @@ export async function updatePickingItemUserContribution(
             SET "quantity" = ${nextQuantity},
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "id" = ${existingRows[0]!.id}
+              AND "tenantId" = ${currentTenantId()}::uuid
         `,
     );
 

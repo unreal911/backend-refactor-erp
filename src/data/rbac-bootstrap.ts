@@ -59,6 +59,10 @@ export async function ensureRbacSchema(): Promise<void> {
         await prisma.$executeRawUnsafe(statement);
     }
 
+    await seedRbacDefaults();
+}
+
+export async function seedRbacDefaults(): Promise<void> {
     const roles = await prisma.role.findMany({
         select: {
             id: true,
