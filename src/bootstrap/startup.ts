@@ -10,7 +10,7 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260801120000_add_owner_registration";
+export const REQUIRED_SCHEMA_MIGRATION = "20260801130000_add_signup_abuse_controls";
 export const REQUIRED_SCHEMA_TABLES = [
     "AuditLog",
     "Category",
@@ -44,6 +44,8 @@ export const REQUIRED_SCHEMA_TABLES = [
     "ResumenDiario",
     "Role",
     "RolePermission",
+    "SignupAbuseEvent",
+    "SignupRateLimitBucket",
     "Size",
     "StockTransfer",
     "StockTransferItem",
