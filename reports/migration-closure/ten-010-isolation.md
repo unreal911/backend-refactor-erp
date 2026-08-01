@@ -1,8 +1,8 @@
 # TEN-010 — Matriz automática de aislamiento
 
-Fecha: 2026-07-29 (`America/Lima`)
+Fecha de aceptación: 2026-08-01 (`America/Lima`)
 
-Estado: `LISTA_PARA_VALIDAR`
+Estado: `ACEPTADA`
 
 ## Cobertura
 
@@ -40,5 +40,11 @@ Revalidación del 1 de agosto de 2026 sobre PostgreSQL 16 desechable:
 El workflow `.github/workflows/tenant-isolation.yml` usa PostgreSQL 16 y ejecuta
 migraciones, bootstrap, verificadores, matriz, suite y build.
 
-Pendiente único: publicar la rama y registrar la primera ejecución verde del job
-`postgres-isolation` para pasar TEN-010 a `ACEPTADA`.
+- PR borrador: [#1](https://github.com/unreal911/backend-refactor-erp/pull/1).
+- Commit validado: `564151928deb56bdc3523ac8baec64c479ad00ca`.
+- Primera ejecución verde: [Tenant isolation #30706363969](https://github.com/unreal911/backend-refactor-erp/actions/runs/30706363969).
+- Job `postgres-isolation`: correcto en 1 min 6 s; todos los pasos terminaron
+  satisfactoriamente sobre PostgreSQL 16 y Node.js 22.
+
+El último criterio de `TEN-010` queda comprobado y la historia pasa a
+`ACEPTADA`.
