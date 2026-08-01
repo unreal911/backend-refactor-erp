@@ -1,8 +1,8 @@
 # EMP-001 — Registro del propietario con correo verificado
 
-Fecha de validación local: 2026-08-01 (`America/Lima`)
+Fecha de aceptación: 2026-08-01 (`America/Lima`)
 
-Estado: `LISTA_PARA_VALIDAR`
+Estado: `ACEPTADA`
 
 ## Contrato implementado
 
@@ -40,7 +40,15 @@ Estado: `LISTA_PARA_VALIDAR`
 - `npm audit --omit=dev`: cero vulnerabilidades.
 - Base temporal eliminada al finalizar.
 
-## Validación externa pendiente
+## CI
 
-La historia pasará a `ACEPTADA` cuando GitHub Actions valide el commit del PR
-apilado sobre `agent/tenant-isolation-saas-foundation`.
+- PR borrador: [#2](https://github.com/unreal911/backend-refactor-erp/pull/2),
+  apilado sobre `agent/tenant-isolation-saas-foundation`.
+- Commit funcional validado: `ced4fe49f0d5558933ab721efd37a1833e3811bb`.
+- Ejecución: [Tenant isolation #30708133746](https://github.com/unreal911/backend-refactor-erp/actions/runs/30708133746).
+- Job `postgres-isolation`: correcto en 1 min 15 s; migraciones, generación
+  Prisma, bootstrap, aislamiento tenant, suite completa y build terminaron
+  satisfactoriamente sobre PostgreSQL 16 y Node.js 22.
+
+EMP-001 queda `ACEPTADA`. El registro productivo permanece apagado hasta
+completar EMP-002, TRI-001 y configurar el proveedor real de correo.
