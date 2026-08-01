@@ -39,6 +39,12 @@ export type VerifiedOwnerIdentity = {
     signupDeviceFingerprint: string | null;
 };
 
+export type ConsumedOwnerIdentity = {
+    id: string;
+    provisionedTenantId: string;
+    provisionedUserId: number;
+};
+
 export type OwnerRegistrationServiceOptions = {
     tokenPepper: string;
     verificationTtlMinutes: number;
@@ -230,6 +236,10 @@ export class OwnerRegistrationService {
             identity: VerifiedOwnerIdentity,
             tx: Prisma.TransactionClient,
         ) => Promise<T>,
+        replay?: (
+            registration: ConsumedOwnerIdentity,
+            tx: Prisma.TransactionClient,
+        ) => Promise<T>,
     ): Promise<T> {
         const trialProvisioningTokenHash = this.hashToken(trialToken);
         const now = this.now();
@@ -238,6 +248,21 @@ export class OwnerRegistrationService {
             const registration = await tx.ownerRegistration.findUnique({
                 where: { trialProvisioningTokenHash },
             });
+            if (
+                replay
+                && registration?.status === OwnerRegistrationStatus.CONSUMED
+                && registration.consumedAt
+                && registration.provisionedTenantId
+                && registration.provisionedUserId
+                && registration.trialProvisioningTokenExpiresAt
+                && registration.trialProvisioningTokenExpiresAt > now
+            ) {
+                return replay({
+                    id: registration.id,
+                    provisionedTenantId: registration.provisionedTenantId,
+                    provisionedUserId: registration.provisionedUserId,
+                }, tx);
+            }
             if (
                 !registration
                 || registration.status !== OwnerRegistrationStatus.EMAIL_VERIFIED
@@ -280,11 +305,29 @@ export class OwnerRegistrationService {
                 data: {
                     status: OwnerRegistrationStatus.CONSUMED,
                     consumedAt: now,
-                    trialProvisioningTokenHash: null,
-                    trialProvisioningTokenExpiresAt: null,
                 },
             });
             if (claimed.count !== 1) {
+                const concurrentlyConsumed = replay
+                    ? await tx.ownerRegistration.findUnique({
+                        where: { trialProvisioningTokenHash },
+                    })
+                    : null;
+                if (
+                    replay
+                    && concurrentlyConsumed?.status === OwnerRegistrationStatus.CONSUMED
+                    && concurrentlyConsumed.consumedAt
+                    && concurrentlyConsumed.provisionedTenantId
+                    && concurrentlyConsumed.provisionedUserId
+                    && concurrentlyConsumed.trialProvisioningTokenExpiresAt
+                    && concurrentlyConsumed.trialProvisioningTokenExpiresAt > now
+                ) {
+                    return replay({
+                        id: concurrentlyConsumed.id,
+                        provisionedTenantId: concurrentlyConsumed.provisionedTenantId,
+                        provisionedUserId: concurrentlyConsumed.provisionedUserId,
+                    }, tx);
+                }
                 throw new OwnerRegistrationTokenError();
             }
 
@@ -302,6 +345,9 @@ export class OwnerRegistrationService {
                 signupIpFingerprint: registration.signupIpFingerprint,
                 signupDeviceFingerprint: registration.signupDeviceFingerprint,
             }, tx);
+        }, {
+            maxWait: 10_000,
+            timeout: 30_000,
         });
     }
 }

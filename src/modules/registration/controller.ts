@@ -6,19 +6,33 @@ import {
 import {
     OwnerRegistrationService,
     OwnerRegistrationTokenError,
+    OwnerRegistrationTrialLimitError,
 } from "./owner-registration.service";
 import { OwnerSignupAbuseRequestDto } from "./owner-signup-abuse.dto";
 import { OwnerSignupAbuseGuard } from "./owner-signup-abuse.service";
+import { ProvisionTrialDto } from "./trial-provisioning.dto";
+import {
+    TrialProvisioningConfigurationError,
+    TrialProvisioningConflictError,
+    TrialProvisioningService,
+} from "./trial-provisioning.service";
 
 export const GENERIC_SIGNUP_RESPONSE = {
     message: "Si los datos son válidos, recibirás instrucciones para verificar tu correo.",
 };
 
 export class OwnerRegistrationController {
+    private readonly trialService: TrialProvisioningService | null;
+
     constructor(
         private readonly service: OwnerRegistrationService | null,
         private readonly abuseService: OwnerSignupAbuseGuard | null,
-    ) {}
+        trialService?: TrialProvisioningService | null,
+    ) {
+        this.trialService = trialService === undefined
+            ? service ? new TrialProvisioningService(service) : null
+            : trialService;
+    }
 
     signup = async (req: Request, res: Response) => {
         if (!this.service || !this.abuseService) {
@@ -79,6 +93,37 @@ export class OwnerRegistrationController {
                 return res.status(caught.statusCode).json({ message: caught.message });
             }
             return res.status(500).json({ message: "No se pudo verificar el correo" });
+        }
+    };
+
+    provisionTrial = async (req: Request, res: Response) => {
+        if (!this.trialService) {
+            return res.status(503).json({ message: "El registro no está disponible temporalmente" });
+        }
+        const [error, dto] = ProvisionTrialDto.create(req.body);
+        if (error) return res.status(400).json({ message: error });
+
+        try {
+            const result = await this.trialService.provision(dto!.trialToken);
+            return res.status(result.replayed ? 200 : 201).json({
+                tenant: {
+                    ...result.tenant,
+                    trialStartedAt: result.tenant.trialStartedAt?.toISOString() ?? null,
+                    trialEndsAt: result.tenant.trialEndsAt?.toISOString() ?? null,
+                },
+                membership: result.membership,
+                idempotentReplay: result.replayed,
+            });
+        } catch (caught) {
+            if (
+                caught instanceof OwnerRegistrationTokenError
+                || caught instanceof OwnerRegistrationTrialLimitError
+                || caught instanceof TrialProvisioningConflictError
+                || caught instanceof TrialProvisioningConfigurationError
+            ) {
+                return res.status(caught.statusCode).json({ message: caught.message });
+            }
+            return res.status(500).json({ message: "No se pudo crear la prueba" });
         }
     };
 }

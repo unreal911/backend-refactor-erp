@@ -1,4 +1,6 @@
 import {
+    Prisma,
+    TenantKind,
     TenantMembershipRole,
     TenantMembershipStatus,
     TenantStatus,
@@ -14,8 +16,10 @@ export type CreateTenantInput = {
     legalName?: string | null;
     ruc?: string | null;
     status: Extract<TenantStatus, "TRIAL" | "ACTIVE">;
+    kind?: Extract<TenantKind, "TRIAL" | "CUSTOMER" | "INTERNAL">;
     trialEndsAt?: Date | null;
     ownerUserId: number;
+    contactEmail?: string | null;
 };
 
 export class TenantService {
@@ -36,7 +40,11 @@ export class TenantService {
         return normalized;
     }
 
-    static async create(input: CreateTenantInput) {
+    static async createWithinTransaction(
+        input: CreateTenantInput,
+        tx: Prisma.TransactionClient,
+        now = new Date(),
+    ) {
         const slug = this.normalizeSlug(input.slug);
         const name = String(input.name || "").trim();
         if (!name) {
@@ -44,8 +52,11 @@ export class TenantService {
         }
 
         const ruc = this.normalizeRuc(input.ruc);
-        const now = new Date();
         const isTrial = input.status === TenantStatus.TRIAL;
+        const kind = input.kind ?? (isTrial ? TenantKind.TRIAL : TenantKind.CUSTOMER);
+        if (isTrial !== (kind === TenantKind.TRIAL)) {
+            throw new TenantAccessError("El tipo de empresa no coincide con su estado inicial", 400);
+        }
         if (!isTrial && !ruc) {
             throw new TenantAccessError("Una empresa activa requiere RUC confirmado", 400);
         }
@@ -57,43 +68,56 @@ export class TenantService {
             throw new TenantAccessError("La prueba debe terminar en una fecha futura", 400);
         }
 
+        const owner = await tx.user.findUnique({
+            where: { id: input.ownerUserId },
+            select: { id: true, isActive: true },
+        });
+        if (!owner?.isActive) {
+            throw new TenantAccessError("El propietario debe ser un usuario activo", 400);
+        }
+
+        const legalName = input.legalName?.trim() || null;
+        const contactEmail = input.contactEmail?.trim().toLowerCase() || null;
+        const tenant = await tx.tenant.create({
+            data: {
+                slug,
+                name,
+                legalName,
+                kind,
+                ruc,
+                rucConfirmedAt: isTrial || !ruc ? null : now,
+                contactEmail,
+                status: input.status,
+                databaseMode: "SHARED",
+                trialStartedAt: isTrial ? now : null,
+                trialEndsAt,
+            },
+        });
+
+        const membership = await tx.tenantMembership.create({
+            data: {
+                tenantId: tenant.id,
+                userId: owner.id,
+                role: TenantMembershipRole.OWNER,
+                status: TenantMembershipStatus.ACTIVE,
+                activatedAt: now,
+            },
+        });
+
+        await seedDefaultPaymentMethodsForTenant(tenant.id, tx);
+        await seedDefaultSystemSettingsForTenant(tenant.id, tx, {
+            name,
+            legalName,
+            ruc,
+            email: contactEmail,
+        });
+
+        return { tenant, membership };
+    }
+
+    static async create(input: CreateTenantInput) {
         return prisma.$transaction(async (tx) => {
-            const owner = await tx.user.findUnique({
-                where: { id: input.ownerUserId },
-                select: { id: true, isActive: true },
-            });
-            if (!owner?.isActive) {
-                throw new TenantAccessError("El propietario debe ser un usuario activo", 400);
-            }
-
-            const tenant = await tx.tenant.create({
-                data: {
-                    slug,
-                    name,
-                    legalName: input.legalName?.trim() || null,
-                    ruc,
-                    rucConfirmedAt: isTrial || !ruc ? null : now,
-                    status: input.status,
-                    databaseMode: "SHARED",
-                    trialStartedAt: isTrial ? now : null,
-                    trialEndsAt,
-                },
-            });
-
-            const membership = await tx.tenantMembership.create({
-                data: {
-                    tenantId: tenant.id,
-                    userId: owner.id,
-                    role: TenantMembershipRole.OWNER,
-                    status: TenantMembershipStatus.ACTIVE,
-                    activatedAt: now,
-                },
-            });
-
-            await seedDefaultPaymentMethodsForTenant(tenant.id, tx);
-            await seedDefaultSystemSettingsForTenant(tenant.id, tx);
-
-            return { tenant, membership };
+            return this.createWithinTransaction(input, tx);
         });
     }
 }

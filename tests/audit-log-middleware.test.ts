@@ -55,6 +55,7 @@ describe('AuditLogMiddleware.sanitizeValue', () => {
     it('clasifica las rutas de alta como sensibles', () => {
         expect(mw.isSensitiveSignupPath('/api/public/signup')).toBe(true);
         expect(mw.isSensitiveSignupPath('/api/public/signup/verify')).toBe(true);
+        expect(mw.isSensitiveSignupPath('/api/public/signup/trial')).toBe(true);
         expect(mw.isSensitiveSignupPath('/api/public/orders')).toBe(false);
     });
 
