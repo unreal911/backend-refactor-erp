@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
+import { tenantService } from './helpers/tenant-service';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -119,7 +120,7 @@ describe('markOrderItemShortage', () => {
     // quantity 5, reserved 2 -> pendiente 3.
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2 });
 
-    const res = await new OrderService().markOrderItemShortage(order.id, itemId, 3, userId);
+    const res = await tenantService(new OrderService()).markOrderItemShortage(order.id, itemId, 3, userId);
     expect(res.shortageQuantity).toBe(3);
 
     const item = await readItem(itemId);
@@ -133,7 +134,7 @@ describe('markOrderItemShortage', () => {
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2 });
 
     // Pide 10 pero solo 3 estan pendientes.
-    const res = await new OrderService().markOrderItemShortage(order.id, itemId, 10, userId);
+    const res = await tenantService(new OrderService()).markOrderItemShortage(order.id, itemId, 10, userId);
     expect(res.shortageQuantity).toBe(3);
     expect((await readItem(itemId))?.shortageQuantity).toBe(3);
   }, 30_000);
@@ -141,7 +142,7 @@ describe('markOrderItemShortage', () => {
   it('limpiar el faltante (0) devuelve el pedido a PENDING', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2 });
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
 
     await svc.markOrderItemShortage(order.id, itemId, 3, userId); // -> WAITING_STOCK
     expect((await readOrder(order.id))?.status).toBe('WAITING_STOCK');
@@ -170,7 +171,7 @@ describe('markOrderItemShortage', () => {
     createdOrderIds.push(order.id);
 
     await expect(
-      new OrderService().markOrderItemShortage(order.id, order.items[0].id, 2, userId),
+      tenantService(new OrderService()).markOrderItemShortage(order.id, order.items[0].id, 2, userId),
     ).rejects.toThrow(/ecommerce/i);
   }, 30_000);
 
@@ -179,7 +180,7 @@ describe('markOrderItemShortage', () => {
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2, withPicking: true });
 
     await expect(
-      new OrderService().markOrderItemShortage(order.id, itemId, 2, userId),
+      tenantService(new OrderService()).markOrderItemShortage(order.id, itemId, 2, userId),
     ).rejects.toThrow(/picking ya iniciado/i);
   }, 30_000);
 });

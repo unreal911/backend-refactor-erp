@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
 import { InventoryService } from '../src/presentation/services/inventory.service';
+import { tenantService } from './helpers/tenant-service';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -133,7 +134,7 @@ describe('reserveAllRecommendedForOrder', () => {
     await seedInv(storeAId, variantId, 10);
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 5 }]);
 
-    const res = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const res = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(res.reservedUnits).toBe(5);
     expect(res.reservedLines).toBe(1);
     expect(await itemReserved(order.items[0].id)).toBe(5);
@@ -143,7 +144,7 @@ describe('reserveAllRecommendedForOrder', () => {
     expect(fresh?.fulfillmentStoreId).toBe(storeAId);
 
     // Re-correr no vuelve a reservar (idempotente: ya no hay pendiente).
-    const again = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const again = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(again.reservedUnits).toBe(0);
     expect(await invReserved(storeAId, variantId)).toBe(5);
   }, 30_000);
@@ -154,7 +155,7 @@ describe('reserveAllRecommendedForOrder', () => {
     await seedInv(storeAId, variantId, 3);
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 5 }]);
 
-    const res = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const res = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(res.reservedUnits).toBe(3);
     expect(await itemReserved(order.items[0].id)).toBe(3);
     const inv = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId: storeAId, variantId } } });
@@ -169,7 +170,7 @@ describe('reserveAllRecommendedForOrder', () => {
     await seedInv(storeBId, variantId, 4); // mayor disponibilidad -> primero
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 5 }]);
 
-    const res = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const res = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(res.reservedUnits).toBe(5);
     expect(await itemReserved(order.items[0].id)).toBe(5);
     // B (4 disponibles) se consume entero, A cubre la restante (1).
@@ -184,7 +185,7 @@ describe('reserveAllRecommendedForOrder', () => {
     const order = await seedOrder('CANCELLED', [{ variantId, quantity: 5 }]);
 
     await expect(
-      new OrderService().reserveAllRecommendedForOrder(order.id, userId),
+      tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId),
     ).rejects.toThrow(/cerrado o en devolucion/i);
     expect(await invReserved(storeAId, variantId)).toBe(0);
   }, 30_000);
@@ -195,11 +196,11 @@ describe('reserveAllRecommendedForOrder', () => {
     const inv = await seedInv(storeAId, variantId, 8);
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 6 }]);
 
-    await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
 
     const agg = await prisma.reservation.aggregate({ where: { inventoryId: inv.id, status: 'ACTIVE' }, _sum: { quantity: true } });
     expect(Number(agg._sum.quantity || 0)).toBe(6);
-    const audit = await new InventoryService().auditReservedStock();
+    const audit = await tenantService(new InventoryService()).auditReservedStock();
     expect(audit.items.some((i) => i.inventoryId === inv.id)).toBe(false);
   }, 30_000);
 });

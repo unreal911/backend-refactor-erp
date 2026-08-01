@@ -21,6 +21,7 @@ import { CreateInventoryMovementDto } from '../src/domain/dtos/create-inventory-
 import { CreateStockTransferDto } from '../src/domain/dtos/create-stock-transfer.dto';
 import { CreateReservationDto } from '../src/domain/dtos/create-reservation.dto';
 import { ensureInventoryIntegritySchema } from '../src/data/inventory-integrity-bootstrap';
+import { tenantService } from './helpers/tenant-service';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -62,7 +63,7 @@ async function seedInventory(storeId: number, variantId: number, stock: number, 
   return prisma.inventory.create({ data: { storeId, variantId, stock, reservedStock: reserved } });
 }
 
-const svc = () => new InventoryService();
+const svc = () => tenantService(new InventoryService());
 const move = (storeId: number, variantId: number, type: InventoryMovementType, quantity: number) => {
   const [err, dto] = CreateInventoryMovementDto.create({ storeId, variantId, type, quantity });
   if (err || !dto) throw new Error(`DTO invalido: ${err}`);

@@ -1,0 +1,58 @@
+name: Tenant isolation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  postgres-isolation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tienda_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tienda_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tienda_test
+      JWT_SECRET: tenant-isolation-ci-secret
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_ADMIN_PASSWORD: password123
+      SEED_ADMIN_FIRST_NAME: Admin
+      SEED_ADMIN_LAST_NAME: CI
+      SEED_ADMIN_RESET_PASSWORD: "true"
+      SEED_DEMO_PASSWORD: password123
+      SEED_INCLUDE_DEMO_USERS: "false"
+      SEED_INCLUDE_PRODUCTS: "true"
+      SEED_ENDPOINT_ENABLED: "false"
+      SUNAT_DOCUMENT_STORAGE_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate:deploy
+      - run: npm run bootstrap:admin
+      - run: npm run tenant:prisma:verify
+      - run: npm run tenant:isolation:test
+      - run: npm test
+      - run: npm run build

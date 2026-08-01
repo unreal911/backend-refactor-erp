@@ -35,7 +35,7 @@ describe('AuditLogMiddleware.sanitizeValue', () => {
             },
         });
 
-        expect(out.email).toBe('admin@tienda.com');
+        expect(out.email).toBe('[redacted]');
         expect(out.password).toBe('[redacted]');
         expect(out.token).toBe('[redacted]');
         expect(out.nested.solPassword).toBe('[redacted]');

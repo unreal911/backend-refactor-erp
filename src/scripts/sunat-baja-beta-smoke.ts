@@ -9,8 +9,14 @@
  * Usa credenciales SUNAT_* de .env (default beta MODDATOS). Consume correlativos y deja
  * los registros creados (datos beta).
  */
-import { prisma } from "../data/prisma";
+import {
+    prisma,
+    runTenantDatabaseTransaction,
+} from "../data/prisma";
 import { ComprobanteService } from "../modules/sunat/services/comprobante.service";
+import {
+    LEGACY_TENANT_ID,
+} from "../modules/tenant/tenant-data-context";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 let passed = 0, failed = 0;
@@ -92,5 +98,6 @@ async function main(): Promise<void> {
     if (failed > 0) process.exit(1);
 }
 
-main().catch((e) => { console.error("ERROR:", e instanceof Error ? e.message : e); process.exit(1); })
+runTenantDatabaseTransaction(LEGACY_TENANT_ID, main)
+    .catch((e) => { console.error("ERROR:", e instanceof Error ? e.message : e); process.exit(1); })
     .finally(() => prisma.$disconnect());

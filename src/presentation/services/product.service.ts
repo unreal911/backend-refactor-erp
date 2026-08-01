@@ -3,13 +3,20 @@ import { UpdateProductDto } from "../../domain/dtos/update-product.dto";
 import { ListProductDto } from "../../domain/dtos/list-product.dto";
 import { PublicListProductDto } from "../../domain/dtos/public-list-product.dto";
 import { GenerateVariantsDto } from "../../domain/dtos/generate-variants.dto";
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import { ProductEntity } from "../../domain/entities/product.entity";
 import { ProductVariantEntity } from "../../domain/entities/product-variant.entity";
 import { ProductImageEntity } from "../../domain/entities/product-image.entity";
 import { cloudinary } from "../../config/cloudinary";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+import {
+    listProductAssetReferencesOutsideTenant,
+} from "../../modules/platform/product-asset-reference";
 
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
@@ -180,8 +187,15 @@ export class ProductService {
 
     private async getMarketplaceSimpleVariantConfig(productId: number): Promise<MarketplaceSimpleVariantConfig | null> {
         const key = this.buildMarketplaceVariantSettingKey(productId);
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const rows = await prisma.$queryRaw<Array<{ value: string }>>(
-            Prisma.sql`SELECT "value" FROM "SystemSetting" WHERE "key" = ${key} LIMIT 1`,
+            Prisma.sql`
+                SELECT "value"
+                FROM "SystemSetting"
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "key" = ${key}
+                LIMIT 1
+            `,
         );
         return this.parseMarketplaceSimpleVariantConfig(rows[0]?.value);
     }
@@ -194,11 +208,13 @@ export class ProductService {
         }
 
         const keys = uniqueProductIds.map((productId) => this.buildMarketplaceVariantSettingKey(productId));
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const rows = await prisma.$queryRaw<Array<{ key: string; value: string }>>(
             Prisma.sql`
                 SELECT "key", "value"
                 FROM "SystemSetting"
-                WHERE "key" IN (${Prisma.join(keys)})
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "key" IN (${Prisma.join(keys)})
             `,
         );
 
@@ -219,9 +235,14 @@ export class ProductService {
 
     private async upsertMarketplaceSimpleVariantConfig(productId: number, config: MarketplaceSimpleVariantConfig | null): Promise<void> {
         const key = this.buildMarketplaceVariantSettingKey(productId);
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         if (!config || !config.colorIds.length || !config.sizeIds.length) {
             await prisma.$executeRaw(
-                Prisma.sql`DELETE FROM "SystemSetting" WHERE "key" = ${key}`,
+                Prisma.sql`
+                    DELETE FROM "SystemSetting"
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND "key" = ${key}
+                `,
             );
             return;
         }
@@ -239,9 +260,9 @@ export class ProductService {
 
         await prisma.$executeRaw(
             Prisma.sql`
-                INSERT INTO "SystemSetting" ("key", "value")
-                VALUES (${key}, ${payload})
-                ON CONFLICT ("key") DO UPDATE
+                INSERT INTO "SystemSetting" ("tenantId", "key", "value")
+                VALUES (${tenantId}::uuid, ${key}, ${payload})
+                ON CONFLICT ("tenantId", "key") DO UPDATE
                 SET "value" = EXCLUDED."value",
                     "updatedAt" = CURRENT_TIMESTAMP
             `,
@@ -463,6 +484,43 @@ export class ProductService {
         }
     }
 
+    private normalizeCloudinaryPublicId(publicId: string): string {
+        let decoded = String(publicId || '').trim();
+        try {
+            decoded = decodeURIComponent(decoded);
+        } catch {
+            throw CustomError.badRequest('El publicId de la imagen no es válido');
+        }
+        decoded = decoded.replace(/\.[A-Za-z0-9]+$/, '');
+        if (
+            !decoded
+            || decoded.includes('..')
+            || !/^[A-Za-z0-9/_-]+$/.test(decoded)
+        ) {
+            throw CustomError.badRequest('El publicId de la imagen no es válido');
+        }
+        return decoded;
+    }
+
+    private publicIdsMatch(storedPublicId: string, requestedPublicId: string): boolean {
+        return storedPublicId === requestedPublicId
+            || storedPublicId.endsWith(`/${requestedPublicId}`);
+    }
+
+    private async assetIsReferencedByAnotherTenant(
+        publicId: string,
+        tenantId: string,
+    ): Promise<boolean> {
+        const references =
+            await listProductAssetReferencesOutsideTenant(tenantId);
+        return references.some((reference) => {
+            const storedPublicId = this.extractPublicIdFromUrl(reference.url);
+            return storedPublicId
+                ? this.publicIdsMatch(storedPublicId, publicId)
+                : false;
+        });
+    }
+
     private async deleteCloudinaryUrl(url: string): Promise<void> {
         const publicId = this.extractPublicIdFromUrl(url);
         if (!publicId) {
@@ -470,6 +528,13 @@ export class ProductService {
         }
 
         try {
+            const tenantId = TenantDataContext.currentTenantId();
+            if (
+                tenantId
+                && await this.assetIsReferencedByAnotherTenant(publicId, tenantId)
+            ) {
+                return;
+            }
             await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
             console.log(`Imagen ${publicId} eliminada de Cloudinary`);
         } catch (error) {
@@ -478,11 +543,55 @@ export class ProductService {
     }
 
     async deleteImageFromCloudinary(publicId: string): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        const requestedPublicId = this.normalizeCloudinaryPublicId(publicId);
         try {
-            await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
-            await prisma.productImage.deleteMany({ where: { url: { contains: publicId } } });
-            console.log(`Imagen ${publicId} eliminada de Cloudinary y de la base de datos`);
+            const ownedImages = await prisma.productImage.findMany({
+                select: {
+                    id: true,
+                    url: true,
+                },
+            });
+            const matchingImages = ownedImages.filter((image) => {
+                const storedPublicId = this.extractPublicIdFromUrl(image.url);
+                return storedPublicId
+                    ? this.publicIdsMatch(storedPublicId, requestedPublicId)
+                    : false;
+            });
+            if (matchingImages.length === 0) {
+                throw CustomError.notFound('La imagen no pertenece al tenant activo');
+            }
+
+            const canonicalPublicId = this.extractPublicIdFromUrl(
+                matchingImages[0]!.url,
+            );
+            if (!canonicalPublicId) {
+                throw CustomError.badRequest('La URL almacenada no contiene un publicId válido');
+            }
+            const shared = await this.assetIsReferencedByAnotherTenant(
+                canonicalPublicId,
+                tenantId,
+            );
+            if (!shared) {
+                await cloudinary.uploader.destroy(canonicalPublicId, {
+                    resource_type: 'image',
+                });
+            }
+            await prisma.productImage.deleteMany({
+                where: {
+                    id: {
+                        in: matchingImages.map((image) => image.id),
+                    },
+                },
+            });
+            console.log(
+                `Imagen ${canonicalPublicId} eliminada del catálogo tenant`
+                + (shared ? ' y conservada en Cloudinary por referencia compartida' : ' y de Cloudinary'),
+            );
         } catch (error) {
+            if (error instanceof CustomError) {
+                throw error;
+            }
             console.error('Error eliminando imagen de Cloudinary:', error);
             throw CustomError.internal('Error al eliminar la imagen');
         }

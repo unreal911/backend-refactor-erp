@@ -8,6 +8,7 @@ export class AuthRouter {
         const router = Router();
 
         router.post('/login', authRateLimiter, AuthController.login);
+        router.post('/platform/login', authRateLimiter, AuthController.platformLogin);
         router.get('/me', AuthMiddleware.validateJWT, AuthController.me);
         router.post('/logout', AuthController.logout);
 

@@ -1,9 +1,10 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../data/prisma';
+import { tenantPrisma as prisma } from '../../data/tenant-prisma';
 import { CustomError } from '../../domain/errors/custom.error';
 import { CreatePaymentMethodDto } from '../../domain/dtos/create-payment-method.dto';
 import { ListPaymentMethodDto } from '../../domain/dtos/list-payment-method.dto';
 import { UpdatePaymentMethodDto } from '../../domain/dtos/update-payment-method.dto';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
 
 type PaymentMethodRow = {
     id: number;
@@ -50,7 +51,8 @@ export class PaymentMethodService {
     }
 
     async list(dto: ListPaymentMethodDto) {
-        const where: Prisma.Sql[] = [];
+        const tenantId = TenantDataContext.requireTenantId();
+        const where: Prisma.Sql[] = [Prisma.sql`"tenantId" = ${tenantId}::uuid`];
         if (dto.isActive !== undefined) {
             where.push(Prisma.sql`"isActive" = ${dto.isActive}`);
         }
@@ -103,6 +105,7 @@ export class PaymentMethodService {
     }
 
     async listActive() {
+        const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRaw<PaymentMethodRow[]>(
             Prisma.sql`
                 SELECT
@@ -114,7 +117,8 @@ export class PaymentMethodService {
                     "createdAt",
                     "updatedAt"
                 FROM "PaymentMethod"
-                WHERE "isActive" = true
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "isActive" = true
                 ORDER BY "displayOrder" ASC, "name" ASC
             `,
         );
@@ -123,20 +127,33 @@ export class PaymentMethodService {
     }
 
     async create(dto: CreatePaymentMethodDto) {
+        const tenantId = TenantDataContext.requireTenantId();
         const code = dto.code && dto.code.length > 0 ? dto.code : this.normalizeCode(dto.name);
         if (!code) {
             throw CustomError.badRequest('No se pudo generar un codigo valido para el metodo de pago');
         }
 
         const existingByName = await prisma.$queryRaw<Array<{ id: number }>>(
-            Prisma.sql`SELECT "id" FROM "PaymentMethod" WHERE lower("name") = lower(${dto.name}) LIMIT 1`,
+            Prisma.sql`
+                SELECT "id"
+                FROM "PaymentMethod"
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND lower("name") = lower(${dto.name})
+                LIMIT 1
+            `,
         );
         if (existingByName.length > 0) {
             throw CustomError.badRequest('Ya existe un metodo de pago con ese nombre');
         }
 
         const existingByCode = await prisma.$queryRaw<Array<{ id: number }>>(
-            Prisma.sql`SELECT "id" FROM "PaymentMethod" WHERE "code" = ${code} LIMIT 1`,
+            Prisma.sql`
+                SELECT "id"
+                FROM "PaymentMethod"
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "code" = ${code}
+                LIMIT 1
+            `,
         );
         if (existingByCode.length > 0) {
             throw CustomError.badRequest('Ya existe un metodo de pago con ese codigo');
@@ -144,11 +161,23 @@ export class PaymentMethodService {
 
         const inserted = await prisma.$queryRaw<PaymentMethodRow[]>(
             Prisma.sql`
-                INSERT INTO "PaymentMethod" ("name", "code", "displayOrder", "isActive", "updatedAt")
+                INSERT INTO "PaymentMethod" (
+                    "tenantId",
+                    "name",
+                    "code",
+                    "displayOrder",
+                    "isActive",
+                    "updatedAt"
+                )
                 VALUES (
+                    ${tenantId}::uuid,
                     ${dto.name},
                     ${code},
-                    COALESCE((SELECT MAX("displayOrder") + 10 FROM "PaymentMethod"), 10),
+                    COALESCE((
+                        SELECT MAX("displayOrder") + 10
+                        FROM "PaymentMethod"
+                        WHERE "tenantId" = ${tenantId}::uuid
+                    ), 10),
                     ${dto.isActive},
                     CURRENT_TIMESTAMP
                 )
@@ -171,6 +200,7 @@ export class PaymentMethodService {
     }
 
     async update(dto: UpdatePaymentMethodDto) {
+        const tenantId = TenantDataContext.requireTenantId();
         const existing = await prisma.$queryRaw<PaymentMethodRow[]>(
             Prisma.sql`
                 SELECT
@@ -183,6 +213,7 @@ export class PaymentMethodService {
                     "updatedAt"
                 FROM "PaymentMethod"
                 WHERE "id" = ${dto.id}
+                  AND "tenantId" = ${tenantId}::uuid
                 LIMIT 1
             `,
         );
@@ -196,7 +227,8 @@ export class PaymentMethodService {
                 Prisma.sql`
                     SELECT "id"
                     FROM "PaymentMethod"
-                    WHERE lower("name") = lower(${dto.name})
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND lower("name") = lower(${dto.name})
                       AND "id" <> ${dto.id}
                     LIMIT 1
                 `,
@@ -214,6 +246,7 @@ export class PaymentMethodService {
                     "isActive" = COALESCE(${dto.isActive ?? null}, "isActive"),
                     "updatedAt" = CURRENT_TIMESTAMP
                 WHERE "id" = ${dto.id}
+                  AND "tenantId" = ${tenantId}::uuid
                 RETURNING
                     "id",
                     "name",

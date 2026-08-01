@@ -19,6 +19,7 @@ export class inventoryRoute {
         router.post('/reservations', controller.createReservation);
         router.post('/reconcile-reserved', controller.reconcileReservedStock);
         router.patch('/transfers/:id/receive', controller.receiveStockTransfer);
+        router.patch('/transfers/:id/cancel', controller.cancelStockTransfer);
 
         return router;
     }

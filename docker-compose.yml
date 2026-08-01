@@ -12,5 +12,18 @@ services:
     volumes:
       - tienda_pgdata:/var/lib/postgresql/data
 
+  # Emulador local de AWS para desarrollar y probar S3/KMS sin cuenta cloud.
+  # Es desechable: nunca cargar PFX, Clave SOL ni documentos reales.
+  moto:
+    image: motoserver/moto:5.2.2
+    container_name: tienda_moto
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      MOTO_PORT: "5000"
+      S3_IGNORE_SUBDOMAIN_BUCKETNAME: "true"
+      MOTO_DISABLE_GLOBAL_CORS: "true"
+
 volumes:
   tienda_pgdata:

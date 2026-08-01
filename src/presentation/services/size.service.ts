@@ -1,6 +1,6 @@
 import { SizeDto } from "../../domain/dtos/create-size.dto";
 import { UpdateSizeDto } from "../../domain/dtos/update-size.dto";
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CustomError } from '../../domain/errors/custom.error';
 import { SizeEntity } from "../../domain/entities/size.entity";
 import { ListSizeDto } from '../../domain/dtos/list-size.dto';

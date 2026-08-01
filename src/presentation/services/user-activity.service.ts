@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../data/prisma';
+import { tenantPrisma as prisma } from '../../data/tenant-prisma';
 import { ListUserActivityDto } from '../../domain/dtos/list-user-activity.dto';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
+import { sanitizeAuditValue } from '../audit-log/sanitize-audit-value';
 
 export type UserActivityProduct = {
     variantId: number;
@@ -161,6 +163,7 @@ export class UserActivityService {
     }
 
     async register(input: RegisterUserActivityInput): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
         const module = this.sanitizeText(input.module, 'GENERAL', 50).toUpperCase();
         const actionType = this.sanitizeText(input.actionType, 'ACTION', 80).toUpperCase();
         const actionLabel = this.sanitizeText(input.actionLabel, actionType, 140);
@@ -171,13 +174,20 @@ export class UserActivityService {
         const userEmail = this.sanitizeText(input.userEmail, '', 180) || null;
         const userRole = this.sanitizeText(input.userRole, '', 80) || null;
 
-        const productsJson = this.stringifyJson(Array.isArray(input.products) ? input.products : [], '[]');
-        const contextJson = this.stringifyJson(input.context ?? {}, '{}');
+        const productsJson = this.stringifyJson(
+            sanitizeAuditValue(Array.isArray(input.products) ? input.products : []),
+            '[]',
+        );
+        const contextJson = this.stringifyJson(
+            sanitizeAuditValue(input.context ?? {}),
+            '{}',
+        );
 
         try {
             await prisma.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "UserActivityLog" (
+                        "tenantId",
                         "userId",
                         "userEmail",
                         "userRole",
@@ -192,6 +202,7 @@ export class UserActivityService {
                         "context"
                     )
                     VALUES (
+                        ${tenantId}::uuid,
                         ${input.userId ?? null},
                         ${userEmail},
                         ${userRole},
@@ -213,7 +224,10 @@ export class UserActivityService {
     }
 
     async list(dto: ListUserActivityDto) {
-        const where: Prisma.Sql[] = [];
+        const tenantId = TenantDataContext.requireTenantId();
+        const where: Prisma.Sql[] = [
+            Prisma.sql`"tenantId" = ${tenantId}::uuid`,
+        ];
 
         if (dto.search) {
             const like = `%${dto.search}%`;

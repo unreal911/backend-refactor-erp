@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
 import { CreateOrderDto } from '../src/domain/dtos/create-order.dto';
+import { tenantService } from './helpers/tenant-service';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -105,7 +106,7 @@ afterAll(async () => {
 });
 
 describe('Ciclo de vida: transiciones invalidas rechazadas sin efectos', () => {
-  const svc = () => new OrderService();
+  const svc = () => tenantService(new OrderService());
   // [estadoActual, objetivoIlegal]
   const illegal: Array<[string, string]> = [
     ['PENDING', 'READY'],        // salto
@@ -134,7 +135,7 @@ describe('Ciclo de vida: transiciones validas avanzan', () => {
   it('PENDING -> WAITING_STOCK', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const order = await seedOrder('PENDING');
-    await new OrderService().updateOrderStatus(order.id, { status: 'WAITING_STOCK' } as any, userId);
+    await tenantService(new OrderService()).updateOrderStatus(order.id, { status: 'WAITING_STOCK' } as any, userId);
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
     expect(fresh?.status).toBe('WAITING_STOCK');
   }, 30_000);
@@ -142,7 +143,7 @@ describe('Ciclo de vida: transiciones validas avanzan', () => {
   it('PENDING -> CANCELLED (sin unidades separadas cierra directo)', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const order = await seedOrder('PENDING');
-    await new OrderService().updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId);
+    await tenantService(new OrderService()).updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId);
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
     expect(fresh?.status).toBe('CANCELLED');
   }, 30_000);
@@ -161,7 +162,7 @@ describe('Idempotencia de createOrder', () => {
     });
     expect(err).toBeUndefined();
 
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const first: any = await svc.createOrder(dto!);
     createdOrderIds.push(first.id);
     const invAfterFirst = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId, variantId } } });

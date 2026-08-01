@@ -1,0 +1,6773 @@
+{
+  "reportVersion": 1,
+  "generatedAt": "2026-07-29T15:42:08.126Z",
+  "scope": "LEGACY_BASELINE",
+  "safety": {
+    "transactionReadOnly": true,
+    "isolationLevel": "repeatable read",
+    "containsRowValues": false,
+    "fetchedRemoteMedia": false
+  },
+  "database": {
+    "schema": "public",
+    "postgresVersion": "16.14",
+    "transactionReadOnlyVerified": true
+  },
+  "schemaInventory": {
+    "schemaHash": "046a6da547904a28ccc986752379b1ab006364bba9a205e1d6132619f4f32246",
+    "tables": [
+      {
+        "name": "AuditLog",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Category",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Color",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Comprobante",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "ComprobanteItem",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "ComprobanteSerie",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "ComunicacionBaja",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Inventory",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "InventoryMovement",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "MarketplaceCustomer",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Order",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "OrderItem",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "OrderReturn",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "OrderReturnItem",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PaymentMethod",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Permission",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingItem",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingItemContribution",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingOrderItemDetail",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingResponsibilityRequest",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingSession",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingSharedResponsibility",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "PickingUnpickRequest",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Product",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "ProductImage",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "ProductVariant",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Reservation",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "ResumenDiario",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Role",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "RolePermission",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Size",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "StockTransfer",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "StockTransferItem",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "Store",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "SunatDispatch",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "SunatEmisorConfig",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "SystemSetting",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "User",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "UserActivityLog",
+        "type": "BASE TABLE"
+      },
+      {
+        "name": "_prisma_migrations",
+        "type": "BASE TABLE"
+      }
+    ],
+    "columns": [
+      {
+        "table": "AuditLog",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "actorUserId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "actorEmail",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "actorRole",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "method",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "path",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "statusCode",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "durationMs",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "ipAddress",
+        "position": 9,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "userAgent",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "requestQuery",
+        "position": 11,
+        "dataType": "jsonb",
+        "databaseType": "jsonb",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "requestParams",
+        "position": 12,
+        "dataType": "jsonb",
+        "databaseType": "jsonb",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "requestBody",
+        "position": 13,
+        "dataType": "jsonb",
+        "databaseType": "jsonb",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "AuditLog",
+        "name": "createdAt",
+        "position": 14,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Category",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Category",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Category",
+        "name": "isActive",
+        "position": 3,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Category",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Color",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Color",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Color",
+        "name": "hex",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Color",
+        "name": "isActive",
+        "position": 4,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Color",
+        "name": "createdAt",
+        "position": 5,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "tipo",
+        "position": 2,
+        "dataType": "USER-DEFINED",
+        "databaseType": "ComprobanteTipo",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "tipoCodigo",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "serie",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "numero",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "nombreArchivo",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "estado",
+        "position": 7,
+        "dataType": "USER-DEFINED",
+        "databaseType": "ComprobanteEstado",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "emisorRuc",
+        "position": 8,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "emisorRazonSocial",
+        "position": 9,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "clienteTipoDoc",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "clienteNumDoc",
+        "position": 11,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "clienteNombre",
+        "position": 12,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "moneda",
+        "position": 13,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "fechaEmision",
+        "position": 14,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalGravado",
+        "position": 15,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalExonerado",
+        "position": 16,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalInafecto",
+        "position": 17,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalGratuito",
+        "position": 18,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalIgv",
+        "position": 19,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalIsc",
+        "position": 20,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalOtrosTributos",
+        "position": 21,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalDescuentos",
+        "position": 22,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalValorVenta",
+        "position": 23,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "totalPrecioVenta",
+        "position": 24,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "leyendaMontoLetras",
+        "position": 25,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "motivoNota",
+        "position": 26,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "motivoNotaCodigo",
+        "position": 27,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "comprobanteAfectadoId",
+        "position": 28,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "orderId",
+        "position": 29,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "serieRefId",
+        "position": 30,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "createdAt",
+        "position": 31,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "updatedAt",
+        "position": 32,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "resumenDiarioId",
+        "position": 33,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "comunicacionBajaId",
+        "position": 34,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Comprobante",
+        "name": "motivoBaja",
+        "position": 35,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "linea",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "codigoProducto",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "descripcion",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "unidadMedida",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "cantidad",
+        "position": 6,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "valorUnitario",
+        "position": 7,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "precioUnitario",
+        "position": 8,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "valorVenta",
+        "position": 9,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "descuento",
+        "position": 10,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "afectacionIgvCodigo",
+        "position": 11,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "igv",
+        "position": 12,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "isc",
+        "position": 13,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "comprobanteId",
+        "position": 14,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "tipo",
+        "position": 2,
+        "dataType": "USER-DEFINED",
+        "databaseType": "ComprobanteTipo",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "serie",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "correlativo",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "storeId",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "isActive",
+        "position": 6,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "createdAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "updatedAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "correlativo",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "fechaReferencia",
+        "position": 3,
+        "dataType": "date",
+        "databaseType": "date",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "fechaGeneracion",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "fileName",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "environment",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "endpoint",
+        "position": 7,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "status",
+        "position": 8,
+        "dataType": "USER-DEFINED",
+        "databaseType": "SunatDispatchStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "ticket",
+        "position": 9,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "cdrCode",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "cdrDescription",
+        "position": 11,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "cdrNotes",
+        "position": 12,
+        "dataType": "ARRAY",
+        "databaseType": "_text",
+        "nullable": true,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "faultCode",
+        "position": 13,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "faultString",
+        "position": 14,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "xmlBase64",
+        "position": 15,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "cdrZipBase64",
+        "position": 16,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "rawResponseXml",
+        "position": 17,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "createdAt",
+        "position": 18,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "updatedAt",
+        "position": 19,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "stock",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "reservedStock",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "updatedAt",
+        "position": 5,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "storeId",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Inventory",
+        "name": "variantId",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "type",
+        "position": 2,
+        "dataType": "USER-DEFINED",
+        "databaseType": "InventoryMovementType",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "quantity",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "previousStock",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "newStock",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "note",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "createdAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "responsibleUserId",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "inventoryId",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "transferId",
+        "position": 10,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "reservationId",
+        "position": 11,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "firstName",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "lastName",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "email",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "phone",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "address",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "password",
+        "position": 7,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "isActive",
+        "position": 8,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "createdAt",
+        "position": 9,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "updatedAt",
+        "position": 10,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "code",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "status",
+        "position": 3,
+        "dataType": "USER-DEFINED",
+        "databaseType": "OrderStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "clientName",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "clientEmail",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "clientPhone",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "subtotal",
+        "position": 7,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "tax",
+        "position": 8,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "total",
+        "position": 9,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "note",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "createdAt",
+        "position": 11,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "updatedAt",
+        "position": 12,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "sourceStoreId",
+        "position": 13,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "fulfillmentStoreId",
+        "position": 14,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "sellerUserId",
+        "position": 15,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "pickerUserId",
+        "position": 16,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "dispenserUserId",
+        "position": 17,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "cancelledByUserId",
+        "position": 18,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "returnResponsibilityAcceptedAt",
+        "position": 19,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "returnResponsibilityDelegatedById",
+        "position": 20,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "returnResponsibilityStatus",
+        "position": 21,
+        "dataType": "USER-DEFINED",
+        "databaseType": "ReturnResponsibilityStatus",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "returnRequestedAt",
+        "position": 22,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "returnResponsibleUserId",
+        "position": 23,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "returnedAt",
+        "position": 24,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "clienteTipoDoc",
+        "position": 25,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "clienteNumDoc",
+        "position": 26,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "comprobanteTipo",
+        "position": 27,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Order",
+        "name": "idempotencyKey",
+        "position": 28,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "quantity",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "reserved",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "picked",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "unitPrice",
+        "position": 5,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "subtotal",
+        "position": 6,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "status",
+        "position": 7,
+        "dataType": "USER-DEFINED",
+        "databaseType": "OrderItemStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "createdAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "orderId",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "variantId",
+        "position": 10,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "fulfillmentStoreId",
+        "position": 11,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "shortageQuantity",
+        "position": 12,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "removedAt",
+        "position": 13,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "removedReason",
+        "position": 14,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "removedNote",
+        "position": 15,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "removedById",
+        "position": 16,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "removedByName",
+        "position": 17,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderItem",
+        "name": "returnedQuantity",
+        "position": 18,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "orderId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "storeId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "reason",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "note",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "responsibleUserId",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "totalQuantity",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "totalAmount",
+        "position": 8,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "createdAt",
+        "position": 9,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "restock",
+        "position": 10,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "returnId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "orderItemId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "variantId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "quantity",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "unitPrice",
+        "position": 6,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "subtotal",
+        "position": 7,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "code",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "displayOrder",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "isActive",
+        "position": 5,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "createdAt",
+        "position": 6,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "updatedAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "code",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "name",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "module",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "description",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "isActive",
+        "position": 6,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "createdAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Permission",
+        "name": "updatedAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItem",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItem",
+        "name": "quantity",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItem",
+        "name": "pickedQuantity",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItem",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItem",
+        "name": "sessionId",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItem",
+        "name": "variantId",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "orderId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "pickingItemId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "userId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "quantity",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "createdAt",
+        "position": 6,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "updatedAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "orderId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "orderItemId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "pickingItemId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "variantId",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "pickedQuantity",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "createdAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "updatedAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "orderId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "requesterUserId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "mode",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "status",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "note",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "resolvedByUserId",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "resolvedAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "createdAt",
+        "position": 9,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "updatedAt",
+        "position": 10,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSession",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSession",
+        "name": "status",
+        "position": 2,
+        "dataType": "USER-DEFINED",
+        "databaseType": "PickingStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSession",
+        "name": "createdAt",
+        "position": 3,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSession",
+        "name": "updatedAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSession",
+        "name": "orderId",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSession",
+        "name": "assignedUserId",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "orderId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "userId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "assignedByUserId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "source",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "note",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "isActive",
+        "position": 7,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "createdAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "updatedAt",
+        "position": 9,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "orderId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "pickingItemId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "requesterUserId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "quantity",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "status",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "note",
+        "position": 7,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "resolvedByUserId",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "resolvedAt",
+        "position": 9,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "createdAt",
+        "position": 10,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "updatedAt",
+        "position": 11,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "description",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "isActive",
+        "position": 4,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "createdAt",
+        "position": 5,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "categoryId",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "updatedAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "afectacionIgv",
+        "position": 8,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "hasColor",
+        "position": 9,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Product",
+        "name": "hasSize",
+        "position": 10,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductImage",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductImage",
+        "name": "url",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductImage",
+        "name": "createdAt",
+        "position": 3,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductImage",
+        "name": "productId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "sku",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "barcode",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "price",
+        "position": 4,
+        "dataType": "numeric",
+        "databaseType": "numeric",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "isActive",
+        "position": 5,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "createdAt",
+        "position": 6,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "productId",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "colorId",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "sizeId",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "imageUrl",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "updatedAt",
+        "position": 11,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "variantKey",
+        "position": 12,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "quantity",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "status",
+        "position": 3,
+        "dataType": "USER-DEFINED",
+        "databaseType": "ReservationStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "updatedAt",
+        "position": 5,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "inventoryId",
+        "position": 6,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "variantId",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "orderId",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "reservedById",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Reservation",
+        "name": "orderItemId",
+        "position": 10,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "correlativo",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "fechaReferencia",
+        "position": 3,
+        "dataType": "date",
+        "databaseType": "date",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "fechaGeneracion",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "fileName",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "environment",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "endpoint",
+        "position": 7,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "status",
+        "position": 8,
+        "dataType": "USER-DEFINED",
+        "databaseType": "SunatDispatchStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "ticket",
+        "position": 9,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "cdrCode",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "cdrDescription",
+        "position": 11,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "cdrNotes",
+        "position": 12,
+        "dataType": "ARRAY",
+        "databaseType": "_text",
+        "nullable": true,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "faultCode",
+        "position": 13,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "faultString",
+        "position": 14,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "xmlBase64",
+        "position": 15,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "cdrZipBase64",
+        "position": 16,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "rawResponseXml",
+        "position": 17,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "createdAt",
+        "position": 18,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "updatedAt",
+        "position": 19,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "esAnulacion",
+        "position": 20,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Role",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Role",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Role",
+        "name": "createdAt",
+        "position": 3,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Role",
+        "name": "updatedAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Role",
+        "name": "description",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Role",
+        "name": "isActive",
+        "position": 6,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "RolePermission",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "RolePermission",
+        "name": "roleId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "RolePermission",
+        "name": "permissionId",
+        "position": 3,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "RolePermission",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Size",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Size",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Size",
+        "name": "isActive",
+        "position": 3,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Size",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "code",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "status",
+        "position": 3,
+        "dataType": "USER-DEFINED",
+        "databaseType": "TransferStatus",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "note",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "createdAt",
+        "position": 5,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "updatedAt",
+        "position": 6,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "createdById",
+        "position": 7,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "receivedById",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "fromStoreId",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "toStoreId",
+        "position": 10,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "orderId",
+        "position": 11,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "quantity",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "createdAt",
+        "position": 3,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "transferId",
+        "position": 4,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "variantId",
+        "position": 5,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "name",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "code",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "address",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "isActive",
+        "position": 5,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "createdAt",
+        "position": 6,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "updatedAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "Store",
+        "name": "type",
+        "position": 8,
+        "dataType": "USER-DEFINED",
+        "databaseType": "StoreType",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "environment",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "endpoint",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "fileName",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "metodo",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "documentTypeCode",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "status",
+        "position": 7,
+        "dataType": "USER-DEFINED",
+        "databaseType": "SunatDispatchStatus",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "ticket",
+        "position": 8,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "cdrCode",
+        "position": 9,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "cdrDescription",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "cdrNotes",
+        "position": 11,
+        "dataType": "ARRAY",
+        "databaseType": "_text",
+        "nullable": true,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "faultCode",
+        "position": 12,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "faultString",
+        "position": 13,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "xmlBase64",
+        "position": 14,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "cdrZipBase64",
+        "position": 15,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "rawResponseXml",
+        "position": 16,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "sentAt",
+        "position": 17,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "comprobanteId",
+        "position": 18,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "environment",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "ruc",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "razonSocial",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "nombreComercial",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "ubigeo",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "direccion",
+        "position": 7,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "tipoOperacion",
+        "position": 8,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "regimen",
+        "position": 9,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "solUser",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "solPasswordEnc",
+        "position": 11,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "certP12Enc",
+        "position": 12,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "certPasswordEnc",
+        "position": 13,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "certSubjectCN",
+        "position": 14,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "certNotAfter",
+        "position": 15,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "signatureId",
+        "position": 16,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "activo",
+        "position": 17,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "updatedById",
+        "position": 18,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "updatedAt",
+        "position": 19,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "createdAt",
+        "position": 20,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "key",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "value",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "createdAt",
+        "position": 4,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "updatedAt",
+        "position": 5,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "firstName",
+        "position": 2,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "lastName",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "email",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "password",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "isActive",
+        "position": 6,
+        "dataType": "boolean",
+        "databaseType": "bool",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "createdAt",
+        "position": 7,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "updatedAt",
+        "position": 8,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "User",
+        "name": "roleId",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "id",
+        "position": 1,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "userId",
+        "position": 2,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "userEmail",
+        "position": 3,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "userRole",
+        "position": 4,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "module",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "actionType",
+        "position": 6,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "actionLabel",
+        "position": 7,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "entityType",
+        "position": 8,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "entityId",
+        "position": 9,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "entityCode",
+        "position": 10,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "description",
+        "position": 11,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "products",
+        "position": 12,
+        "dataType": "jsonb",
+        "databaseType": "jsonb",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "context",
+        "position": 13,
+        "dataType": "jsonb",
+        "databaseType": "jsonb",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "createdAt",
+        "position": 14,
+        "dataType": "timestamp without time zone",
+        "databaseType": "timestamp",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "id",
+        "position": 1,
+        "dataType": "character varying",
+        "databaseType": "varchar",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "checksum",
+        "position": 2,
+        "dataType": "character varying",
+        "databaseType": "varchar",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "finished_at",
+        "position": 3,
+        "dataType": "timestamp with time zone",
+        "databaseType": "timestamptz",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "migration_name",
+        "position": 4,
+        "dataType": "character varying",
+        "databaseType": "varchar",
+        "nullable": false,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "logs",
+        "position": 5,
+        "dataType": "text",
+        "databaseType": "text",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "rolled_back_at",
+        "position": 6,
+        "dataType": "timestamp with time zone",
+        "databaseType": "timestamptz",
+        "nullable": true,
+        "hasDefault": false,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "started_at",
+        "position": 7,
+        "dataType": "timestamp with time zone",
+        "databaseType": "timestamptz",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "applied_steps_count",
+        "position": 8,
+        "dataType": "integer",
+        "databaseType": "int4",
+        "nullable": false,
+        "hasDefault": true,
+        "identity": false,
+        "generated": "NEVER"
+      }
+    ],
+    "constraints": [
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Category",
+        "name": "Category_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Color",
+        "name": "Color_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_comprobanteAfectadoId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"comprobanteAfectadoId\") REFERENCES \"Comprobante\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_comunicacionBajaId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"comunicacionBajaId\") REFERENCES \"ComunicacionBaja\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_resumenDiarioId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"resumenDiarioId\") REFERENCES \"ResumenDiario\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_serieRefId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"serieRefId\") REFERENCES \"ComprobanteSerie\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "ComprobanteItem_comprobanteId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"comprobanteId\") REFERENCES \"Comprobante\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "ComprobanteItem_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "ComprobanteSerie_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "ComprobanteSerie_storeId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"storeId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "ComunicacionBaja_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_reserved_range_check",
+        "type": "c",
+        "definition": "CHECK (\"reservedStock\" >= 0 AND \"reservedStock\" <= stock) NOT VALID"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_stock_nonneg_check",
+        "type": "c",
+        "definition": "CHECK (stock >= 0) NOT VALID"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_storeId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"storeId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "InventoryMovement_inventoryId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"inventoryId\") REFERENCES \"Inventory\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "InventoryMovement_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "InventoryMovement_reservationId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"reservationId\") REFERENCES \"Reservation\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "InventoryMovement_responsibleUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"responsibleUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "InventoryMovement_transferId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"transferId\") REFERENCES \"StockTransfer\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "MarketplaceCustomer_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Order",
+        "name": "Order_cancelledByUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"cancelledByUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_dispenserUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"dispenserUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_fulfillmentStoreId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"fulfillmentStoreId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_pickerUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"pickerUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Order",
+        "name": "Order_returnResponsibilityDelegatedById_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"returnResponsibilityDelegatedById\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_returnResponsibleUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"returnResponsibleUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_sellerUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"sellerUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Order",
+        "name": "Order_sourceStoreId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"sourceStoreId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "OrderItem",
+        "name": "OrderItem_fulfillmentStoreId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"fulfillmentStoreId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "OrderItem",
+        "name": "OrderItem_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "OrderItem",
+        "name": "OrderItem_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "OrderItem",
+        "name": "OrderItem_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "OrderReturn_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "OrderReturn_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "OrderReturn_responsibleUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"responsibleUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "OrderReturn_storeId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"storeId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "OrderReturnItem_orderItemId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderItemId\") REFERENCES \"OrderItem\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "OrderReturnItem_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "OrderReturnItem_returnId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"returnId\") REFERENCES \"OrderReturn\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "OrderReturnItem_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "PaymentMethod_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Permission",
+        "name": "Permission_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingItem",
+        "name": "PickingItem_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingItem",
+        "name": "PickingItem_sessionId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"sessionId\") REFERENCES \"PickingSession\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "PickingItem",
+        "name": "PickingItem_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_pickingItemId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"pickingItemId\") REFERENCES \"PickingItem\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_quantity_check",
+        "type": "c",
+        "definition": "CHECK (quantity >= 0)"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_userId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"userId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_orderItemId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderItemId\") REFERENCES \"OrderItem\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_pickedQuantity_check",
+        "type": "c",
+        "definition": "CHECK (\"pickedQuantity\" >= 0)"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_pickingItemId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"pickingItemId\") REFERENCES \"PickingItem\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_requesterUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"requesterUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_resolvedByUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"resolvedByUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "PickingSession",
+        "name": "PickingSession_assignedUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"assignedUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "PickingSession",
+        "name": "PickingSession_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingSession",
+        "name": "PickingSession_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_assignedByUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"assignedByUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_userId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"userId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_pickingItemId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"pickingItemId\") REFERENCES \"PickingItem\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_quantity_check",
+        "type": "c",
+        "definition": "CHECK (quantity > 0)"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_requesterUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"requesterUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_resolvedByUserId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"resolvedByUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Product",
+        "name": "Product_categoryId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"categoryId\") REFERENCES \"Category\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "Product",
+        "name": "Product_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "ProductImage",
+        "name": "ProductImage_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "ProductImage",
+        "name": "ProductImage_productId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"productId\") REFERENCES \"Product\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_colorId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"colorId\") REFERENCES \"Color\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_productId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"productId\") REFERENCES \"Product\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_sizeId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"sizeId\") REFERENCES \"Size\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_inventoryId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"inventoryId\") REFERENCES \"Inventory\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_orderItemId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderItemId\") REFERENCES \"OrderItem\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_reservedById_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"reservedById\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "ResumenDiario_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "Role",
+        "name": "Role_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "RolePermission",
+        "name": "RolePermission_permissionId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"permissionId\") REFERENCES \"Permission\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "RolePermission",
+        "name": "RolePermission_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "RolePermission",
+        "name": "RolePermission_roleId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"roleId\") REFERENCES \"Role\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "Size",
+        "name": "Size_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_createdById_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"createdById\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_fromStoreId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"fromStoreId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_orderId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_receivedById_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"receivedById\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE SET NULL"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_toStoreId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"toStoreId\") REFERENCES \"Store\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "StockTransferItem_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "StockTransferItem_transferId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"transferId\") REFERENCES \"StockTransfer\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "StockTransferItem_variantId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "Store",
+        "name": "Store_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "SunatDispatch_comprobanteId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"comprobanteId\") REFERENCES \"Comprobante\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "SunatDispatch_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "SunatEmisorConfig_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "SystemSetting_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "User",
+        "name": "User_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "User",
+        "name": "User_roleId_fkey",
+        "type": "f",
+        "definition": "FOREIGN KEY (\"roleId\") REFERENCES \"Role\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "_prisma_migrations_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (id)"
+      }
+    ],
+    "indexes": [
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_actorUserId_idx",
+        "definition": "CREATE INDEX \"AuditLog_actorUserId_idx\" ON public.\"AuditLog\" USING btree (\"actorUserId\")"
+      },
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_createdAt_idx",
+        "definition": "CREATE INDEX \"AuditLog_createdAt_idx\" ON public.\"AuditLog\" USING btree (\"createdAt\" DESC)"
+      },
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_method_idx",
+        "definition": "CREATE INDEX \"AuditLog_method_idx\" ON public.\"AuditLog\" USING btree (method)"
+      },
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_path_idx",
+        "definition": "CREATE INDEX \"AuditLog_path_idx\" ON public.\"AuditLog\" USING btree (path)"
+      },
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_pkey",
+        "definition": "CREATE UNIQUE INDEX \"AuditLog_pkey\" ON public.\"AuditLog\" USING btree (id)"
+      },
+      {
+        "table": "AuditLog",
+        "name": "AuditLog_statusCode_idx",
+        "definition": "CREATE INDEX \"AuditLog_statusCode_idx\" ON public.\"AuditLog\" USING btree (\"statusCode\")"
+      },
+      {
+        "table": "Category",
+        "name": "Category_name_key",
+        "definition": "CREATE UNIQUE INDEX \"Category_name_key\" ON public.\"Category\" USING btree (name)"
+      },
+      {
+        "table": "Category",
+        "name": "Category_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Category_pkey\" ON public.\"Category\" USING btree (id)"
+      },
+      {
+        "table": "Color",
+        "name": "Color_name_key",
+        "definition": "CREATE UNIQUE INDEX \"Color_name_key\" ON public.\"Color\" USING btree (name)"
+      },
+      {
+        "table": "Color",
+        "name": "Color_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Color_pkey\" ON public.\"Color\" USING btree (id)"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_comunicacionBajaId_idx",
+        "definition": "CREATE INDEX \"Comprobante_comunicacionBajaId_idx\" ON public.\"Comprobante\" USING btree (\"comunicacionBajaId\")"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_estado_idx",
+        "definition": "CREATE INDEX \"Comprobante_estado_idx\" ON public.\"Comprobante\" USING btree (estado)"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_nombreArchivo_key",
+        "definition": "CREATE UNIQUE INDEX \"Comprobante_nombreArchivo_key\" ON public.\"Comprobante\" USING btree (\"nombreArchivo\")"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_orderId_idx",
+        "definition": "CREATE INDEX \"Comprobante_orderId_idx\" ON public.\"Comprobante\" USING btree (\"orderId\")"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Comprobante_pkey\" ON public.\"Comprobante\" USING btree (id)"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_resumenDiarioId_idx",
+        "definition": "CREATE INDEX \"Comprobante_resumenDiarioId_idx\" ON public.\"Comprobante\" USING btree (\"resumenDiarioId\")"
+      },
+      {
+        "table": "Comprobante",
+        "name": "Comprobante_tipo_fechaEmision_idx",
+        "definition": "CREATE INDEX \"Comprobante_tipo_fechaEmision_idx\" ON public.\"Comprobante\" USING btree (tipo, \"fechaEmision\")"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "ComprobanteItem_comprobanteId_idx",
+        "definition": "CREATE INDEX \"ComprobanteItem_comprobanteId_idx\" ON public.\"ComprobanteItem\" USING btree (\"comprobanteId\")"
+      },
+      {
+        "table": "ComprobanteItem",
+        "name": "ComprobanteItem_pkey",
+        "definition": "CREATE UNIQUE INDEX \"ComprobanteItem_pkey\" ON public.\"ComprobanteItem\" USING btree (id)"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "ComprobanteSerie_pkey",
+        "definition": "CREATE UNIQUE INDEX \"ComprobanteSerie_pkey\" ON public.\"ComprobanteSerie\" USING btree (id)"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "ComprobanteSerie_storeId_idx",
+        "definition": "CREATE INDEX \"ComprobanteSerie_storeId_idx\" ON public.\"ComprobanteSerie\" USING btree (\"storeId\")"
+      },
+      {
+        "table": "ComprobanteSerie",
+        "name": "ComprobanteSerie_tipo_serie_key",
+        "definition": "CREATE UNIQUE INDEX \"ComprobanteSerie_tipo_serie_key\" ON public.\"ComprobanteSerie\" USING btree (tipo, serie)"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "ComunicacionBaja_fechaReferencia_idx",
+        "definition": "CREATE INDEX \"ComunicacionBaja_fechaReferencia_idx\" ON public.\"ComunicacionBaja\" USING btree (\"fechaReferencia\")"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "ComunicacionBaja_fileName_key",
+        "definition": "CREATE UNIQUE INDEX \"ComunicacionBaja_fileName_key\" ON public.\"ComunicacionBaja\" USING btree (\"fileName\")"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "ComunicacionBaja_pkey",
+        "definition": "CREATE UNIQUE INDEX \"ComunicacionBaja_pkey\" ON public.\"ComunicacionBaja\" USING btree (id)"
+      },
+      {
+        "table": "ComunicacionBaja",
+        "name": "ComunicacionBaja_status_idx",
+        "definition": "CREATE INDEX \"ComunicacionBaja_status_idx\" ON public.\"ComunicacionBaja\" USING btree (status)"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Inventory_pkey\" ON public.\"Inventory\" USING btree (id)"
+      },
+      {
+        "table": "Inventory",
+        "name": "Inventory_storeId_variantId_key",
+        "definition": "CREATE UNIQUE INDEX \"Inventory_storeId_variantId_key\" ON public.\"Inventory\" USING btree (\"storeId\", \"variantId\")"
+      },
+      {
+        "table": "InventoryMovement",
+        "name": "InventoryMovement_pkey",
+        "definition": "CREATE UNIQUE INDEX \"InventoryMovement_pkey\" ON public.\"InventoryMovement\" USING btree (id)"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "MarketplaceCustomer_email_key",
+        "definition": "CREATE UNIQUE INDEX \"MarketplaceCustomer_email_key\" ON public.\"MarketplaceCustomer\" USING btree (lower(email))"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "MarketplaceCustomer_phone_idx",
+        "definition": "CREATE INDEX \"MarketplaceCustomer_phone_idx\" ON public.\"MarketplaceCustomer\" USING btree (phone)"
+      },
+      {
+        "table": "MarketplaceCustomer",
+        "name": "MarketplaceCustomer_pkey",
+        "definition": "CREATE UNIQUE INDEX \"MarketplaceCustomer_pkey\" ON public.\"MarketplaceCustomer\" USING btree (id)"
+      },
+      {
+        "table": "Order",
+        "name": "Order_code_key",
+        "definition": "CREATE UNIQUE INDEX \"Order_code_key\" ON public.\"Order\" USING btree (code)"
+      },
+      {
+        "table": "Order",
+        "name": "Order_idempotencyKey_key",
+        "definition": "CREATE UNIQUE INDEX \"Order_idempotencyKey_key\" ON public.\"Order\" USING btree (\"idempotencyKey\")"
+      },
+      {
+        "table": "Order",
+        "name": "Order_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Order_pkey\" ON public.\"Order\" USING btree (id)"
+      },
+      {
+        "table": "OrderItem",
+        "name": "OrderItem_pkey",
+        "definition": "CREATE UNIQUE INDEX \"OrderItem_pkey\" ON public.\"OrderItem\" USING btree (id)"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "OrderReturn_orderId_idx",
+        "definition": "CREATE INDEX \"OrderReturn_orderId_idx\" ON public.\"OrderReturn\" USING btree (\"orderId\")"
+      },
+      {
+        "table": "OrderReturn",
+        "name": "OrderReturn_pkey",
+        "definition": "CREATE UNIQUE INDEX \"OrderReturn_pkey\" ON public.\"OrderReturn\" USING btree (id)"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "OrderReturnItem_pkey",
+        "definition": "CREATE UNIQUE INDEX \"OrderReturnItem_pkey\" ON public.\"OrderReturnItem\" USING btree (id)"
+      },
+      {
+        "table": "OrderReturnItem",
+        "name": "OrderReturnItem_returnId_idx",
+        "definition": "CREATE INDEX \"OrderReturnItem_returnId_idx\" ON public.\"OrderReturnItem\" USING btree (\"returnId\")"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "PaymentMethod_code_key",
+        "definition": "CREATE UNIQUE INDEX \"PaymentMethod_code_key\" ON public.\"PaymentMethod\" USING btree (code)"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "PaymentMethod_displayOrder_idx",
+        "definition": "CREATE INDEX \"PaymentMethod_displayOrder_idx\" ON public.\"PaymentMethod\" USING btree (\"displayOrder\")"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "PaymentMethod_isActive_idx",
+        "definition": "CREATE INDEX \"PaymentMethod_isActive_idx\" ON public.\"PaymentMethod\" USING btree (\"isActive\")"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "PaymentMethod_name_key",
+        "definition": "CREATE UNIQUE INDEX \"PaymentMethod_name_key\" ON public.\"PaymentMethod\" USING btree (name)"
+      },
+      {
+        "table": "PaymentMethod",
+        "name": "PaymentMethod_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PaymentMethod_pkey\" ON public.\"PaymentMethod\" USING btree (id)"
+      },
+      {
+        "table": "Permission",
+        "name": "Permission_code_key",
+        "definition": "CREATE UNIQUE INDEX \"Permission_code_key\" ON public.\"Permission\" USING btree (code)"
+      },
+      {
+        "table": "Permission",
+        "name": "Permission_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Permission_pkey\" ON public.\"Permission\" USING btree (id)"
+      },
+      {
+        "table": "PickingItem",
+        "name": "PickingItem_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingItem_pkey\" ON public.\"PickingItem\" USING btree (id)"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_item_user_key",
+        "definition": "CREATE UNIQUE INDEX \"PickingItemContribution_item_user_key\" ON public.\"PickingItemContribution\" USING btree (\"pickingItemId\", \"userId\")"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_order_idx",
+        "definition": "CREATE INDEX \"PickingItemContribution_order_idx\" ON public.\"PickingItemContribution\" USING btree (\"orderId\")"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingItemContribution_pkey\" ON public.\"PickingItemContribution\" USING btree (id)"
+      },
+      {
+        "table": "PickingItemContribution",
+        "name": "PickingItemContribution_user_idx",
+        "definition": "CREATE INDEX \"PickingItemContribution_user_idx\" ON public.\"PickingItemContribution\" USING btree (\"userId\")"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_orderItem_unique_idx",
+        "definition": "CREATE UNIQUE INDEX \"PickingOrderItemDetail_orderItem_unique_idx\" ON public.\"PickingOrderItemDetail\" USING btree (\"orderItemId\")"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_order_idx",
+        "definition": "CREATE INDEX \"PickingOrderItemDetail_order_idx\" ON public.\"PickingOrderItemDetail\" USING btree (\"orderId\")"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_picking_item_idx",
+        "definition": "CREATE INDEX \"PickingOrderItemDetail_picking_item_idx\" ON public.\"PickingOrderItemDetail\" USING btree (\"pickingItemId\")"
+      },
+      {
+        "table": "PickingOrderItemDetail",
+        "name": "PickingOrderItemDetail_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingOrderItemDetail_pkey\" ON public.\"PickingOrderItemDetail\" USING btree (id)"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_order_status_idx",
+        "definition": "CREATE INDEX \"PickingResponsibilityRequest_order_status_idx\" ON public.\"PickingResponsibilityRequest\" USING btree (\"orderId\", status)"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_pending_unique_idx",
+        "definition": "CREATE UNIQUE INDEX \"PickingResponsibilityRequest_pending_unique_idx\" ON public.\"PickingResponsibilityRequest\" USING btree (\"orderId\", \"requesterUserId\", mode, status)"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingResponsibilityRequest_pkey\" ON public.\"PickingResponsibilityRequest\" USING btree (id)"
+      },
+      {
+        "table": "PickingResponsibilityRequest",
+        "name": "PickingResponsibilityRequest_requester_status_idx",
+        "definition": "CREATE INDEX \"PickingResponsibilityRequest_requester_status_idx\" ON public.\"PickingResponsibilityRequest\" USING btree (\"requesterUserId\", status)"
+      },
+      {
+        "table": "PickingSession",
+        "name": "PickingSession_orderId_key",
+        "definition": "CREATE UNIQUE INDEX \"PickingSession_orderId_key\" ON public.\"PickingSession\" USING btree (\"orderId\")"
+      },
+      {
+        "table": "PickingSession",
+        "name": "PickingSession_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingSession_pkey\" ON public.\"PickingSession\" USING btree (id)"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_order_active_idx",
+        "definition": "CREATE INDEX \"PickingSharedResponsibility_order_active_idx\" ON public.\"PickingSharedResponsibility\" USING btree (\"orderId\", \"isActive\")"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_order_user_key",
+        "definition": "CREATE UNIQUE INDEX \"PickingSharedResponsibility_order_user_key\" ON public.\"PickingSharedResponsibility\" USING btree (\"orderId\", \"userId\")"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingSharedResponsibility_pkey\" ON public.\"PickingSharedResponsibility\" USING btree (id)"
+      },
+      {
+        "table": "PickingSharedResponsibility",
+        "name": "PickingSharedResponsibility_user_active_idx",
+        "definition": "CREATE INDEX \"PickingSharedResponsibility_user_active_idx\" ON public.\"PickingSharedResponsibility\" USING btree (\"userId\", \"isActive\")"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_item_status_idx",
+        "definition": "CREATE INDEX \"PickingUnpickRequest_item_status_idx\" ON public.\"PickingUnpickRequest\" USING btree (\"pickingItemId\", status)"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_order_status_idx",
+        "definition": "CREATE INDEX \"PickingUnpickRequest_order_status_idx\" ON public.\"PickingUnpickRequest\" USING btree (\"orderId\", status)"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_pending_unique_idx",
+        "definition": "CREATE UNIQUE INDEX \"PickingUnpickRequest_pending_unique_idx\" ON public.\"PickingUnpickRequest\" USING btree (\"pickingItemId\", \"requesterUserId\") WHERE (status = 'PENDING'::text)"
+      },
+      {
+        "table": "PickingUnpickRequest",
+        "name": "PickingUnpickRequest_pkey",
+        "definition": "CREATE UNIQUE INDEX \"PickingUnpickRequest_pkey\" ON public.\"PickingUnpickRequest\" USING btree (id)"
+      },
+      {
+        "table": "Product",
+        "name": "Product_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Product_pkey\" ON public.\"Product\" USING btree (id)"
+      },
+      {
+        "table": "ProductImage",
+        "name": "ProductImage_pkey",
+        "definition": "CREATE UNIQUE INDEX \"ProductImage_pkey\" ON public.\"ProductImage\" USING btree (id)"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_pkey",
+        "definition": "CREATE UNIQUE INDEX \"ProductVariant_pkey\" ON public.\"ProductVariant\" USING btree (id)"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_productId_variantKey_key",
+        "definition": "CREATE UNIQUE INDEX \"ProductVariant_productId_variantKey_key\" ON public.\"ProductVariant\" USING btree (\"productId\", \"variantKey\")"
+      },
+      {
+        "table": "ProductVariant",
+        "name": "ProductVariant_sku_key",
+        "definition": "CREATE UNIQUE INDEX \"ProductVariant_sku_key\" ON public.\"ProductVariant\" USING btree (sku)"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_orderItemId_idx",
+        "definition": "CREATE INDEX \"Reservation_orderItemId_idx\" ON public.\"Reservation\" USING btree (\"orderItemId\")"
+      },
+      {
+        "table": "Reservation",
+        "name": "Reservation_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Reservation_pkey\" ON public.\"Reservation\" USING btree (id)"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "ResumenDiario_fechaReferencia_idx",
+        "definition": "CREATE INDEX \"ResumenDiario_fechaReferencia_idx\" ON public.\"ResumenDiario\" USING btree (\"fechaReferencia\")"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "ResumenDiario_fileName_key",
+        "definition": "CREATE UNIQUE INDEX \"ResumenDiario_fileName_key\" ON public.\"ResumenDiario\" USING btree (\"fileName\")"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "ResumenDiario_pkey",
+        "definition": "CREATE UNIQUE INDEX \"ResumenDiario_pkey\" ON public.\"ResumenDiario\" USING btree (id)"
+      },
+      {
+        "table": "ResumenDiario",
+        "name": "ResumenDiario_status_idx",
+        "definition": "CREATE INDEX \"ResumenDiario_status_idx\" ON public.\"ResumenDiario\" USING btree (status)"
+      },
+      {
+        "table": "Role",
+        "name": "Role_name_key",
+        "definition": "CREATE UNIQUE INDEX \"Role_name_key\" ON public.\"Role\" USING btree (name)"
+      },
+      {
+        "table": "Role",
+        "name": "Role_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Role_pkey\" ON public.\"Role\" USING btree (id)"
+      },
+      {
+        "table": "RolePermission",
+        "name": "RolePermission_pkey",
+        "definition": "CREATE UNIQUE INDEX \"RolePermission_pkey\" ON public.\"RolePermission\" USING btree (id)"
+      },
+      {
+        "table": "RolePermission",
+        "name": "RolePermission_roleId_permissionId_key",
+        "definition": "CREATE UNIQUE INDEX \"RolePermission_roleId_permissionId_key\" ON public.\"RolePermission\" USING btree (\"roleId\", \"permissionId\")"
+      },
+      {
+        "table": "Size",
+        "name": "Size_name_key",
+        "definition": "CREATE UNIQUE INDEX \"Size_name_key\" ON public.\"Size\" USING btree (name)"
+      },
+      {
+        "table": "Size",
+        "name": "Size_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Size_pkey\" ON public.\"Size\" USING btree (id)"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_code_key",
+        "definition": "CREATE UNIQUE INDEX \"StockTransfer_code_key\" ON public.\"StockTransfer\" USING btree (code)"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_orderId_key",
+        "definition": "CREATE UNIQUE INDEX \"StockTransfer_orderId_key\" ON public.\"StockTransfer\" USING btree (\"orderId\")"
+      },
+      {
+        "table": "StockTransfer",
+        "name": "StockTransfer_pkey",
+        "definition": "CREATE UNIQUE INDEX \"StockTransfer_pkey\" ON public.\"StockTransfer\" USING btree (id)"
+      },
+      {
+        "table": "StockTransferItem",
+        "name": "StockTransferItem_pkey",
+        "definition": "CREATE UNIQUE INDEX \"StockTransferItem_pkey\" ON public.\"StockTransferItem\" USING btree (id)"
+      },
+      {
+        "table": "Store",
+        "name": "Store_code_key",
+        "definition": "CREATE UNIQUE INDEX \"Store_code_key\" ON public.\"Store\" USING btree (code)"
+      },
+      {
+        "table": "Store",
+        "name": "Store_pkey",
+        "definition": "CREATE UNIQUE INDEX \"Store_pkey\" ON public.\"Store\" USING btree (id)"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "SunatDispatch_comprobanteId_idx",
+        "definition": "CREATE INDEX \"SunatDispatch_comprobanteId_idx\" ON public.\"SunatDispatch\" USING btree (\"comprobanteId\")"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "SunatDispatch_pkey",
+        "definition": "CREATE UNIQUE INDEX \"SunatDispatch_pkey\" ON public.\"SunatDispatch\" USING btree (id)"
+      },
+      {
+        "table": "SunatDispatch",
+        "name": "SunatDispatch_status_idx",
+        "definition": "CREATE INDEX \"SunatDispatch_status_idx\" ON public.\"SunatDispatch\" USING btree (status)"
+      },
+      {
+        "table": "SunatEmisorConfig",
+        "name": "SunatEmisorConfig_pkey",
+        "definition": "CREATE UNIQUE INDEX \"SunatEmisorConfig_pkey\" ON public.\"SunatEmisorConfig\" USING btree (id)"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "SystemSetting_key_key",
+        "definition": "CREATE UNIQUE INDEX \"SystemSetting_key_key\" ON public.\"SystemSetting\" USING btree (key)"
+      },
+      {
+        "table": "SystemSetting",
+        "name": "SystemSetting_pkey",
+        "definition": "CREATE UNIQUE INDEX \"SystemSetting_pkey\" ON public.\"SystemSetting\" USING btree (id)"
+      },
+      {
+        "table": "User",
+        "name": "User_email_key",
+        "definition": "CREATE UNIQUE INDEX \"User_email_key\" ON public.\"User\" USING btree (email)"
+      },
+      {
+        "table": "User",
+        "name": "User_pkey",
+        "definition": "CREATE UNIQUE INDEX \"User_pkey\" ON public.\"User\" USING btree (id)"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_actionType_idx",
+        "definition": "CREATE INDEX \"UserActivityLog_actionType_idx\" ON public.\"UserActivityLog\" USING btree (\"actionType\")"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_createdAt_idx",
+        "definition": "CREATE INDEX \"UserActivityLog_createdAt_idx\" ON public.\"UserActivityLog\" USING btree (\"createdAt\" DESC)"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_entity_idx",
+        "definition": "CREATE INDEX \"UserActivityLog_entity_idx\" ON public.\"UserActivityLog\" USING btree (\"entityType\", \"entityId\")"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_module_idx",
+        "definition": "CREATE INDEX \"UserActivityLog_module_idx\" ON public.\"UserActivityLog\" USING btree (module)"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_pkey",
+        "definition": "CREATE UNIQUE INDEX \"UserActivityLog_pkey\" ON public.\"UserActivityLog\" USING btree (id)"
+      },
+      {
+        "table": "UserActivityLog",
+        "name": "UserActivityLog_userId_idx",
+        "definition": "CREATE INDEX \"UserActivityLog_userId_idx\" ON public.\"UserActivityLog\" USING btree (\"userId\")"
+      },
+      {
+        "table": "_prisma_migrations",
+        "name": "_prisma_migrations_pkey",
+        "definition": "CREATE UNIQUE INDEX _prisma_migrations_pkey ON public._prisma_migrations USING btree (id)"
+      }
+    ],
+    "sequences": [
+      {
+        "name": "AuditLog_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "30537"
+      },
+      {
+        "name": "Category_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "4"
+      },
+      {
+        "name": "Color_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "12"
+      },
+      {
+        "name": "ComprobanteItem_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "18"
+      },
+      {
+        "name": "ComprobanteSerie_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "3"
+      },
+      {
+        "name": "Comprobante_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "18"
+      },
+      {
+        "name": "ComunicacionBaja_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1"
+      },
+      {
+        "name": "InventoryMovement_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1354"
+      },
+      {
+        "name": "Inventory_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1515"
+      },
+      {
+        "name": "MarketplaceCustomer_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1"
+      },
+      {
+        "name": "OrderItem_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1350"
+      },
+      {
+        "name": "OrderReturnItem_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "143"
+      },
+      {
+        "name": "OrderReturn_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "143"
+      },
+      {
+        "name": "Order_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1450"
+      },
+      {
+        "name": "PaymentMethod_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "483"
+      },
+      {
+        "name": "Permission_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "3683"
+      },
+      {
+        "name": "PickingItemContribution_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "404"
+      },
+      {
+        "name": "PickingItem_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "628"
+      },
+      {
+        "name": "PickingOrderItemDetail_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1217"
+      },
+      {
+        "name": "PickingResponsibilityRequest_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "207"
+      },
+      {
+        "name": "PickingSession_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "645"
+      },
+      {
+        "name": "PickingSharedResponsibility_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "203"
+      },
+      {
+        "name": "PickingUnpickRequest_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "60"
+      },
+      {
+        "name": "ProductImage_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "40"
+      },
+      {
+        "name": "ProductVariant_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1558"
+      },
+      {
+        "name": "Product_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1547"
+      },
+      {
+        "name": "Reservation_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1248"
+      },
+      {
+        "name": "ResumenDiario_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "2"
+      },
+      {
+        "name": "RolePermission_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "6183"
+      },
+      {
+        "name": "Role_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "18"
+      },
+      {
+        "name": "Size_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "13"
+      },
+      {
+        "name": "StockTransferItem_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "81"
+      },
+      {
+        "name": "StockTransfer_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "81"
+      },
+      {
+        "name": "Store_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "102"
+      },
+      {
+        "name": "SunatDispatch_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "11"
+      },
+      {
+        "name": "SunatEmisorConfig_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1"
+      },
+      {
+        "name": "SystemSetting_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "1221"
+      },
+      {
+        "name": "UserActivityLog_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "537"
+      },
+      {
+        "name": "User_id_seq",
+        "dataType": "integer",
+        "start": "1",
+        "increment": "1",
+        "lastValue": "91"
+      }
+    ],
+    "extensions": [
+      "plpgsql"
+    ],
+    "views": [],
+    "appliedMigrations": [
+      {
+        "name": "20260503170504_init",
+        "checksum": "afad955a76decf48e588a71ce81caba44967a65b93432da38536227c31643f07",
+        "finishedAt": "2026-06-30T02:51:11.766Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260509042236_update_product_images",
+        "checksum": "849df31acc577860caf000bd7bd8413ee3c0a0eb34336a6de3543ebaf312240d",
+        "finishedAt": "2026-06-30T02:51:11.796Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260511160537_add_auth_inventory",
+        "checksum": "735eb7b5ccdd3a3d44a99829309bfdd6b3eff5eeb951e901d8c80ea2a1a9acc3",
+        "finishedAt": "2026-06-30T02:51:12.223Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260512054622_add_store_type",
+        "checksum": "25d427cb59326222f68737de3015eed354d2814efbee2d28db180455b80b824c",
+        "finishedAt": "2026-06-30T02:51:12.236Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260513175057_add_stock_transfer_order_relation",
+        "checksum": "91b9843b4024f3be898e3f8b59729dbb436ca8ef1d4df40644cccc2ea92b3810",
+        "finishedAt": "2026-06-30T02:51:12.504Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260518183000_add_permissions_rbac",
+        "checksum": "dba8bd166c6b36c689019b0035c6dd3bd4f47038312541aa554754113c7f7c7c",
+        "finishedAt": "2026-06-30T02:51:12.593Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260519213000_add_payment_method",
+        "checksum": "68a2914d85a2e3733ab7eba34fc668c26271d31822358753395ca4c5d87de3a8",
+        "finishedAt": "2026-06-30T02:51:12.631Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260520001000_add_order_return_workflow",
+        "checksum": "3228c61eba754ce6801a1d4f1b3d0cea9911a3531f3eaacdb1049a061ad1dc75",
+        "finishedAt": "2026-06-30T02:51:12.707Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260525204243_localdbmigration",
+        "checksum": "6c1aa6090d490a406b0d4fa5927a01be6840980bff3cbb18bd45ed7022feffbb",
+        "finishedAt": "2026-06-30T02:51:12.726Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260608090000_add_order_item_fulfillment_store",
+        "checksum": "db4ce11ddc8815aa56866f0741187817cd4684b238220b6f6eebfe7c378a4885",
+        "finishedAt": "2026-06-30T02:51:12.739Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260630120000_add_order_item_shortage",
+        "checksum": "8786cefe3c007748d3654fe5ef7c6726123473bd9467bef392d30f15fcdd24fb",
+        "finishedAt": "2026-06-30T05:08:30.605Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260702130000_add_order_item_removed",
+        "checksum": "10fc3d77141895fd7b9a234efc78b6f65d0266368e51283756c6dfc251e126c8",
+        "finishedAt": "2026-07-02T15:50:05.683Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260705120000_reservation_order_item_ledger",
+        "checksum": "aca7c7de53062a2358e75eee63d9cf5d6895dd0d926a67fb45a194ee7284314b",
+        "finishedAt": "2026-07-05T17:32:56.613Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260712120000_add_client_doc_and_afectacion",
+        "checksum": "3b18186f082a51e525d0b630d664625e6eb088c7e4eadbd4e730d2bfb26c3f5c",
+        "finishedAt": "2026-07-12T06:01:01.645Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260712140000_add_order_comprobante_tipo",
+        "checksum": "9b8f20b1a005d83c242537385f42a54b791e83761af39935137522a572d479e7",
+        "finishedAt": "2026-07-12T16:42:14.433Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260714120000_unify_variant_dimensions",
+        "checksum": "3a6025b65929a3d26272d35e0c86fa41c96079bc57c162c06bcc686cea51e538",
+        "finishedAt": "2026-07-14T19:49:47.230Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260714130000_drop_variant_sentinels",
+        "checksum": "9a12c28d09ba8188aec44de17072510508a764fe593fc9f811e71907d96551f0",
+        "finishedAt": "2026-07-14T19:56:00.649Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260715120000_add_order_idempotency_key",
+        "checksum": "b6e617d16b0cc34be3c90b91ed9d1294dfee0521aaf8fd6b7042a37aa060b739",
+        "finishedAt": "2026-07-15T16:03:11.227Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260716120000_add_order_returns",
+        "checksum": "0a313a3fa2aace7792146de97ffec0685321508bd68aa5b9cf65c8ce73c80e56",
+        "finishedAt": "2026-07-16T15:56:25.792Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260718120000_add_order_return_restock",
+        "checksum": "e5a93512f4740d045b0a766fecc4ddcb8a00e1a0e350329ab7fc1e6d563348fe",
+        "finishedAt": "2026-07-18T12:17:51.366Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260729120000_formalize_startup_schema",
+        "checksum": "37a9c8a182265711cb2f9ed48a24ce5ef08dd534cb18dd1b215811b521cdfa72",
+        "finishedAt": "2026-07-29T15:13:37.687Z",
+        "rolledBackAt": null
+      },
+      {
+        "name": "20260729130000_restore_payment_method_indexes",
+        "checksum": "9a215066325c3dba9fd4e4d5b82363a7777490f615518e55a1c8fab85c9adc38",
+        "finishedAt": "2026-07-29T15:17:23.330Z",
+        "rolledBackAt": null
+      }
+    ]
+  },
+  "dataBaseline": {
+    "tableCounts": {
+      "AuditLog": 30411,
+      "Category": 4,
+      "Color": 3,
+      "Comprobante": 10,
+      "ComprobanteItem": 10,
+      "ComprobanteSerie": 3,
+      "ComunicacionBaja": 1,
+      "Inventory": 5,
+      "InventoryMovement": 387,
+      "MarketplaceCustomer": 1,
+      "Order": 42,
+      "OrderItem": 106,
+      "OrderReturn": 0,
+      "OrderReturnItem": 0,
+      "PaymentMethod": 6,
+      "Permission": 47,
+      "PickingItem": 14,
+      "PickingItemContribution": 1,
+      "PickingOrderItemDetail": 99,
+      "PickingResponsibilityRequest": 0,
+      "PickingSession": 14,
+      "PickingSharedResponsibility": 0,
+      "PickingUnpickRequest": 0,
+      "Product": 2,
+      "ProductImage": 8,
+      "ProductVariant": 13,
+      "Reservation": 161,
+      "ResumenDiario": 2,
+      "Role": 6,
+      "RolePermission": 78,
+      "Size": 4,
+      "StockTransfer": 0,
+      "StockTransferItem": 0,
+      "Store": 2,
+      "SunatDispatch": 6,
+      "SunatEmisorConfig": 0,
+      "SystemSetting": 18,
+      "User": 3,
+      "UserActivityLog": 509,
+      "_prisma_migrations": 22
+    },
+    "stateCounts": {
+      "Order.status": {
+        "CANCELLED": 17,
+        "DELIVERED": 25
+      },
+      "Order.returnResponsibilityStatus": {
+        "(NULL)": 39,
+        "ACCEPTED": 3
+      },
+      "OrderItem.status": {
+        "PARTIAL": 3,
+        "PENDING": 52,
+        "PICKED": 51
+      },
+      "Reservation.status": {
+        "COMPLETED": 37,
+        "RELEASED": 124
+      },
+      "PickingSession.status": {
+        "CANCELLED": 7,
+        "COMPLETED": 7
+      },
+      "StockTransfer.status": {},
+      "PickingResponsibilityRequest.status": {},
+      "PickingResponsibilityRequest.mode": {},
+      "PickingUnpickRequest.status": {}
+    },
+    "controlTotals": {
+      "Inventory.stock": "158",
+      "Inventory.reservedStock": "0",
+      "InventoryMovement.quantity": "1106",
+      "InventoryMovement.previousStock": "36288",
+      "InventoryMovement.newStock": "36446",
+      "StockTransferItem.quantity": "0",
+      "Reservation.quantity": "356",
+      "PickingItem.quantity": "131",
+      "PickingItem.pickedQuantity": "95",
+      "PickingItemContribution.quantity": "4",
+      "PickingOrderItemDetail.pickedQuantity": "118",
+      "Order.subtotal": "4240.00",
+      "Order.tax": "510.48",
+      "Order.total": "4750.48",
+      "OrderItem.quantity": "265",
+      "OrderItem.reserved": "235",
+      "OrderItem.picked": "121",
+      "OrderItem.shortageQuantity": "12",
+      "OrderItem.returnedQuantity": "0",
+      "OrderItem.subtotal": "4762.00",
+      "OrderReturn.totalQuantity": "0",
+      "OrderReturn.totalAmount": "0",
+      "OrderReturnItem.quantity": "0",
+      "OrderReturnItem.subtotal": "0"
+    },
+    "sequencePositions": {
+      "AuditLog_id_seq": "30537",
+      "Category_id_seq": "4",
+      "Color_id_seq": "12",
+      "ComprobanteItem_id_seq": "18",
+      "ComprobanteSerie_id_seq": "3",
+      "Comprobante_id_seq": "18",
+      "ComunicacionBaja_id_seq": "1",
+      "InventoryMovement_id_seq": "1354",
+      "Inventory_id_seq": "1515",
+      "MarketplaceCustomer_id_seq": "1",
+      "OrderItem_id_seq": "1350",
+      "OrderReturnItem_id_seq": "143",
+      "OrderReturn_id_seq": "143",
+      "Order_id_seq": "1450",
+      "PaymentMethod_id_seq": "483",
+      "Permission_id_seq": "3683",
+      "PickingItemContribution_id_seq": "404",
+      "PickingItem_id_seq": "628",
+      "PickingOrderItemDetail_id_seq": "1217",
+      "PickingResponsibilityRequest_id_seq": "207",
+      "PickingSession_id_seq": "645",
+      "PickingSharedResponsibility_id_seq": "203",
+      "PickingUnpickRequest_id_seq": "60",
+      "ProductImage_id_seq": "40",
+      "ProductVariant_id_seq": "1558",
+      "Product_id_seq": "1547",
+      "Reservation_id_seq": "1248",
+      "ResumenDiario_id_seq": "2",
+      "RolePermission_id_seq": "6183",
+      "Role_id_seq": "18",
+      "Size_id_seq": "13",
+      "StockTransferItem_id_seq": "81",
+      "StockTransfer_id_seq": "81",
+      "Store_id_seq": "102",
+      "SunatDispatch_id_seq": "11",
+      "SunatEmisorConfig_id_seq": "1",
+      "SystemSetting_id_seq": "1221",
+      "UserActivityLog_id_seq": "537",
+      "User_id_seq": "91"
+    },
+    "baselineHash": "9ebd5e23144475654eec35428853844f048be65c534582b650677bb82d48ae8f"
+  },
+  "integrity": {
+    "orphanForeignKeys": [],
+    "logicalDuplicates": [],
+    "invalidValues": [
+      {
+        "rule": "picking_quantity_invalid",
+        "table": "PickingItem",
+        "affectedRows": 1
+      }
+    ]
+  },
+  "media": {
+    "totalReferences": 21,
+    "httpsReferences": 21,
+    "httpReferences": 0,
+    "malformedOrUnsupported": 0,
+    "duplicateReferenceGroups": 0,
+    "cloudinaryReferences": 21,
+    "hostCounts": {
+      "res.cloudinary.com": 21
+    },
+    "remoteAvailabilityChecked": false,
+    "remoteReachable": 0,
+    "remoteMissing": 0,
+    "remoteIndeterminate": 0
+  },
+  "unstructuredData": {
+    "ordersWithNote": 40,
+    "ordersWithPaymentMethodEvidence": 18,
+    "ordersWithPaymentReferenceEvidence": 18,
+    "ordersWithAmountOrChangeEvidence": 18,
+    "structuredPaymentTablePresent": false
+  },
+  "findings": [
+    {
+      "id": "invalid:picking_quantity_invalid",
+      "category": "INVALID",
+      "subject": "PickingItem",
+      "affectedRows": 1,
+      "suggestedAction": "QUARANTINE",
+      "decisionStatus": "PENDING_APPROVAL",
+      "detail": "El valor no cumple la invariante objetivo y requiere decisión explícita."
+    },
+    {
+      "id": "media:external-references",
+      "category": "MEDIA",
+      "subject": "ProductImage/ProductVariant/SystemSetting",
+      "affectedRows": 21,
+      "suggestedAction": "MIGRATE",
+      "decisionStatus": "PENDING_APPROVAL",
+      "detail": "Conservar referencias o migrarlas mediante manifiesto; disponibilidad remota no consultada."
+    },
+    {
+      "id": "unstructured:payment-in-order-note",
+      "category": "UNSTRUCTURED",
+      "subject": "Order.note",
+      "affectedRows": 18,
+      "suggestedAction": "TRANSFORM",
+      "decisionStatus": "PENDING_APPROVAL",
+      "detail": "Definir modelo destino antes de estructurar la evidencia; no inventar transacciones."
+    }
+  ]
+}

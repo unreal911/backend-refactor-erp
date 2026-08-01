@@ -1,5 +1,6 @@
 import "dotenv/config";
-import { prisma } from "../../../data/prisma";
+import { tenantPrisma as prisma } from "../../../data/tenant-prisma";
+import { TenantDataContext } from "../../tenant/tenant-data-context";
 import { decryptSecret, decryptSecretString, isSunatEncryptionConfigured } from "./sunat-crypto";
 
 // Configuracion SUNAT. Fuente de verdad: tabla SunatEmisorConfig (dashboard).
@@ -78,14 +79,16 @@ interface EmisorConfigRow {
 }
 
 async function fetchActiveEmisorRow(): Promise<EmisorConfigRow | null> {
+    const tenantId = TenantDataContext.requireTenantId();
     try {
         const rows = await prisma.$queryRawUnsafe<EmisorConfigRow[]>(
             `SELECT "environment", "ruc", "razonSocial", "ubigeo", "solUser",
                     "solPasswordEnc", "certP12Enc", "certPasswordEnc", "signatureId"
              FROM "SunatEmisorConfig"
-             WHERE "activo" = true
-             ORDER BY "id" ASC
+             WHERE "tenantId" = $1::uuid
+               AND "activo" = true
              LIMIT 1`,
+            tenantId,
         );
         return rows[0] ?? null;
     } catch {

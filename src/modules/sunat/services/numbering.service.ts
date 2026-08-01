@@ -1,4 +1,5 @@
 import { ComprobanteTipo, Prisma } from "@prisma/client";
+import { TenantDataContext } from "../../tenant/tenant-data-context";
 
 // Series por defecto por tipo de comprobante.
 const DEFAULT_SERIE: Record<ComprobanteTipo, string> = {
@@ -20,11 +21,18 @@ export async function reserveNextNumber(
     tipo: ComprobanteTipo,
     serie?: string,
 ): Promise<NextNumberResult> {
+    const tenantId = TenantDataContext.requireTenantId();
     const targetSerie = serie ?? DEFAULT_SERIE[tipo];
 
     // upsert de la serie
     const existing = await tx.comprobanteSerie.findUnique({
-        where: { tipo_serie: { tipo, serie: targetSerie } },
+        where: {
+            tenantId_tipo_serie: {
+                tenantId,
+                tipo,
+                serie: targetSerie,
+            },
+        },
     });
 
     const row = existing
@@ -33,7 +41,12 @@ export async function reserveNextNumber(
               data: { correlativo: { increment: 1 } },
           })
         : await tx.comprobanteSerie.create({
-              data: { tipo, serie: targetSerie, correlativo: 1 },
+              data: {
+                  tenantId,
+                  tipo,
+                  serie: targetSerie,
+                  correlativo: 1,
+              },
           });
 
     return { serieId: row.id, serie: row.serie, numero: row.correlativo };

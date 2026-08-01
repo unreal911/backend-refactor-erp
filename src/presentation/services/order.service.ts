@@ -1,4 +1,4 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import { CreateOrderDto } from "../../domain/dtos/create-order.dto";
@@ -15,6 +15,10 @@ import { RequestPickingResponsibilityDto } from "../../domain/dtos/request-picki
 import { ResolvePickingResponsibilityRequestDto } from "../../domain/dtos/resolve-picking-responsibility-request.dto";
 import { RequestPickingUnpickActionDto } from "../../domain/dtos/request-picking-unpick-action.dto";
 import { ResolvePickingUnpickActionDto } from "../../domain/dtos/resolve-picking-unpick-action.dto";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
 import {
     MarketplaceGuideItem,
@@ -117,6 +121,10 @@ import {
 export class OrderService {
     constructor() {}
 
+    private currentTenantId(): string {
+        return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+    }
+
     private async syncPickingOrderItemDetailsForOrder(
         order: any,
         dbClient: any = prisma,
@@ -184,6 +192,7 @@ export class OrderService {
             await dbClient.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "PickingOrderItemDetail" (
+                        "tenantId",
                         "orderId",
                         "orderItemId",
                         "pickingItemId",
@@ -191,13 +200,14 @@ export class OrderService {
                         "pickedQuantity"
                     )
                     VALUES (
+                        ${this.currentTenantId()}::uuid,
                         ${orderId},
                         ${orderItemId},
                         ${normalizedPickingItemId},
                         ${variantId},
                         ${nextPickedQuantity}
                     )
-                    ON CONFLICT ("orderItemId")
+                    ON CONFLICT ("tenantId", "orderItemId")
                     DO UPDATE SET
                         "orderId" = EXCLUDED."orderId",
                         "pickingItemId" = EXCLUDED."pickingItemId",
@@ -684,8 +694,14 @@ export class OrderService {
     async createMarketplaceOrder(dto: CreateMarketplaceOrderDto) {
         // C4: idempotencia. Reintento/doble-submit con la misma clave -> replay.
         if (dto.idempotencyKey) {
+            const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
             const existing = await prisma.order.findUnique({
-                where: { idempotencyKey: dto.idempotencyKey },
+                where: {
+                    tenantId_idempotencyKey: {
+                        tenantId,
+                        idempotencyKey: dto.idempotencyKey,
+                    },
+                },
                 include: this.orderDetailInclude,
             });
             if (existing) {
@@ -755,7 +771,7 @@ export class OrderService {
             let totalRequested = 0;
             let totalReserved = 0;
             let totalPending = 0;
-            const autoReserveStock = false;
+            const autoReserveStock = marketplaceSettings.autoReserveStock;
             const availableStockByVariant = new Map<number, number>();
             const inventoryIdByVariant = new Map<number, number>();
 
@@ -938,8 +954,14 @@ export class OrderService {
         } catch (error) {
             // Carrera exacta con la misma idempotencyKey: devolver la ya creada.
             if (dto.idempotencyKey && (error as { code?: string })?.code === 'P2002') {
+                const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
                 const existing = await prisma.order.findUnique({
-                    where: { idempotencyKey: dto.idempotencyKey },
+                    where: {
+                        tenantId_idempotencyKey: {
+                            tenantId,
+                            idempotencyKey: dto.idempotencyKey,
+                        },
+                    },
                     include: this.orderDetailInclude,
                 });
                 if (existing) {
@@ -1154,8 +1176,14 @@ export class OrderService {
     // C4: busca una orden ya creada con esta clave de idempotencia (mismo include
     // que devuelve createOrder, para que el replay entregue la misma forma).
     private async findOrderByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         return prisma.order.findUnique({
-            where: { idempotencyKey },
+            where: {
+                tenantId_idempotencyKey: {
+                    tenantId,
+                    idempotencyKey,
+                },
+            },
             include: {
                 items: {
                     include: {
@@ -2401,6 +2429,7 @@ export class OrderService {
                 await tx.$executeRaw(
                     Prisma.sql`
                         INSERT INTO "PickingOrderItemDetail" (
+                            "tenantId",
                             "orderId",
                             "orderItemId",
                             "pickingItemId",
@@ -2408,13 +2437,14 @@ export class OrderService {
                             "pickedQuantity"
                         )
                         VALUES (
+                            ${this.currentTenantId()}::uuid,
                             ${orderId},
                             ${Number(orderItem.id)},
                             ${Number(requestRow.pickingItemId)},
                             ${Number(orderItem.variantId || pickingItem.variantId || 0)},
                             ${nextPickedQuantityForItem}
                         )
-                        ON CONFLICT ("orderItemId")
+                        ON CONFLICT ("tenantId", "orderItemId")
                         DO UPDATE SET
                             "orderId" = EXCLUDED."orderId",
                             "pickingItemId" = EXCLUDED."pickingItemId",
@@ -3060,6 +3090,7 @@ export class OrderService {
             await tx.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "PickingOrderItemDetail" (
+                        "tenantId",
                         "orderId",
                         "orderItemId",
                         "pickingItemId",
@@ -3067,13 +3098,14 @@ export class OrderService {
                         "pickedQuantity"
                     )
                     VALUES (
+                        ${this.currentTenantId()}::uuid,
                         ${orderId},
                         ${orderItemId},
                         ${pickingItemId > 0 ? pickingItemId : null},
                         ${Number(targetOrderItem?.variantId || 0)},
                         ${normalizedPickedQuantity}
                     )
-                    ON CONFLICT ("orderItemId")
+                    ON CONFLICT ("tenantId", "orderItemId")
                     DO UPDATE SET
                         "orderId" = EXCLUDED."orderId",
                         "pickingItemId" = EXCLUDED."pickingItemId",
@@ -3259,6 +3291,7 @@ export class OrderService {
                 await tx.$executeRaw(
                     Prisma.sql`
                         INSERT INTO "PickingOrderItemDetail" (
+                            "tenantId",
                             "orderId",
                             "orderItemId",
                             "pickingItemId",
@@ -3266,13 +3299,14 @@ export class OrderService {
                             "pickedQuantity"
                         )
                         VALUES (
+                            ${this.currentTenantId()}::uuid,
                             ${order.id},
                             ${Number(orderItem.id)},
                             ${pickingItemId},
                             ${Number(orderItem.variantId || pickingItem.variantId || 0)},
                             ${nextPickedQuantityForItem}
                         )
-                        ON CONFLICT ("orderItemId")
+                        ON CONFLICT ("tenantId", "orderItemId")
                         DO UPDATE SET
                             "orderId" = EXCLUDED."orderId",
                             "pickingItemId" = EXCLUDED."pickingItemId",
@@ -3508,15 +3542,16 @@ export class OrderService {
                 await tx.$executeRaw(
                     Prisma.sql`
                         INSERT INTO "PickingOrderItemDetail" (
-                            "orderId","orderItemId","pickingItemId","variantId","pickedQuantity"
+                            "tenantId","orderId","orderItemId","pickingItemId","variantId","pickedQuantity"
                         ) VALUES (
+                            ${this.currentTenantId()}::uuid,
                             ${orderId},
                             ${row.orderItemId},
                             ${row.pickingItemId > 0 ? row.pickingItemId : null},
                             ${row.variantId},
                             ${row.limit}
                         )
-                        ON CONFLICT ("orderItemId")
+                        ON CONFLICT ("tenantId", "orderItemId")
                         DO UPDATE SET
                             "orderId" = EXCLUDED."orderId",
                             "pickingItemId" = EXCLUDED."pickingItemId",

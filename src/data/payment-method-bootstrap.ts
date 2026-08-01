@@ -31,17 +31,42 @@ export async function ensurePaymentMethodSchema(): Promise<void> {
         await prisma.$executeRawUnsafe(statement);
     }
 
+    await seedDefaultPaymentMethods();
+}
+
+export async function seedDefaultPaymentMethodsForTenant(
+    tenantId: string,
+    dbClient: Pick<typeof prisma, '$executeRawUnsafe'> = prisma,
+): Promise<void> {
     for (const method of DEFAULT_PAYMENT_METHODS) {
-        await prisma.$executeRawUnsafe(
-            `INSERT INTO "PaymentMethod" ("name", "code", "displayOrder", "isActive", "updatedAt")
-             VALUES ($1, $2, $3, true, CURRENT_TIMESTAMP)
-             ON CONFLICT ("code") DO UPDATE
-             SET "name" = EXCLUDED."name",
-                 "displayOrder" = EXCLUDED."displayOrder",
-                 "updatedAt" = CURRENT_TIMESTAMP`,
+        await dbClient.$executeRawUnsafe(
+            `INSERT INTO "PaymentMethod" (
+                "tenantId",
+                "name",
+                "code",
+                "displayOrder",
+                "isActive",
+                "updatedAt"
+             )
+             VALUES ($1::uuid, $2, $3, $4, true, CURRENT_TIMESTAMP)
+             ON CONFLICT ("tenantId", "code") DO NOTHING`,
+            tenantId,
             method.name,
             method.code,
             method.displayOrder,
         );
+    }
+}
+
+export async function seedDefaultPaymentMethods(): Promise<void> {
+    const tenants = await prisma.tenant.findMany({
+        where: {
+            status: { in: ['TRIAL', 'ACTIVE'] },
+        },
+        select: { id: true },
+    });
+
+    for (const tenant of tenants) {
+        await seedDefaultPaymentMethodsForTenant(tenant.id);
     }
 }

@@ -176,19 +176,24 @@ export async function seedProducts(): Promise<ProductSeedSummary> {
     // Catalogos base (idempotente por nombre unico).
     const categoryByName = new Map<string, number>();
     for (const name of CATEGORIES) {
-        const cat = await prisma.category.upsert({ where: { name }, update: {}, create: { name } });
+        const cat = await prisma.category.findFirst({ where: { name } })
+            ?? await prisma.category.create({ data: { name } });
         categoryByName.set(name, cat.id);
     }
 
     const colorByName = new Map<string, number>();
     for (const { name, hex } of COLORS) {
-        const color = await prisma.color.upsert({ where: { name }, update: { hex }, create: { name, hex } });
+        const existingColor = await prisma.color.findFirst({ where: { name } });
+        const color = existingColor
+            ? await prisma.color.update({ where: { id: existingColor.id }, data: { hex } })
+            : await prisma.color.create({ data: { name, hex } });
         colorByName.set(name, color.id);
     }
 
     const sizeByName = new Map<string, number>();
     for (const name of SIZES) {
-        const size = await prisma.size.upsert({ where: { name }, update: {}, create: { name } });
+        const size = await prisma.size.findFirst({ where: { name } })
+            ?? await prisma.size.create({ data: { name } });
         sizeByName.set(name, size.id);
     }
 
