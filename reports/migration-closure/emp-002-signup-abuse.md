@@ -1,8 +1,8 @@
 # EMP-002 — Controles de abuso del registro público
 
-Fecha de validación local: 2026-08-01 (`America/Lima`)
+Fecha de aceptación: 2026-08-01 (`America/Lima`)
 
-Estado: `LISTA_PARA_VALIDAR`
+Estado: `ACEPTADA`
 
 ## Controles implementados
 
@@ -46,7 +46,14 @@ Estado: `LISTA_PARA_VALIDAR`
 El adaptador sigue la validación de servidor documentada por Cloudflare:
 <https://developers.cloudflare.com/turnstile/get-started/server-side-validation/>.
 
-## Validación externa pendiente
+## CI
 
-La historia pasará a `ACEPTADA` cuando GitHub Actions valide el commit del PR
-apilado sobre `agent/emp-001-owner-registration`.
+- PR borrador: [#3](https://github.com/unreal911/backend-refactor-erp/pull/3),
+  apilado sobre `agent/emp-001-owner-registration`.
+- Commit funcional validado: `e9bbf83649938821b8aa4dacc99c1c0daa8e4efb`.
+- Ejecución: [Tenant isolation #30709227492](https://github.com/unreal911/backend-refactor-erp/actions/runs/30709227492).
+- Job `postgres-isolation`: correcto en 1 min 12 s; todos los pasos terminaron
+  satisfactoriamente sobre PostgreSQL 16 y Node.js 22.
+
+EMP-002 queda `ACEPTADA`. El registro productivo permanece apagado hasta
+completar TRI-001 y configurar las credenciales reales de Turnstile y correo.
