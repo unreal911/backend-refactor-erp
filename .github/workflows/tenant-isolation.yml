@@ -29,6 +29,10 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tienda_test
       JWT_SECRET: tenant-isolation-ci-secret
+      PUBLIC_PATH: public
+      CLOUDINARY_CLOUD_NAME: demo
+      CLOUDINARY_API_KEY: tenant-isolation-ci-key
+      CLOUDINARY_API_SECRET: tenant-isolation-ci-secret
       SEED_ADMIN_EMAIL: admin@example.com
       SEED_ADMIN_PASSWORD: password123
       SEED_ADMIN_FIRST_NAME: Admin
