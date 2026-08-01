@@ -13,6 +13,7 @@ function parseRuntimeEnvironment(): RuntimeEnvironment {
 
 const NODE_ENV = parseRuntimeEnvironment();
 const isProduction = NODE_ENV === "production";
+const JWT_SECRET = env.get("JWT_SECRET").required().asString();
 
 export const envs = {
     NODE_ENV,
@@ -22,8 +23,22 @@ export const envs = {
     CLOUDINARY_CLOUD_NAME: env.get("CLOUDINARY_CLOUD_NAME").required().asString(),
     CLOUDINARY_API_KEY: env.get("CLOUDINARY_API_KEY").required().asString(),
     CLOUDINARY_API_SECRET: env.get("CLOUDINARY_API_SECRET").required().asString(),
-    JWT_SECRET: env.get("JWT_SECRET").required().asString(),
+    JWT_SECRET,
     PUBLIC_PATH: env.get("PUBLIC_PATH").required().asString(),
+
+    // EMP-001: el registro queda cerrado hasta configurar entrega de correo.
+    OWNER_SIGNUP_ENABLED: env.get("OWNER_SIGNUP_ENABLED").default("false").asBool(),
+    OWNER_SIGNUP_TOKEN_PEPPER: env.get("OWNER_SIGNUP_TOKEN_PEPPER").default("").asString(),
+    OWNER_SIGNUP_VERIFY_URL: env.get("OWNER_SIGNUP_VERIFY_URL").default("").asString(),
+    OWNER_SIGNUP_TERMS_VERSION: env.get("OWNER_SIGNUP_TERMS_VERSION").default("").asString(),
+    OWNER_SIGNUP_TOKEN_TTL_MINUTES: env.get("OWNER_SIGNUP_TOKEN_TTL_MINUTES").default("30").asIntPositive(),
+    OWNER_TRIAL_TOKEN_TTL_MINUTES: env.get("OWNER_TRIAL_TOKEN_TTL_MINUTES").default("1440").asIntPositive(),
+    SMTP_HOST: env.get("SMTP_HOST").default("").asString(),
+    SMTP_PORT: env.get("SMTP_PORT").default("587").asPortNumber(),
+    SMTP_SECURE: env.get("SMTP_SECURE").default("false").asBool(),
+    SMTP_USER: env.get("SMTP_USER").default("").asString(),
+    SMTP_PASSWORD: env.get("SMTP_PASSWORD").default("").asString(),
+    SMTP_FROM: env.get("SMTP_FROM").default("").asString(),
 
     // Allowlist de origenes para CORS (coma-separado). Vacio = permitir todos
     // (comportamiento actual); definirlo en produccion para restringir.

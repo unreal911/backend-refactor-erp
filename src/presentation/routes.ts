@@ -18,6 +18,7 @@ import { registerInventoryModuleRoutes } from "../modules/inventory";
 import { registerOrdersModuleRoutes } from "../modules/orders";
 import { registerSunatModuleRoutes } from "../modules/sunat";
 import { registerTenantModuleRoutes } from "../modules/tenant";
+import { registerOwnerRegistrationRoutes } from "../modules/registration";
 import { PublicTenantMiddleware } from "./public/tenant.middleware";
 
 export class AppRouter {
@@ -26,6 +27,7 @@ export class AppRouter {
 
         registerAuthModuleRoutes(router);
         registerTenantModuleRoutes(router);
+        registerOwnerRegistrationRoutes(router);
 
         if (envs.SEED_ENDPOINT_ENABLED) {
             router.use("/api/seed", SeedRoute.router);
