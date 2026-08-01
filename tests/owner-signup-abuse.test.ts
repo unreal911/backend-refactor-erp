@@ -463,6 +463,7 @@ describe("EMP-002 controles de abuso", () => {
             data: {
                 slug: `${prefix}-active-trial`,
                 name: `Trial ${prefix}`,
+                kind: "TRIAL",
                 status: "TRIAL",
                 trialStartedAt: currentTime,
                 trialEndsAt: new Date(currentTime.getTime() + 86_400_000),

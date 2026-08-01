@@ -67,7 +67,8 @@ export class AuditLogMiddleware {
 
     private static isSensitiveSignupPath(path: string): boolean {
         return path === '/api/public/signup'
-            || path === '/api/public/signup/verify';
+            || path === '/api/public/signup/verify'
+            || path === '/api/public/signup/trial';
     }
 
     private static normalizeString(value: unknown): string | null {

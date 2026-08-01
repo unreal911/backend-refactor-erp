@@ -62,6 +62,7 @@ async function verifyTwoTenantScope(): Promise<void> {
                 data: {
                     slug: `verify-isolation-${suffix}`,
                     name: `Verify isolation ${suffix}`,
+                    kind: "TRIAL",
                     status: "TRIAL",
                     trialStartedAt: new Date(),
                     trialEndsAt: new Date(Date.now() + 86_400_000),
@@ -171,6 +172,7 @@ async function verifyCrossRelationRejected(): Promise<void> {
                 data: {
                     slug: `verify-${suffix}`,
                     name: `Verify ${suffix}`,
+                    kind: "TRIAL",
                     status: "TRIAL",
                     trialStartedAt: new Date(),
                     trialEndsAt: new Date(Date.now() + 86_400_000),
