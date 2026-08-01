@@ -20,6 +20,8 @@ export class AuditLogMiddleware {
             res.on('finish', () => {
                 const user = (req as AuthRequest).user;
                 const method = String(req.method || 'UNKNOWN').toUpperCase();
+                const path = this.resolvePath(originalUrl);
+                const sensitiveSignup = this.isSensitiveSignupPath(path);
 
                 const body = this.shouldCaptureBody(method) ? this.sanitizeValue(req.body) : null;
                 const query = this.sanitizeValue(req.query);
@@ -33,11 +35,13 @@ export class AuditLogMiddleware {
                     actorEmail: user?.email ?? null,
                     actorRole: user?.role ?? null,
                     method,
-                    path: this.resolvePath(originalUrl),
+                    path,
                     statusCode: Number(res.statusCode || 0),
                     durationMs: Math.max(0, Date.now() - startedAt),
-                    ipAddress: this.resolveIpAddress(req),
-                    userAgent: this.normalizeString(req.headers['user-agent']),
+                    ipAddress: sensitiveSignup ? null : this.resolveIpAddress(req),
+                    userAgent: sensitiveSignup
+                        ? null
+                        : this.normalizeString(req.headers['user-agent']),
                     requestQuery: query,
                     requestParams: params,
                     requestBody: body,
@@ -59,6 +63,11 @@ export class AuditLogMiddleware {
     private static shouldCaptureBody(method: string): boolean {
         const normalized = String(method || '').toUpperCase();
         return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(normalized);
+    }
+
+    private static isSensitiveSignupPath(path: string): boolean {
+        return path === '/api/public/signup'
+            || path === '/api/public/signup/verify';
     }
 
     private static normalizeString(value: unknown): string | null {

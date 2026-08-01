@@ -16,6 +16,7 @@ import {
     OwnerVerificationEmailSender,
 } from "../src/modules/registration/ports/owner-verification-email.port";
 import { registerOwnerRegistrationRoutes } from "../src/modules/registration/routes";
+import { OwnerSignupAbuseGuard } from "../src/modules/registration/owner-signup-abuse.service";
 
 class FakeEmailSender implements OwnerVerificationEmailSender {
     readonly messages: OwnerVerificationEmail[] = [];
@@ -42,8 +43,20 @@ const service = new OwnerRegistrationService(sender, {
     now: () => currentTime,
     bcryptRounds: 4,
 });
+const abuseGuard: OwnerSignupAbuseGuard = {
+    async assess() {
+        return {
+            allowed: true,
+            identity: {
+                emailFingerprint: "e".repeat(64),
+                ipFingerprint: "i".repeat(64),
+                deviceFingerprint: "d".repeat(64),
+            },
+        };
+    },
+};
 const router = Router();
-registerOwnerRegistrationRoutes(router, service);
+registerOwnerRegistrationRoutes(router, service, abuseGuard);
 const app = express();
 app.use(express.json());
 app.use(router);
@@ -58,6 +71,7 @@ function signupBody(label: string, overrides: Record<string, unknown> = {}) {
         password: "Segura-2026!Clave",
         businessName: `Tienda ${label}`,
         termsAccepted: true,
+        captchaToken: "test-captcha-token",
         ...overrides,
     };
 }
@@ -71,7 +85,10 @@ function signupDto(label: string, overrides: Record<string, unknown> = {}): Owne
 async function post(path: string, body: unknown) {
     const response = await fetch(`${baseUrl}${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+            "content-type": "application/json",
+            "x-signup-device-id": "emp001-test-device-0001",
+        },
         body: JSON.stringify(body),
     });
     return {

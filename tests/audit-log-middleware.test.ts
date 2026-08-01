@@ -27,6 +27,10 @@ describe('AuditLogMiddleware.sanitizeValue', () => {
             email: 'admin@tienda.com',
             password: 'hunter2',
             token: 'jwt.abc',
+            firstName: 'Ana',
+            lastName: 'Propietaria',
+            businessName: 'Tienda Secreta',
+            deviceId: 'device-secret',
             nested: {
                 solPassword: 'CLAVESOL',
                 certP12Password: 'p12pass',
@@ -38,10 +42,20 @@ describe('AuditLogMiddleware.sanitizeValue', () => {
         expect(out.email).toBe('[redacted]');
         expect(out.password).toBe('[redacted]');
         expect(out.token).toBe('[redacted]');
+        expect(out.firstName).toBe('[redacted]');
+        expect(out.lastName).toBe('[redacted]');
+        expect(out.businessName).toBe('[redacted]');
+        expect(out.deviceId).toBe('[redacted]');
         expect(out.nested.solPassword).toBe('[redacted]');
         expect(out.nested.certP12Password).toBe('[redacted]');
         expect(out.nested.authorization).toBe('[redacted]');
         expect(out.nested.ok).toBe('visible');
+    });
+
+    it('clasifica las rutas de alta como sensibles', () => {
+        expect(mw.isSensitiveSignupPath('/api/public/signup')).toBe(true);
+        expect(mw.isSensitiveSignupPath('/api/public/signup/verify')).toBe(true);
+        expect(mw.isSensitiveSignupPath('/api/public/orders')).toBe(false);
     });
 
     it('trunca strings largos y limita profundidad', () => {
