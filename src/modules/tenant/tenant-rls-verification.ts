@@ -42,6 +42,7 @@ export const RLS_TABLES = [
     "SunatEmisorConfig",
     "SystemSetting",
     "Tenant",
+    "TenantInvitation",
     "TenantMembership",
     "TenantMigrationCheckpoint",
     "TenantMigrationQuarantine",

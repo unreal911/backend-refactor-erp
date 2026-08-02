@@ -10,7 +10,7 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260801140000_add_trial_provisioning";
+export const REQUIRED_SCHEMA_MIGRATION = "20260802120000_add_tenant_invitations";
 export const REQUIRED_SCHEMA_TABLES = [
     "AuditLog",
     "Category",
@@ -54,6 +54,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "SunatEmisorConfig",
     "SystemSetting",
     "Tenant",
+    "TenantInvitation",
     "TenantMembership",
     "TenantMigrationCheckpoint",
     "TenantMigrationQuarantine",

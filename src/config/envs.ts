@@ -51,6 +51,12 @@ export const envs = {
     SMTP_PASSWORD: env.get("SMTP_PASSWORD").default("").asString(),
     SMTP_FROM: env.get("SMTP_FROM").default("").asString(),
 
+    // EMP-005: invitaciones tenant por correo, cerradas hasta configurar SMTP.
+    TENANT_INVITATION_ENABLED: env.get("TENANT_INVITATION_ENABLED").default("false").asBool(),
+    TENANT_INVITATION_TOKEN_PEPPER: env.get("TENANT_INVITATION_TOKEN_PEPPER").default("").asString(),
+    TENANT_INVITATION_ACCEPT_URL: env.get("TENANT_INVITATION_ACCEPT_URL").default("").asString(),
+    TENANT_INVITATION_TTL_HOURS: env.get("TENANT_INVITATION_TTL_HOURS").default("72").asIntPositive(),
+
     // Allowlist de origenes para CORS (coma-separado). Vacio = permitir todos
     // (comportamiento actual); definirlo en produccion para restringir.
     CORS_ORIGINS: env.get("CORS_ORIGINS").default("").asString(),
