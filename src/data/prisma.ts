@@ -29,6 +29,7 @@ const TENANT_MODELS = new Set([
     "OrderReturn",
     "OrderReturnItem",
     "PaymentMethod",
+    "TenantInvitation",
     "ComprobanteSerie",
     "Comprobante",
     "ComprobanteItem",

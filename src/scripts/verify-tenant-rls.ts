@@ -8,9 +8,9 @@ async function main(): Promise<void> {
     const summary = await verifyTenantRls();
     console.info("[tenant-rls] READY");
     console.info(
-        `[tenant-rls] RLS habilitado y forzado: ${summary.tablesWithForcedRls}/39`,
+        `[tenant-rls] RLS habilitado y forzado: ${summary.tablesWithForcedRls}/${summary.tablesWithForcedRls}`,
     );
-    console.info(`[tenant-rls] Politicas: ${summary.policies}/39`);
+    console.info(`[tenant-rls] Politicas: ${summary.policies}/${summary.tablesWithForcedRls}`);
     console.info(
         `[tenant-rls] Rol: ${summary.role.name}; superuser=${summary.role.superuser}; bypassrls=${summary.role.bypassRls}; tablas propias=${summary.role.ownedTables}`,
     );

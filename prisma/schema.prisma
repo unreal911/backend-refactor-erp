@@ -232,6 +232,13 @@ enum TenantMembershipStatus {
   INACTIVE
 }
 
+enum TenantInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 enum OwnerRegistrationStatus {
   EMAIL_PENDING
   EMAIL_VERIFIED
@@ -294,7 +301,8 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   memberships          TenantMembership[]
-  trialRegistration    OwnerRegistration? @relation("ProvisionedTrialTenant")
+  invitations          TenantInvitation[]
+  trialRegistration    OwnerRegistration?          @relation("ProvisionedTrialTenant")
   migrationCheckpoints TenantMigrationCheckpoint[]
   migrationQuarantines TenantMigrationQuarantine[]
   categories           Category[]
@@ -344,9 +352,41 @@ model TenantMembership {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  sentInvitations     TenantInvitation[] @relation("TenantInvitationInviter")
+  acceptedInvitations TenantInvitation[] @relation("TenantInvitationAcceptedMembership")
+
   @@unique([userId, tenantId])
+  @@unique([id, tenantId])
   @@index([tenantId, status])
   @@index([userId, status])
+}
+
+model TenantInvitation {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  email  String                 @db.VarChar(320)
+  role   TenantMembershipRole
+  status TenantInvitationStatus @default(PENDING)
+
+  tokenHash String   @unique @db.Char(64)
+  expiresAt DateTime
+
+  invitedByMembershipId String           @db.Uuid
+  invitedByMembership   TenantMembership @relation("TenantInvitationInviter", fields: [invitedByMembershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  acceptedMembershipId String?           @unique @db.Uuid
+  acceptedMembership   TenantMembership? @relation("TenantInvitationAcceptedMembership", fields: [acceptedMembershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([tenantId, status, createdAt])
+  @@index([email, status])
 }
 
 model OwnerRegistration {
@@ -375,10 +415,10 @@ model OwnerRegistration {
   trialProvisioningTokenExpiresAt DateTime?
   consumedAt                      DateTime?
 
-  provisionedTenantId String?  @unique @db.Uuid
-  provisionedTenant   Tenant?  @relation("ProvisionedTrialTenant", fields: [provisionedTenantId], references: [id], onDelete: Restrict)
-  provisionedUserId   Int?     @unique
-  provisionedUser     User?    @relation("ProvisionedTrialUser", fields: [provisionedUserId], references: [id], onDelete: Restrict)
+  provisionedTenantId String? @unique @db.Uuid
+  provisionedTenant   Tenant? @relation("ProvisionedTrialTenant", fields: [provisionedTenantId], references: [id], onDelete: Restrict)
+  provisionedUserId   Int?    @unique
+  provisionedUser     User?   @relation("ProvisionedTrialUser", fields: [provisionedUserId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

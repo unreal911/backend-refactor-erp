@@ -6,7 +6,6 @@ export class UserRouter {
     static get router(): Router {
         const router = Router();
 
-        router.post('/', AuthMiddleware.validateJWT, AuthMiddleware.requirePermission('users.create'), UserController.create);
         router.get('/', AuthMiddleware.validateJWT, AuthMiddleware.requirePermission('users.view'), UserController.findAll);
         router.get('/:id', AuthMiddleware.validateJWT, AuthMiddleware.requirePermission('users.view'), UserController.findById);
         router.put('/:id', AuthMiddleware.validateJWT, AuthMiddleware.requirePermission('users.update'), UserController.update);
