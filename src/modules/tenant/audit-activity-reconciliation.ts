@@ -153,7 +153,7 @@ Promise<AuditActivityReconciliationSummary> {
     const [auditRows, activityRows, totals, references, constraintRows] =
         await Promise.all([
             prisma.$queryRawUnsafe<SnapshotRow[]>(
-                `SELECT id, to_jsonb(t)::text AS data
+                `SELECT id, (to_jsonb(t) - 'correlationId')::text AS data
                  FROM "AuditLog" t
                  WHERE "createdAt"<=$1
                  ORDER BY id`,

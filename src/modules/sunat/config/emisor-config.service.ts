@@ -9,7 +9,12 @@ import {
     loadSunatConfig,
     SunatEnvironment,
 } from "./sunat.config";
-import { decryptSecretString, encryptSecret, isSunatEncryptionConfigured } from "./sunat-crypto";
+import { encryptSecret, isSunatEncryptionConfigured } from "./sunat-crypto";
+import {
+    getSunatSecretServiceFromEnvironment,
+    isAnySunatSecretEncryptionConfigured,
+    isKmsSecretWritingEnabled,
+} from "./sunat-secret.service";
 
 // Fila cruda (lectura via SQL para no depender del cliente Prisma generado).
 interface EmisorRow {
@@ -28,6 +33,8 @@ interface EmisorRow {
     certPasswordEnc: string | null;
     certSubjectCN: string | null;
     certNotAfter: Date | null;
+    certificateValidatedAt: Date | null;
+    credentialsVerifiedAt: Date | null;
     signatureId: string;
     activo: boolean;
     updatedById: number | null;
@@ -53,6 +60,8 @@ export interface EmisorConfigView {
     certSubjectCN: string | null;
     certNotAfter: Date | null;
     certExpired: boolean;
+    certificateValidatedAt: Date | null;
+    credentialsVerifiedAt: Date | null;
     updatedById: number | null;
     updatedAt: Date;
 }
@@ -158,7 +167,7 @@ export class EmisorConfigService {
         const certNotAfter = row?.certNotAfter ?? null;
         return {
             configured: Boolean(row?.activo),
-            encryptionConfigured: isSunatEncryptionConfigured(),
+            encryptionConfigured: isAnySunatSecretEncryptionConfigured(),
             environment,
             ruc: row?.ruc ?? "",
             razonSocial: row?.razonSocial ?? "",
@@ -174,6 +183,8 @@ export class EmisorConfigService {
             certSubjectCN: row?.certSubjectCN ?? null,
             certNotAfter,
             certExpired: certNotAfter ? certNotAfter.getTime() < Date.now() : false,
+            certificateValidatedAt: row?.certificateValidatedAt ?? null,
+            credentialsVerifiedAt: row?.credentialsVerifiedAt ?? null,
             updatedById: row?.updatedById ?? null,
             updatedAt: row?.updatedAt ?? new Date(),
         };
@@ -214,10 +225,21 @@ export class EmisorConfigService {
         let solPasswordEnc = current.solPasswordEnc;
         const nuevaSolPassword = clean(input.solPassword);
         if (nuevaSolPassword) {
-            if (!isSunatEncryptionConfigured()) {
-                throw CustomError.badRequest("Configura SUNAT_CONFIG_ENC_KEY antes de guardar secretos SUNAT");
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { kind: true, status: true },
+            });
+            if (tenant?.kind === "TRIAL" || tenant?.status === "TRIAL") {
+                throw CustomError.forbidden("Los trials usan credenciales BETA administradas y no almacenan Clave SOL propia");
             }
-            solPasswordEnc = encryptSecret(nuevaSolPassword);
+        }
+        if (nuevaSolPassword) {
+            if (!isAnySunatSecretEncryptionConfigured()) {
+                throw CustomError.badRequest("Configura KMS o SUNAT_CONFIG_ENC_KEY antes de guardar secretos SUNAT");
+            }
+            solPasswordEnc = isKmsSecretWritingEnabled()
+                ? await getSunatSecretServiceFromEnvironment().seal(nuevaSolPassword, "SOL_PASSWORD")
+                : encryptSecret(nuevaSolPassword);
         }
 
         // Step-up: cambios sensibles (Clave SOL o entorno) exigen re-autenticacion.
@@ -229,18 +251,29 @@ export class EmisorConfigService {
         const hasCert = Boolean(current.certP12Enc);
         // Gate produccion: exige RUC valido + certificado real.
         if (environment === "PRODUCCION") {
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { kind: true, status: true },
+            });
+            if (!tenant || tenant.kind === "TRIAL" || tenant.status === "TRIAL") {
+                throw CustomError.forbidden("Un trial nunca puede activar SUNAT producción");
+            }
             if (!/^\d{11}$/.test(ruc)) throw CustomError.badRequest("Produccion exige un RUC valido (11 digitos)");
             if (!hasCert) throw CustomError.badRequest("Produccion exige un certificado digital cargado");
         }
 
         // Al ACTIVAR produccion (transicion desde BETA) exige prueba de conexion en verde.
+        let credentialsVerifiedAt = current.credentialsVerifiedAt;
         if (environment === "PRODUCCION" && currentEnv !== "PRODUCCION") {
             const passwordParaProbar = nuevaSolPassword
-                || (solPasswordEnc && isSunatEncryptionConfigured() ? decryptSecretString(solPasswordEnc) : "");
+                || (solPasswordEnc
+                    ? await getSunatSecretServiceFromEnvironment().openString(solPasswordEnc, "SOL_PASSWORD")
+                    : "");
             const probe = await this.probe("PRODUCCION", ruc, solUser, passwordParaProbar);
             if (!probe.ok) {
                 throw CustomError.badRequest(`No se puede activar produccion: la prueba de conexion fallo (${probe.message}). Corrige y reintenta.`);
             }
+            credentialsVerifiedAt = new Date();
         }
 
         const activo = this.computeActivo(environment, ruc, solUser, Boolean(solPasswordEnc), hasCert);
@@ -260,9 +293,10 @@ export class EmisorConfigService {
                 "signatureId" = $11,
                 "activo" = $12,
                 "updatedById" = $13,
+                "credentialsVerifiedAt" = $14,
                 "updatedAt" = CURRENT_TIMESTAMP
-             WHERE "id" = $14
-               AND "tenantId" = $15::uuid`,
+             WHERE "id" = $15
+               AND "tenantId" = $16::uuid`,
             environment,
             ruc,
             input.razonSocial !== undefined ? clean(input.razonSocial) : current.razonSocial,
@@ -276,6 +310,7 @@ export class EmisorConfigService {
             input.signatureId !== undefined ? (clean(input.signatureId) || "SignSUNAT") : current.signatureId,
             activo,
             updatedById ?? current.updatedById,
+            credentialsVerifiedAt,
             current.id,
             tenantId,
         );
@@ -286,8 +321,15 @@ export class EmisorConfigService {
     // Valida el .pfx con node-forge, extrae metadatos y guarda cifrado.
     async subirCertificado(input: SubirCertificadoInput, updatedById?: number, adminPassword?: string): Promise<EmisorConfigView> {
         const tenantId = TenantDataContext.requireTenantId();
-        if (!isSunatEncryptionConfigured()) {
-            throw CustomError.badRequest("Configura SUNAT_CONFIG_ENC_KEY antes de subir el certificado");
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { kind: true, status: true },
+        });
+        if (tenant?.kind === "TRIAL" || tenant?.status === "TRIAL") {
+            throw CustomError.forbidden("Un trial no puede almacenar certificados PFX propios");
+        }
+        if (!isAnySunatSecretEncryptionConfigured()) {
+            throw CustomError.badRequest("Configura KMS o SUNAT_CONFIG_ENC_KEY antes de subir el certificado");
         }
         // Accion sensible: exige re-autenticacion del admin.
         await this.requireStepUp(updatedById, adminPassword);
@@ -314,6 +356,20 @@ export class EmisorConfigService {
             if (!certificate || !privateKey) {
                 throw CustomError.badRequest("El .pfx no contiene certificado y llave privada");
             }
+            const privateSigner = privateKey as forge.pki.rsa.PrivateKey;
+            const publicVerifier = certificate.publicKey as forge.pki.rsa.PublicKey;
+            if (typeof privateSigner.sign !== "function" || typeof publicVerifier.verify !== "function") {
+                throw CustomError.badRequest("El certificado usa un tipo de llave no compatible");
+            }
+            const challenge = "sunat-certificate-key-check";
+            const digestToSign = forge.md.sha256.create();
+            digestToSign.update(challenge, "utf8");
+            const signature = privateSigner.sign(digestToSign);
+            const digestToVerify = forge.md.sha256.create();
+            digestToVerify.update(challenge, "utf8");
+            if (!publicVerifier.verify(digestToVerify.digest().bytes(), signature)) {
+                throw CustomError.badRequest("La llave privada no corresponde al certificado");
+            }
             const cn = certificate.subject.getField("CN");
             subjectCN = cn?.value ?? null;
             notAfter = certificate.validity.notAfter;
@@ -334,8 +390,12 @@ export class EmisorConfigService {
         const current = await this.fetchRow();
         // Si ya hay RUC configurado, el titular del cert debe coincidir.
         const configuredRuc = clean(current?.ruc);
-        if (configuredRuc && certRuc && certRuc !== configuredRuc) {
-            throw CustomError.badRequest(`El certificado pertenece al RUC ${certRuc}, distinto del configurado (${configuredRuc})`);
+        if (configuredRuc && certRuc !== configuredRuc) {
+            throw CustomError.badRequest(
+                certRuc
+                    ? `El certificado pertenece al RUC ${certRuc}, distinto del configurado (${configuredRuc})`
+                    : "No se pudo comprobar que el certificado pertenezca al RUC configurado",
+            );
         }
 
         await prisma.$executeRawUnsafe(
@@ -344,12 +404,17 @@ export class EmisorConfigService {
                 "certPasswordEnc" = $2,
                 "certSubjectCN" = $3,
                 "certNotAfter" = $4,
+                "certificateValidatedAt" = CURRENT_TIMESTAMP,
                 "updatedById" = $5,
                 "updatedAt" = CURRENT_TIMESTAMP
              WHERE "id" = $6
                AND "tenantId" = $7::uuid`,
-            encryptSecret(der),
-            encryptSecret(password),
+            isKmsSecretWritingEnabled()
+                ? await getSunatSecretServiceFromEnvironment().seal(der, "PFX")
+                : encryptSecret(der),
+            isKmsSecretWritingEnabled()
+                ? await getSunatSecretServiceFromEnvironment().seal(password, "PFX_PASSWORD")
+                : encryptSecret(password),
             subjectCN,
             notAfter,
             updatedById ?? current?.updatedById ?? null,
@@ -364,6 +429,16 @@ export class EmisorConfigService {
     async probarConexion(): Promise<{ ok: boolean; environment: SunatEnvironment; message: string; code?: string }> {
         const config = await loadSunatConfig();
         const result = await this.probe(config.environment, config.ruc, config.solUser, config.solPassword);
+        if (result.ok) {
+            const tenantId = TenantDataContext.requireTenantId();
+            await prisma.$executeRawUnsafe(
+                `UPDATE "SunatEmisorConfig"
+                 SET "credentialsVerifiedAt" = CURRENT_TIMESTAMP,
+                     "updatedAt" = CURRENT_TIMESTAMP
+                 WHERE "tenantId" = $1::uuid`,
+                tenantId,
+            );
+        }
         return { ok: result.ok, environment: config.environment, message: result.message, ...(result.code ? { code: result.code } : {}) };
     }
 }

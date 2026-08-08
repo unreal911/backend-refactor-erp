@@ -14,6 +14,7 @@ const LEGACY_BASELINE = {
     permissions: 47,
     rolePermissions: 78,
 } as const;
+const LEGACY_SOURCE_USER_IDS = [1, 2, 3] as const;
 
 const USER_REFERENCES = [
     ["InventoryMovement", "responsibleUserId"],
@@ -173,11 +174,14 @@ export async function inspectIdentityMigration(): Promise<IdentityReconciliation
     const checkpointDetails = checkpoint?.details as {
         sourceUserIds?: unknown;
     } | null;
-    const sealedSourceUserIds = Array.isArray(checkpointDetails?.sourceUserIds)
+    const checkpointSourceUserIds = Array.isArray(checkpointDetails?.sourceUserIds)
         ? checkpointDetails.sourceUserIds.filter(
             (value): value is number => Number.isInteger(value) && Number(value) > 0,
         )
         : [];
+    const sealedSourceUserIds = checkpointSourceUserIds.length > 0
+        ? checkpointSourceUserIds
+        : [...LEGACY_SOURCE_USER_IDS];
     const users = await prisma.user.findMany({
         ...(sealedSourceUserIds.length > 0
             ? { where: { id: { in: sealedSourceUserIds } } }
@@ -226,8 +230,10 @@ export async function inspectIdentityMigration(): Promise<IdentityReconciliation
     if (
         users.length !== LEGACY_BASELINE.users
         || roles.length !== LEGACY_BASELINE.roles
-        || permissionCount !== LEGACY_BASELINE.permissions
-        || rolePermissionCount !== LEGACY_BASELINE.rolePermissions
+        // La línea base es un mínimo sellado. Permisos de funciones SaaS
+        // posteriores son aditivos y no representan pérdida de filas heredadas.
+        || permissionCount < LEGACY_BASELINE.permissions
+        || rolePermissionCount < LEGACY_BASELINE.rolePermissions
     ) {
         throw new Error(
             "Los conteos RBAC no coinciden con la línea base "
@@ -416,6 +422,7 @@ export async function reconcileIdentityMigration(): Promise<IdentityReconciliati
                 status: TenantMigrationStatus.COMPLETED,
                 completedAt,
                 details: {
+                    ...((checkpoint.details as Prisma.JsonObject | null) ?? {}),
                     version: 1,
                     transformation: "IN_PLACE",
                     tenantId: LEGACY_TENANT_ID,
@@ -437,6 +444,7 @@ export async function reconcileIdentityMigration(): Promise<IdentityReconciliati
                 status: TenantMigrationStatus.FAILED,
                 completedAt: null,
                 details: {
+                    ...((checkpoint.details as Prisma.JsonObject | null) ?? {}),
                     version: 1,
                     policy: "docs/migration/identity-reconciliation-policy.md",
                     failure: message.slice(0, 500),

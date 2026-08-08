@@ -66,7 +66,7 @@ async function createTenantFixture(
         data: {
             slug: `mig009-${label.toLowerCase()}-${tag}`,
             name: `MIG009 ${label} ${tag}`,
-            status: "SUSPENDED",
+            status: "ACTIVE",
         },
     });
     tenantIds.push(tenant.id);

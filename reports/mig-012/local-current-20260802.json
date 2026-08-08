@@ -1,0 +1,277 @@
+{
+  "story": "MIG-012",
+  "runId": "local-current-20260802",
+  "backupId": "sha256-535d511c5f0e285ab898212355955b22f7cf0107caa32dc49d6af80a4794e5e2",
+  "targetFingerprint": "85524ee3d24b0ee2",
+  "databaseName": "tienda_rehearsal",
+  "startedAt": "2026-08-02T16:59:42.927Z",
+  "updatedAt": "2026-08-02T18:35:54.680Z",
+  "steps": {
+    "inventory": {
+      "status": "PASSED",
+      "durationMs": 2017,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:inventory\n> tsx src/scripts/migration-inventory.ts\n\n[migration-inventory] Inventario read-only completado\n[migration-inventory] Tablas: 54\n[migration-inventory] Hallazgos pendientes: 4\n[migration-inventory] Schema SHA-256: 3284404a4438d35e529cb7a6837c6d0c2af23c60a1ba7777eeafa815cb6012ae\n[migration-inventory] Baseline SHA-256: 87a0b6f21554b281042f3e7993f0ac1db8e761661356ccecd0fc07e67c276131\n[migration-inventory] JSON: C:\\Users\\diego\\Desktop\\proyecto_tienda\\backend-refactorizado\\reports\\migration-inventory\\legacy-baseline-2026-08-02T17-00-13-283Z.json\n[migration-inventory] Markdown: C:\\Users\\diego\\Desktop\\proyecto_tienda\\backend-refactorizado\\reports\\migration-inventory\\legacy-baseline-2026-08-02T17-00-13-283Z.md\n",
+      "stderrTail": ""
+    },
+    "migrations": {
+      "status": "PASSED",
+      "durationMs": 7157,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 db:migrate:deploy\n> prisma migrate deploy\n\nDatasource \"db\": PostgreSQL database \"tienda_rehearsal\", schema \"public\" at \"localhost:5432\"\n\n43 migrations found in prisma/migrations\n\nApplying migration `20260802140000_add_request_correlation`\n\nThe following migration(s) have been applied:\n\nmigrations/\n  └─ 20260802140000_add_request_correlation/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n",
+      "stderrTail": "Loaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma\\schema.prisma.\n"
+    },
+    "runtime_grants": {
+      "status": "PASSED",
+      "durationMs": 1720,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 tenant:runtime-grants\n> tsx src/scripts/apply-tenant-runtime-grants.ts\n\n{\"role\":\"tienda_tenant_app\",\"tenantTables\":44,\"status\":\"APPLIED\"}\n",
+      "stderrTail": ""
+    },
+    "formal_verify": {
+      "status": "PASSED",
+      "durationMs": 7743,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:verify\n> tsx src/scripts/verify-formal-migrations.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[migration-verify] READY\n[migration-verify] Migración: 20260802133000_add_trial_expiry_notification_job\n[migration-verify] Tablas de aplicación: 53\n[migration-verify] El arranque validó el esquema sin ejecutar DDL\n",
+      "stderrTail": ""
+    },
+    "identity": {
+      "status": "PASSED",
+      "durationMs": 6088,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:identity:reconcile\n> tsx src/scripts/reconcile-tenant-identity.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[identity-reconcile] READY\n[identity-reconcile] Usuarios/membresías: 3/3\n[identity-reconcile] OWNER heredado: userId 1\n[identity-reconcile] RBAC: 6 roles, 49 permisos, 78 relaciones\n[identity-reconcile] Hashes bcrypt preservados: 3\n[identity-reconcile] Referencias históricas: 30983 pobladas, 0 huérfanas, 0 cruzadas\n[identity-reconcile] FKs usuario/tenant: 24\n[identity-reconcile] Checkpoint MIG-003: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "catalog": {
+      "status": "PASSED",
+      "durationMs": 6263,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:catalog:reconcile\n> tsx src/scripts/reconcile-tenant-catalog.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[catalog-reconcile] READY\n[catalog-reconcile] Categorías/colores/tallas: 4/3/4\n[catalog-reconcile] Productos/variantes/imágenes: 2/13/8\n[catalog-reconcile] Modos heredados SIMPLE/SIZE_ONLY/MATRIX: 1/0/1\n[catalog-reconcile] Referencias Cloudinary: 20 (comprobación remota omitida)\n[catalog-reconcile] Relaciones y variantKey: consistentes\n[catalog-reconcile] Checkpoint MIG-004: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "inventory_backfill": {
+      "status": "PASSED",
+      "durationMs": 5991,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:inventory:reconcile\n> tsx src/scripts/reconcile-tenant-inventory.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[inventory-reconcile] READY\n[inventory-reconcile] Tiendas/saldos: 2/5\n[inventory-reconcile] Stock/reservado/disponible: 158/0/158\n[inventory-reconcile] Grupos tienda/variante: 2/4\n[inventory-reconcile] Referencias históricas a tienda: 176\n[inventory-reconcile] Saldos y relaciones: consistentes\n[inventory-reconcile] Checkpoint MIG-005: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "movements": {
+      "status": "PASSED",
+      "durationMs": 6550,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:movements:reconcile\n> tsx src/scripts/reconcile-tenant-movements.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[movement-reconcile] READY\n[movement-reconcile] Movimientos/transferencias/ítems: 387/0/0\n[movement-reconcile] Cantidad/anterior/nuevo: 1106/36288/36446\n[movement-reconcile] Tipos/ubicaciones: 5/5\n[movement-reconcile] Brecha heredada aprobada: 36 saltos, absoluta 126, neta 0\n[movement-reconcile] Saldos finales y relaciones: consistentes\n[movement-reconcile] Checkpoint MIG-006: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "orders": {
+      "status": "PASSED",
+      "durationMs": 6107,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:orders:reconcile\n> tsx src/scripts/reconcile-tenant-orders.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[order-reconcile] READY\n[order-reconcile] Pedidos/ítems/reservas: 42/106/161\n[order-reconcile] Sesiones/ítems/detalles picking: 14/14/99\n[order-reconcile] Pedido subtotal/impuesto/total: 4240.00/510.48/4750.48\n[order-reconcile] Cuarentena: PickingItem#8, exceso 8\n[order-reconcile] Restricciones tenant: 38\n[order-reconcile] Relaciones e idempotencia: consistentes\n[order-reconcile] Checkpoint MIG-007: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "returns": {
+      "status": "PASSED",
+      "durationMs": 6298,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:returns:reconcile\n> tsx src/scripts/reconcile-tenant-returns.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[return-reconcile] READY\n[return-reconcile] Devoluciones/ítems: 0/0\n[return-reconcile] Cantidad/importe: 0/0.00\n[return-reconcile] Notas/evidencias de pago: 40/18\n[return-reconcile] Restricciones tenant/guardas: 6/3\n[return-reconcile] No se crearon transacciones de pago estructuradas\n[return-reconcile] Checkpoint MIG-008: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "marketplace": {
+      "status": "PASSED",
+      "durationMs": 6801,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:marketplace:reconcile\n> tsx src/scripts/reconcile-tenant-marketplace.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[marketplace-reconcile] READY\n[marketplace-reconcile] Clientes/métodos/configuraciones: 14/6/18\n[marketplace-reconcile] Hashes bcrypt compatibles: 14\n[marketplace-reconcile] Métodos permitidos válidos: 6\n[marketplace-reconcile] Claves dinámicas inventariadas: 1\n[marketplace-reconcile] Checkpoint MIG-009: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "audit": {
+      "status": "PASSED",
+      "durationMs": 6958,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:audit:reconcile\n> tsx src/scripts/reconcile-tenant-audit.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[audit-reconcile] READY\n[audit-reconcile] Auditoría/actividad: 30418/509\n[audit-reconcile] Tenant/cuarentena: 29811/607\n[audit-reconcile] Payloads sensibles pendientes: 0\n[audit-reconcile] Checkpoint MIG-010: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "backfill_close": {
+      "status": "PASSED",
+      "durationMs": 6952,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 migration:backfill:close\n> tsx src/scripts/close-tenant-backfill.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[backfill-close] READY\n[backfill-close] Lotes/tablas: 8/34\n[backfill-close] Tenant NOT NULL/indexadas: 27/27\n[backfill-close] Secuencias seguras: 32/32\n[backfill-close] Huérfanos/cruces/conflictos: 0/0/0\n[backfill-close] Reporte: reports\\migration-closure\\mig-011-closure.md\n[backfill-close] Checkpoint MIG-011: COMPLETED\n",
+      "stderrTail": ""
+    },
+    "sunat_reconcile": {
+      "status": "PASSED",
+      "durationMs": 2491,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 tenant:sunat:reconcile\n> tsx src/scripts/reconcile-tenant-sunat.ts\n\n[tenant-sunat-reconcile] READY\n[tenant-sunat-reconcile] Tablas: 7/7\n[tenant-sunat-reconcile] Restricciones: 16/16\n[tenant-sunat-reconcile] Referencias cruzadas: 0\n[tenant-sunat-reconcile] Reporte: C:\\Users\\diego\\Desktop\\proyecto_tienda\\backend-refactorizado\\reports\\migration-closure\\ten-007-sunat.md\n",
+      "stderrTail": ""
+    },
+    "sunat_artifacts": {
+      "status": "PASSED",
+      "durationMs": 10626,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 sunat:artifacts:migrate-all\n> tsx src/scripts/migrate-all-sunat-artifacts.ts\n\n{\"tenants\":1,\"sources\":3,\"rows\":9,\"artifacts\":36,\"status\":\"VERIFIED\"}\n",
+      "stderrTail": ""
+    },
+    "sunat_secrets": {
+      "status": "PASSED",
+      "durationMs": 1631,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 sunat:secrets:migrate-v2\n> tsx src/scripts/migrate-sunat-secrets-v2.ts\n\n{\"tenants\":0,\"migrated\":0,\"alreadyV2\":0}\n",
+      "stderrTail": ""
+    },
+    "rls": {
+      "status": "PASSED",
+      "durationMs": 5802,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 tenant:rls:verify\n> tsx src/scripts/verify-tenant-rls.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[tenant-rls] READY\n[tenant-rls] RLS habilitado y forzado: 44/44\n[tenant-rls] Politicas: 44/44\n[tenant-rls] Rol: tienda_tenant_app; superuser=false; bypassrls=false; tablas propias=0\n[tenant-rls] Sin contexto: 0 filas; escritura bloqueada=true\n[tenant-rls] A/B: 1/1; mutaciones cruzadas=0\n[tenant-rls] Contexto LOCAL limpiado al reutilizar pool: true\n[tenant-rls] Prisma bajo rol RLS: filas=1; mutaciones cruzadas=0\n",
+      "stderrTail": ""
+    },
+    "prisma_scope": {
+      "status": "PASSED",
+      "durationMs": 1409,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 tenant:prisma:verify\n> tsx src/scripts/verify-tenant-prisma-scope.ts\n\n{\n  \"operationalFiles\": 34,\n  \"directGlobalPrismaImports\": [],\n  \"unexpectedPlatformImports\": [],\n  \"unsafeTenantSqlInterpolation\": [],\n  \"jobPayloadValidated\": true\n}\n",
+      "stderrTail": ""
+    },
+    "tenant_isolation": {
+      "status": "PASSED",
+      "durationMs": 21302,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 tenant:isolation:test\n> npm run tenant:verify && vitest run tests/tenant-isolation-matrix.test.ts tests/tenant-commerce-isolation.test.ts tests/tenant-sunat-isolation.test.ts tests/tenant-rls.test.ts tests/tenant-prisma-architecture.test.ts tests/tenant-context.service.test.ts tests/tenant-auth-middleware.test.ts && npm run tenant:http:smoke\n\n\n> backend-refactorizado@1.0.0 tenant:verify\n> tsx src/scripts/verify-tenant-core.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[tenant-verify] READY\n[tenant-verify] Tenant inicial: legacy-main (ACTIVE)\n[tenant-verify] Usuarios/membresías: 154/305\n[tenant-verify] Checkpoints registrados: 9\n[tenant-verify] Logs con contexto tenant: 29915\n[tenant-verify] TRIAL/ACTIVE, RUC único, ID inmutable y último OWNER verificados\n\n RUN  v4.1.10 C:/Users/diego/Desktop/proyecto_tienda/backend-refactorizado\n\n\n Test Files  7 passed (7)\n      Tests  21 passed (21)\n   Start at  13:32:17\n   Duration  4.52s (transform 1.12s, setup 0ms, import 4.48s, tests 4.97s, environment 1ms)\n\n\n> backend-refactorizado@1.0.0 tenant:http:smoke\n> tsx src/scripts/tenant-http-smoke.ts\n\nRBAC defaults seeded\nPayment method defaults seeded\nSystem setting defaults seeded\nLegacy tenant memberships seeded\n[tenant-http] READY\n[tenant-http] Health: ok\n[tenant-http] Tenant autenticado: legacy-main\n[tenant-http] Productos autenticados: 3\n[tenant-http] Tiendas autenticadas: 3\n[tenant-http] Usuarios autenticados: 94\n[tenant-http] Productos marketplace: 3\n[tenant-http] Header cruzado: 403\n[tenant-http] Marketplace desconocido: 404\n[tenant-http] Tenant suspendido / membresia inactiva: 200/403\n",
+      "stderrTail": "(node:18720) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+    },
+    "functional_suite": {
+      "status": "PASSED",
+      "durationMs": 47656,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 test\n> vitest run\n\n\n RUN  v4.1.10 C:/Users/diego/Desktop/proyecto_tienda/backend-refactorizado\n\n\n Test Files  58 passed | 2 skipped (60)\n      Tests  335 passed | 46 skipped (381)\n   Start at  13:34:45\n   Duration  46.30s (transform 4.00s, setup 0ms, import 38.34s, tests 69.08s, environment 32ms)\n\n",
+      "stderrTail": "(node:13968) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:2880) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:11076) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:14084) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:7140) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:17176) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:11280) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:18092) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:23528) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:1008) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:8552) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n(node:18192) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+    },
+    "build": {
+      "status": "PASSED",
+      "durationMs": 22699,
+      "exitCode": 0,
+      "stdoutTail": "\n> backend-refactorizado@1.0.0 build\n> npm run db:generate && rimraf ./dist && tsc && node scripts/copy-public.mjs\n\n\n> backend-refactorizado@1.0.0 db:generate\n> prisma generate\n\n\n✔ Generated Prisma Client (v7.9.1) to .\\node_modules\\@prisma\\client in 1.04s\n\nStart by importing your Prisma Client (See: https://pris.ly/d/importing-client)\n\n\n[copy-public] Copied C:\\Users\\diego\\Desktop\\proyecto_tienda\\backend-refactorizado\\src\\public -> C:\\Users\\diego\\Desktop\\proyecto_tienda\\backend-refactorizado\\dist\\public\n",
+      "stderrTail": "Loaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma\\schema.prisma.\n"
+    }
+  },
+  "injections": [
+    "inventory",
+    "migrations",
+    "sunat_reconcile"
+  ],
+  "result": "READY_FOR_GO_NO_GO",
+  "reruns": [
+    {
+      "name": "functional_suite",
+      "requestedAt": "2026-08-02T17:26:28.798Z"
+    },
+    {
+      "name": "build",
+      "requestedAt": "2026-08-02T17:26:28.798Z"
+    },
+    {
+      "name": "functional_suite",
+      "requestedAt": "2026-08-02T17:44:32.537Z"
+    },
+    {
+      "name": "build",
+      "requestedAt": "2026-08-02T17:44:32.537Z"
+    },
+    {
+      "name": "functional_suite",
+      "requestedAt": "2026-08-02T17:50:41.418Z"
+    },
+    {
+      "name": "migrations",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "runtime_grants",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "formal_verify",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "identity",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "catalog",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "inventory_backfill",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "movements",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "orders",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "returns",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "marketplace",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "audit",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "backfill_close",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "sunat_reconcile",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "sunat_artifacts",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "sunat_secrets",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "rls",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "prisma_scope",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "tenant_isolation",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "functional_suite",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "build",
+      "requestedAt": "2026-08-02T18:25:58.993Z"
+    },
+    {
+      "name": "functional_suite",
+      "requestedAt": "2026-08-02T18:34:44.321Z"
+    },
+    {
+      "name": "build",
+      "requestedAt": "2026-08-02T18:34:44.321Z"
+    }
+  ],
+  "wallClockDurationMs": 5771753,
+  "finishedAt": "2026-08-02T18:35:54.680Z",
+  "durationMs": 190261
+}

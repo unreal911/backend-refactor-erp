@@ -14,6 +14,7 @@ export type TenantRequestContext = {
         status: TenantStatus;
         databaseMode: TenantDatabaseMode;
         trialEndsAt: Date | null;
+        readOnly: boolean;
     };
     membership: {
         id: string;
@@ -65,6 +66,7 @@ export class TenantContextService {
         }>(
         tenant: T | null | undefined,
         now: Date = new Date(),
+        allowReadOnly = true,
     ): asserts tenant is T {
         if (!tenant) {
             throw new TenantAccessError("Empresa no disponible");
@@ -73,6 +75,12 @@ export class TenantContextService {
             if (tenant.trialEndsAt && tenant.trialEndsAt.getTime() <= now.getTime()) {
                 throw new TenantAccessError("Periodo de prueba vencido");
             }
+            return;
+        }
+        if (
+            allowReadOnly
+            && (tenant.status === TenantStatus.EXPIRED || tenant.status === TenantStatus.SUSPENDED)
+        ) {
             return;
         }
         if (tenant.status !== TenantStatus.ACTIVE) {
@@ -134,6 +142,8 @@ export class TenantContextService {
                 status: membership.tenant.status,
                 databaseMode: membership.tenant.databaseMode,
                 trialEndsAt: membership.tenant.trialEndsAt,
+                readOnly: membership.tenant.status === TenantStatus.EXPIRED
+                    || membership.tenant.status === TenantStatus.SUSPENDED,
             },
             membership: {
                 id: membership.id,
@@ -250,7 +260,7 @@ export class TenantContextService {
                 trialEndsAt: true,
             },
         });
-        this.assertTenantAvailable(tenant);
+        this.assertTenantAvailable(tenant, new Date(), false);
 
         return {
             tenantId: tenant.id,

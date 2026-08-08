@@ -1,0 +1,19 @@
+{
+  "story": "MIG-012",
+  "check": "READ_ONLY_SOURCE_SERVICE_ROLLBACK",
+  "executedAt": "2026-08-02T18:18:26.451Z",
+  "responsible": "Codex - ensayo local de preproduccion",
+  "sourceFingerprintBefore": "4bbe5127de4981b2f6c888956f8af46581b114acb90e5fc00462dea3de056591",
+  "sourceFingerprintAfter": "4bbe5127de4981b2f6c888956f8af46581b114acb90e5fc00462dea3de056591",
+  "sourceUnchanged": true,
+  "tableCount": 54,
+  "checks": {
+    "health": "ok",
+    "ready": "ready",
+    "login": "ok",
+    "tenantId": "00000000-0000-4000-8000-000000000001",
+    "authenticatedReadRows": 3,
+    "publicReadRows": 3
+  },
+  "result": "PASSED"
+}

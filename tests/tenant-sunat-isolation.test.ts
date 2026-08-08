@@ -227,10 +227,11 @@ describe("TEN-007: SUNAT aislado por empresa", () => {
             inTenant(companyA.tenantId, () =>
                 prisma.comprobanteSerie.findUniqueOrThrow({
                     where: {
-                        tenantId_tipo_serie: {
+                        tenantId_tipo_serie_scopeKey: {
                             tenantId: companyA!.tenantId,
                             tipo: "FACTURA",
                             serie: "F777",
+                            scopeKey: "GLOBAL",
                         },
                     },
                 })
@@ -238,10 +239,11 @@ describe("TEN-007: SUNAT aislado por empresa", () => {
             inTenant(companyB.tenantId, () =>
                 prisma.comprobanteSerie.findUniqueOrThrow({
                     where: {
-                        tenantId_tipo_serie: {
+                        tenantId_tipo_serie_scopeKey: {
                             tenantId: companyB!.tenantId,
                             tipo: "FACTURA",
                             serie: "F777",
+                            scopeKey: "GLOBAL",
                         },
                     },
                 })

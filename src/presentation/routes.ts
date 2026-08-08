@@ -20,7 +20,11 @@ import { registerSunatModuleRoutes } from "../modules/sunat";
 import { registerTenantModuleRoutes } from "../modules/tenant";
 import { registerOwnerRegistrationRoutes } from "../modules/registration";
 import { registerTenantInvitationRoutes } from "../modules/invitations";
+import { registerTenantLifecycleRoutes } from "../modules/lifecycle";
+import { registerOperationsRoutes } from "../modules/operations";
+import { registerReportModuleRoutes } from "../modules/reports/routes";
 import { PublicTenantMiddleware } from "./public/tenant.middleware";
+import { customerRoute } from "./customer/router";
 
 export class AppRouter {
     static get router(): Router {
@@ -30,6 +34,9 @@ export class AppRouter {
         registerTenantModuleRoutes(router);
         registerOwnerRegistrationRoutes(router);
         registerTenantInvitationRoutes(router);
+        registerTenantLifecycleRoutes(router);
+        registerOperationsRoutes(router);
+        registerReportModuleRoutes(router);
 
         if (envs.SEED_ENDPOINT_ENABLED) {
             router.use("/api/seed", SeedRoute.router);
@@ -48,6 +55,7 @@ export class AppRouter {
         registerSunatModuleRoutes(router);
         router.use("/api/admin-events", AuthMiddleware.validateJWT, AdminEventsRoute.router);
         router.use("/api/payment-methods", AuthMiddleware.validateJWT, paymentMethodRoute.router);
+        router.use("/api/customers", AuthMiddleware.validateJWT, customerRoute.router);
         router.use("/api/system-config", AuthMiddleware.validateJWT, systemConfigRoute.router);
         router.use("/api/audit-logs", AuthMiddleware.validateJWT, auditLogRoute.router);
         router.use("/api/user-activities", AuthMiddleware.validateJWT, userActivityRoute.router);

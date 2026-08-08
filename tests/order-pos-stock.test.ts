@@ -34,6 +34,12 @@ vi.mock('../src/data/prisma', () => {
   return { prisma: prismaMock };
 });
 
+vi.mock('../src/modules/lifecycle/tenant-lifecycle.service', () => ({
+  TenantQuotaService: {
+    assertAvailable: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 import { prisma } from '../src/data/prisma';
 import { CreateOrderDto } from '../src/domain/dtos/create-order.dto';
 import { OrderService } from '../src/presentation/services/order.service';

@@ -74,9 +74,9 @@ const REQUIRED_CONSTRAINTS = [
 ] as const;
 
 const REQUIRED_INDEXES = [
-    "ComprobanteSerie_tenantId_tipo_serie_key",
+    "ComprobanteSerie_tenantId_tipo_serie_scopeKey_key",
     "Comprobante_tenantId_nombreArchivo_key",
-    "Comprobante_tenantId_tipo_serie_numero_key",
+    "Comprobante_tenantId_tipo_serie_numberingScope_numero_key",
     "ResumenDiario_tenantId_fileName_key",
     "ComunicacionBaja_tenantId_fileName_key",
     "SunatEmisorConfig_tenantId_key",
@@ -111,6 +111,18 @@ async function inspectTable(
     table: keyof typeof EXPECTED_TABLES,
 ): Promise<SnapshotRow> {
     const expected = EXPECTED_TABLES[table];
+    const technicalColumns: Partial<Record<keyof typeof EXPECTED_TABLES, string[]>> = {
+        ComprobanteSerie: ["scopeKey"],
+        Comprobante: ["numberingScope", "idempotencyKey", "payloadSha256"],
+        SunatDispatch: ["idempotencyKey", "requestSha256"],
+        ResumenDiario: ["idempotencyKey", "payloadSha256"],
+        ComunicacionBaja: ["idempotencyKey", "payloadSha256"],
+        SunatEmisorConfig: ["certificateValidatedAt", "credentialsVerifiedAt"],
+    };
+    const logicalRow = (technicalColumns[table] ?? []).reduce(
+        (expression, column) => `${expression} - '${column}'`,
+        "to_jsonb(t) - 'tenantId'",
+    );
     const rows = await prisma.$queryRawUnsafe<SnapshotRow[]>(
         `SELECT
              COUNT(*)::int AS "rowCount",
@@ -121,7 +133,7 @@ async function inspectTable(
                      convert_to(
                          COALESCE(
                              string_agg(
-                                 (to_jsonb(t) - 'tenantId')::text,
+                                 (${logicalRow})::text,
                                  E'\\n'
                                  ORDER BY id
                              ),
@@ -248,16 +260,16 @@ async function countDuplicateFiscalKeys(): Promise<number> {
     const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
         SELECT COUNT(*)::bigint AS count
         FROM (
-            SELECT "tenantId", tipo::text, serie, NULL::int AS numero
+            SELECT "tenantId", tipo::text, serie || ':' || "scopeKey", NULL::int AS numero
             FROM "ComprobanteSerie"
-            GROUP BY "tenantId", tipo, serie
+            GROUP BY "tenantId", tipo, serie, "scopeKey"
             HAVING COUNT(*) > 1
 
             UNION ALL
 
-            SELECT "tenantId", tipo::text, serie, numero
+            SELECT "tenantId", tipo::text, serie || ':' || "numberingScope", numero
             FROM "Comprobante"
-            GROUP BY "tenantId", tipo, serie, numero
+            GROUP BY "tenantId", tipo, serie, "numberingScope", numero
             HAVING COUNT(*) > 1
 
             UNION ALL

@@ -4,6 +4,7 @@
         public readonly fulfillmentStoreId?: number,
         public readonly sellerUserId?: number,
         public readonly applyIgv?: boolean,
+        public readonly customerId?: number,
         public readonly clientName?: string,
         public readonly clientEmail?: string,
         public readonly clientPhone?: string,
@@ -26,6 +27,7 @@
             fulfillmentStoreId,
             sellerUserId,
             applyIgv,
+            customerId,
             clientName,
             clientEmail,
             clientPhone,
@@ -73,6 +75,12 @@
             return ['applyIgv debe ser booleano', undefined];
         }
 
+        if (customerId !== undefined && customerId !== null) {
+            if (!Number.isInteger(customerId) || customerId < 1) {
+                return ['customerId debe ser un numero entero mayor a 0', undefined];
+            }
+        }
+
         // Documento del adquirente (opcional; requerido solo al emitir factura).
         const tipoDoc = typeof clienteTipoDoc === 'string' ? clienteTipoDoc.trim() : undefined;
         const numDoc = typeof clienteNumDoc === 'string' ? clienteNumDoc.trim() : undefined;
@@ -102,6 +110,7 @@
             fulfillmentStoreId,
             sellerUserId,
             applyIgv,
+            customerId,
             clientName,
             clientEmail,
             clientPhone,

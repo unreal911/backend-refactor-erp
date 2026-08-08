@@ -6,6 +6,7 @@ import {
     S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { OperationalMetrics } from "../../../operations/operational-metrics";
 import {
     CreateDownloadUrlInput,
     DocumentStorage,
@@ -153,8 +154,8 @@ export class S3DocumentStorage implements DocumentStorage {
             throw new Error("contentType es obligatorio");
         }
 
-        const response = await this.client.send(
-            new PutObjectCommand({
+        const response = await OperationalMetrics.measureDependency("S3", "put", () => (
+            this.client.send(new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: objectKey,
                 Body: input.body,
@@ -166,8 +167,8 @@ export class S3DocumentStorage implements DocumentStorage {
                         SSEKMSKeyId: this.sseKmsKeyId,
                     }
                     : {}),
-            }),
-        );
+            }))
+        ));
 
         const etag = normalizeEtag(response.ETag);
         return {
@@ -184,12 +185,12 @@ export class S3DocumentStorage implements DocumentStorage {
 
     async get(input: GetDocumentInput): Promise<Buffer> {
         const objectKey = this.objectKey(input.tenantId, input.relativeKey);
-        const response = await this.client.send(
-            new GetObjectCommand({
+        const response = await OperationalMetrics.measureDependency("S3", "get", () => (
+            this.client.send(new GetObjectCommand({
                 Bucket: this.bucket,
                 Key: objectKey,
-            }),
-        );
+            }))
+        ));
         if (!response.Body) {
             throw new Error("S3 devolvió un documento sin contenido");
         }
@@ -212,12 +213,12 @@ export class S3DocumentStorage implements DocumentStorage {
     async head(input: HeadDocumentInput): Promise<StoredObjectInfo | null> {
         const objectKey = this.objectKey(input.tenantId, input.relativeKey);
         try {
-            const response = await this.client.send(
-                new HeadObjectCommand({
+            const response = await OperationalMetrics.measureDependency("S3", "head", () => (
+                this.client.send(new HeadObjectCommand({
                     Bucket: this.bucket,
                     Key: objectKey,
-                }),
-            );
+                }))
+            ));
             const digest = response.Metadata?.sha256?.toLowerCase();
             if (!digest || !SHA256_PATTERN.test(digest)) {
                 throw new Error("El objeto S3 no contiene metadata SHA-256 válida");
@@ -256,6 +257,9 @@ export class S3DocumentStorage implements DocumentStorage {
                 ? { ResponseContentDisposition: input.responseContentDisposition }
                 : {}),
         });
-        return getSignedUrl(this.client, command, { expiresIn });
+        return OperationalMetrics.measureDependency("S3", "presign", () => (
+            getSignedUrl(this.client, command, { expiresIn })
+        ));
     }
+
 }

@@ -10,9 +10,10 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260802120000_add_tenant_invitations";
+export const REQUIRED_SCHEMA_MIGRATION = "20260802133000_add_trial_expiry_notification_job";
 export const REQUIRED_SCHEMA_TABLES = [
     "AuditLog",
+    "BillingWebhookEvent",
     "Category",
     "Color",
     "Comprobante",
@@ -52,12 +53,16 @@ export const REQUIRED_SCHEMA_TABLES = [
     "Store",
     "SunatDispatch",
     "SunatEmisorConfig",
+    "SunatArtifact",
+    "SunatJob",
     "SystemSetting",
     "Tenant",
     "TenantInvitation",
+    "TenantLifecycleEvent",
     "TenantMembership",
     "TenantMigrationCheckpoint",
     "TenantMigrationQuarantine",
+    "TenantSubscription",
     "User",
     "UserActivityLog",
 ];
@@ -73,6 +78,21 @@ export function validateSunatDocumentInfrastructureAtStartup(
 ): void {
     if (!isSunatDocumentStorageEnabled(source)) return;
     loadSunatInfrastructureConfig(source);
+}
+
+export function validateProductionRuntime(source: EnvironmentSource = process.env): void {
+    if (String(source.NODE_ENV ?? "").toLowerCase() !== "production") return;
+    const corsOrigins = String(source.CORS_ORIGINS ?? "")
+        .split(",").map((value) => value.trim()).filter(Boolean);
+    if (corsOrigins.length === 0 || corsOrigins.some((origin) => !origin.startsWith("https://"))) {
+        throw new Error("Producción exige CORS_ORIGINS con orígenes HTTPS explícitos");
+    }
+    if (!String(source.DIRECT_DATABASE_URL ?? "").trim()) {
+        throw new Error("Producción exige DIRECT_DATABASE_URL separada para migraciones");
+    }
+    if (String(source.CLOUD_MODE ?? "").toLowerCase() !== "aws") {
+        throw new Error("Producción exige CLOUD_MODE=aws");
+    }
 }
 
 function getDatabaseHost(connectionString: string): string | null {
@@ -166,6 +186,7 @@ export async function runStartupBootstraps(
     // Debe ejecutarse antes de consultar PostgreSQL: una configuración cloud
     // insegura no puede alcanzar la fase de bootstraps ni servir tráfico.
     validateSunatDocumentInfrastructureAtStartup(source);
+    validateProductionRuntime(source);
 
     const databaseReachable = await ensureDatabaseReachability(databaseUrl);
     if (!databaseReachable) {

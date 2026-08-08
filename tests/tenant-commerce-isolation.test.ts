@@ -34,10 +34,15 @@ beforeAll(async () => {
              WHERE migration_name = '20260729150000_tenant_scope_commerce'
                AND finished_at IS NOT NULL`,
         );
-        ownerUserId = Number((await prisma.user.findFirst({
-            where: { isActive: true },
-            select: { id: true },
-        }))?.id || 0);
+        ownerUserId = Number((await prisma.tenantMembership.findFirst({
+            where: {
+                tenantId: LEGACY_TENANT_ID,
+                status: "ACTIVE",
+                user: { isActive: true },
+            },
+            orderBy: { userId: "asc" },
+            select: { userId: true },
+        }))?.userId || 0);
         dbReady = migration.length === 1 && ownerUserId > 0;
     } catch {
         dbReady = false;
