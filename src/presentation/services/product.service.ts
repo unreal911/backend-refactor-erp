@@ -17,6 +17,7 @@ import {
 import {
     listProductAssetReferencesOutsideTenant,
 } from "../../modules/platform/product-asset-reference";
+import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
 
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
@@ -660,6 +661,7 @@ export class ProductService {
      * Crear un nuevo producto con variantes e imágenes
      */
     async createProduct(createProductDto: CreateProductDto): Promise<any> {
+        await TenantQuotaService.assertAvailable("products");
         const {
             name,
             categoryId,

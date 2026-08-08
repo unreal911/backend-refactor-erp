@@ -141,6 +141,7 @@ export class InMemoryDocumentStorage implements DocumentStorage {
         return `memory://download/${token}`;
     }
 
+
     async download(signedUrl: string): Promise<Buffer> {
         const parsed = new URL(signedUrl);
         if (parsed.protocol !== "memory:") {
@@ -167,5 +168,9 @@ export class InMemoryDocumentStorage implements DocumentStorage {
         const record = this.records.get(objectKey);
         if (!record) throw new Error("Documento fake no encontrado");
         record.body = Buffer.from(input.body);
+    }
+
+    async remove(input: { tenantId: string; relativeKey: string }): Promise<void> {
+        this.records.delete(this.objectKey(input.tenantId, input.relativeKey));
     }
 }

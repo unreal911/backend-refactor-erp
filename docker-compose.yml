@@ -11,6 +11,11 @@ services:
       - "5432:5432"
     volumes:
       - tienda_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tienda_dbt"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   # Emulador local de AWS para desarrollar y probar S3/KMS sin cuenta cloud.
   # Es desechable: nunca cargar PFX, Clave SOL ni documentos reales.
@@ -24,6 +29,24 @@ services:
       MOTO_PORT: "5000"
       S3_IGNORE_SUBDOMAIN_BUCKETNAME: "true"
       MOTO_DISABLE_GLOBAL_CORS: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',5000),2); s.close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Bandeja SMTP local para registro, invitaciones y avisos de trial.
+  # Los mensajes se inspeccionan en http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.30.6
+    container_name: tienda_mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_MAX_MESSAGES: "500"
+      MP_DATABASE: /tmp/mailpit.db
 
 volumes:
   tienda_pgdata:

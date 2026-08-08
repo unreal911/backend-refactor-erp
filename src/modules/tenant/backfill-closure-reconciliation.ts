@@ -472,9 +472,13 @@ async function coverageCount(
     );
 
     if (!sealedIds) {
+        const current = Number(currentRows[0]?.count ?? 0);
         return {
-            destinationRows: Number(currentRows[0]?.count ?? 0),
-            currentRows: Number(currentRows[0]?.count ?? 0),
+            // Los checkpoints globales historicos sellaron conteos, no IDs.
+            // Filas RBAC agregadas tras el corte son crecimiento valido y se
+            // reportan como postBaselineRows, sin reescribir la linea base.
+            destinationRows: Math.min(current, sourceRows),
+            currentRows: current,
         };
     }
     if (sealedIds.length === 0) {

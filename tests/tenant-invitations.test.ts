@@ -156,6 +156,7 @@ beforeAll(async () => {
                 slug: `${prefix}-a`,
                 name: `EMP005 Empresa A ${tag}`,
                 status: TenantStatus.ACTIVE,
+                maxUsers: 100,
             },
         }),
         platformPrisma.tenant.create({
@@ -163,6 +164,7 @@ beforeAll(async () => {
                 slug: `${prefix}-b`,
                 name: `EMP005 Empresa B ${tag}`,
                 status: TenantStatus.ACTIVE,
+                maxUsers: 100,
             },
         }),
     ]);

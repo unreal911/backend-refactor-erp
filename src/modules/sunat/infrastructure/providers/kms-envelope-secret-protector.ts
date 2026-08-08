@@ -4,6 +4,7 @@ import {
     GenerateDataKeyCommand,
     KMSClient,
 } from "@aws-sdk/client-kms";
+import { OperationalMetrics } from "../../../operations/operational-metrics";
 import {
     OpenSecretInput,
     SealSecretInput,
@@ -151,13 +152,13 @@ export class KmsEnvelopeSecretProtector implements SecretProtector {
     async seal(input: SealSecretInput): Promise<string> {
         const context = encryptionContext(input.tenantId, input.purpose);
         const aad = additionalAuthenticatedData(input.tenantId, input.purpose);
-        const generated = await this.client.send(
-            new GenerateDataKeyCommand({
+        const generated = await OperationalMetrics.measureDependency("KMS", "generate-data-key", () => (
+            this.client.send(new GenerateDataKeyCommand({
                 KeyId: this.keyId,
                 KeySpec: "AES_256",
                 EncryptionContext: context,
-            }),
-        );
+            }))
+        ));
 
         if (!generated.Plaintext || !generated.CiphertextBlob) {
             throw new Error("KMS no devolvió una data key completa");
@@ -196,13 +197,13 @@ export class KmsEnvelopeSecretProtector implements SecretProtector {
         const envelope = parseEnvelope(input.payload);
         const context = encryptionContext(input.tenantId, input.purpose);
         const aad = additionalAuthenticatedData(input.tenantId, input.purpose);
-        const decrypted = await this.client.send(
-            new DecryptCommand({
+        const decrypted = await OperationalMetrics.measureDependency("KMS", "decrypt", () => (
+            this.client.send(new DecryptCommand({
                 KeyId: envelope.keyId,
                 CiphertextBlob: decodePart(envelope.encryptedDataKey, "encryptedDataKey"),
                 EncryptionContext: context,
-            }),
-        );
+            }))
+        ));
 
         if (!decrypted.Plaintext) {
             throw new Error("KMS no devolvió la data key descifrada");

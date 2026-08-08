@@ -11,57 +11,57 @@
     {
       "storyId": "MIG-003",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T19:04:57.106Z",
-      "detailsHash": "dd0f6beeea330971f96d150af8dd9206dae3cce55b85bc5427b64f49739565d2",
-      "fingerprintsHash": "799423536c267393f63cd1eb94a003e5079449822b78a84d507c095278a51f79"
+      "completedAt": "2026-08-02T18:26:21.617Z",
+      "detailsHash": "b7a541e89efe8ab3a65661b0257b61696cf36ff9297d76d683a66ffd1238260c",
+      "fingerprintsHash": "5f0e5ced96cac808d14f5abf2f169c58edaf7a7f8a9b8ad7bf9ff975ae3caa68"
     },
     {
       "storyId": "MIG-004",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T19:14:47.122Z",
-      "detailsHash": "46a6eefe9fd3b33f426660004cc9b98d723d85e8cdce363de0ce86c75cfe35f2",
+      "completedAt": "2026-08-02T18:26:27.852Z",
+      "detailsHash": "8f884b1fd7e4650851a5b5b1a5cc4d1a4cf6766c69d23ab711b592a3fca69529",
       "fingerprintsHash": "73968aca93fe41a5202e81eee23f5a6c16efebaabf932b735d159b20cdbb35bd"
     },
     {
       "storyId": "MIG-005",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T19:23:21.436Z",
-      "detailsHash": "7dd972a55924a9250c2af10e573807db8a8747ec75a415da868146d1e12bfab5",
+      "completedAt": "2026-08-02T18:26:33.883Z",
+      "detailsHash": "bb1d3fa2d49032d417c2cacc7b5eb6137eeafa8d4e3a539273efb817e8193a92",
       "fingerprintsHash": "1d2bdc009f2887c7fdd2a472eadf24bb0588fda429ba3686310166f06725bf44"
     },
     {
       "storyId": "MIG-006",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T22:10:36.407Z",
+      "completedAt": "2026-08-02T18:26:40.429Z",
       "detailsHash": "cc0deb3da6f8c8205e16fc15a2b8abe5ef030cb3c31f81386d7cdcac7fdb2b75",
       "fingerprintsHash": "d868bde5f7eb07598324bd51de969617401c07ad75190acd1762bb92775ba3e9"
     },
     {
       "storyId": "MIG-007",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T22:10:33.352Z",
+      "completedAt": "2026-08-02T18:26:46.517Z",
       "detailsHash": "9dd0783039a4847856904440be92efeba3ebab6f3cd56037eb896daa7e605e83",
       "fingerprintsHash": "973d9a84f6ca70c9c865f17d489b5d4f92d8ecc51f1557ff8f174941e6c8be33"
     },
     {
       "storyId": "MIG-008",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T22:10:39.030Z",
+      "completedAt": "2026-08-02T18:26:52.825Z",
       "detailsHash": "3d08a0009a4e2e14ba77f5215d341acf8e7f8a49c1c09ec62bf2fb356ffbd272",
       "fingerprintsHash": "52cbad31dd843d65f4483352c731f45733724e31dea6e453129253b15b2fc875"
     },
     {
       "storyId": "MIG-009",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T22:10:35.082Z",
+      "completedAt": "2026-08-02T18:26:59.638Z",
       "detailsHash": "9fc7778b3288ee88e4ab689aa0076ac58a138c304102db756a1975058cd5302f",
       "fingerprintsHash": "56e8b6ac1d87298ca683527191d8ca34facd5aded26e02c62d01aa3e70f098e1"
     },
     {
       "storyId": "MIG-010",
       "status": "COMPLETED",
-      "completedAt": "2026-07-29T22:10:26.560Z",
-      "detailsHash": "94a1a3b4f35c02a316444a2f8b8db54c51fb51180410e8da81caf61d47d0d955",
+      "completedAt": "2026-08-02T18:27:06.481Z",
+      "detailsHash": "392976d45def2ff40c7e43bd6274572833a1b08676ea5d87af235d920913a8a1",
       "fingerprintsHash": "48fff8ececf757818feaa619e275bf1c1cd39cf32b1620a61812960579eb565d"
     }
   ],
@@ -82,8 +82,8 @@
       "scope": "GLOBAL",
       "sourceRows": 3,
       "destinationRows": 3,
-      "currentRows": 3,
-      "postBaselineRows": 0,
+      "currentRows": 154,
+      "postBaselineRows": 151,
       "reconciled": true
     },
     {
@@ -92,8 +92,8 @@
       "scope": "TENANT",
       "sourceRows": 3,
       "destinationRows": 3,
-      "currentRows": 3,
-      "postBaselineRows": 0,
+      "currentRows": 94,
+      "postBaselineRows": 91,
       "reconciled": true
     },
     {
@@ -110,9 +110,9 @@
       "table": "Permission",
       "storyId": "MIG-003",
       "scope": "GLOBAL",
-      "sourceRows": 47,
-      "destinationRows": 47,
-      "currentRows": 47,
+      "sourceRows": 49,
+      "destinationRows": 49,
+      "currentRows": 49,
       "postBaselineRows": 0,
       "reconciled": true
     },
@@ -132,8 +132,8 @@
       "scope": "TENANT",
       "sourceRows": 4,
       "destinationRows": 4,
-      "currentRows": 4,
-      "postBaselineRows": 0,
+      "currentRows": 5,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -162,8 +162,8 @@
       "scope": "TENANT",
       "sourceRows": 2,
       "destinationRows": 2,
-      "currentRows": 2,
-      "postBaselineRows": 0,
+      "currentRows": 3,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -182,8 +182,8 @@
       "scope": "TENANT",
       "sourceRows": 13,
       "destinationRows": 13,
-      "currentRows": 13,
-      "postBaselineRows": 0,
+      "currentRows": 14,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -192,8 +192,8 @@
       "scope": "TENANT",
       "sourceRows": 2,
       "destinationRows": 2,
-      "currentRows": 2,
-      "postBaselineRows": 0,
+      "currentRows": 3,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -202,8 +202,8 @@
       "scope": "TENANT",
       "sourceRows": 5,
       "destinationRows": 5,
-      "currentRows": 5,
-      "postBaselineRows": 0,
+      "currentRows": 6,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -242,8 +242,8 @@
       "scope": "TENANT",
       "sourceRows": 42,
       "destinationRows": 42,
-      "currentRows": 42,
-      "postBaselineRows": 0,
+      "currentRows": 43,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -252,8 +252,8 @@
       "scope": "TENANT",
       "sourceRows": 106,
       "destinationRows": 106,
-      "currentRows": 106,
-      "postBaselineRows": 0,
+      "currentRows": 107,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -362,8 +362,8 @@
       "scope": "TENANT",
       "sourceRows": 14,
       "destinationRows": 14,
-      "currentRows": 14,
-      "postBaselineRows": 0,
+      "currentRows": 15,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -372,8 +372,8 @@
       "scope": "TENANT",
       "sourceRows": 6,
       "destinationRows": 6,
-      "currentRows": 6,
-      "postBaselineRows": 0,
+      "currentRows": 7,
+      "postBaselineRows": 1,
       "reconciled": true
     },
     {
@@ -392,8 +392,8 @@
       "scope": "AUDIT",
       "sourceRows": 30418,
       "destinationRows": 30418,
-      "currentRows": 30520,
-      "postBaselineRows": 102,
+      "currentRows": 30633,
+      "postBaselineRows": 215,
       "reconciled": true
     },
     {
@@ -446,7 +446,7 @@
     "nullableTenantColumns": 0,
     "tenantIndexedTables": 27,
     "tenantUniqueIndexes": 40,
-    "foreignKeys": 168,
+    "foreignKeys": 199,
     "unvalidatedConstraints": 0,
     "orphanRows": 0,
     "crossTenantRows": 0,
@@ -496,16 +496,16 @@
     {
       "table": "AuditLog",
       "sequence": "public.\"AuditLog_id_seq\"",
-      "maximumId": 30661,
-      "lastValue": 30661,
+      "maximumId": 30837,
+      "lastValue": 30862,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "Category",
       "sequence": "public.\"Category_id_seq\"",
-      "maximumId": 4,
-      "lastValue": 31,
+      "maximumId": 90,
+      "lastValue": 427,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -513,15 +513,15 @@
       "table": "Color",
       "sequence": "public.\"Color_id_seq\"",
       "maximumId": 3,
-      "lastValue": 5,
+      "lastValue": 21,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "Inventory",
       "sequence": "public.\"Inventory_id_seq\"",
-      "maximumId": 17,
-      "lastValue": 148,
+      "maximumId": 357,
+      "lastValue": 1180,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -529,31 +529,31 @@
       "table": "InventoryMovement",
       "sequence": "public.\"InventoryMovement_id_seq\"",
       "maximumId": 1111,
-      "lastValue": 1195,
+      "lastValue": 1752,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "MarketplaceCustomer",
       "sequence": "public.\"MarketplaceCustomer_id_seq\"",
-      "maximumId": 26,
-      "lastValue": 34,
+      "maximumId": 47,
+      "lastValue": 141,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "Order",
       "sequence": "public.\"Order_id_seq\"",
-      "maximumId": 1000,
-      "lastValue": 1152,
+      "maximumId": 1385,
+      "lastValue": 2273,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "OrderItem",
       "sequence": "public.\"OrderItem_id_seq\"",
-      "maximumId": 972,
-      "lastValue": 1088,
+      "maximumId": 1254,
+      "lastValue": 1940,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -561,7 +561,7 @@
       "table": "OrderReturn",
       "sequence": "public.\"OrderReturn_id_seq\"",
       "maximumId": null,
-      "lastValue": 18,
+      "lastValue": 149,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -569,23 +569,23 @@
       "table": "OrderReturnItem",
       "sequence": "public.\"OrderReturnItem_id_seq\"",
       "maximumId": null,
-      "lastValue": 14,
+      "lastValue": 115,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "PaymentMethod",
       "sequence": "public.\"PaymentMethod_id_seq\"",
-      "maximumId": 6,
-      "lastValue": 118,
+      "maximumId": 18439,
+      "lastValue": 27565,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "Permission",
       "sequence": "public.\"Permission_id_seq\"",
-      "maximumId": 2301,
-      "lastValue": 2959,
+      "maximumId": 7073,
+      "lastValue": 7561,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -593,7 +593,7 @@
       "table": "PickingItem",
       "sequence": "public.\"PickingItem_id_seq\"",
       "maximumId": 457,
-      "lastValue": 507,
+      "lastValue": 835,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -601,7 +601,7 @@
       "table": "PickingItemContribution",
       "sequence": "public.\"PickingItemContribution_id_seq\"",
       "maximumId": 260,
-      "lastValue": 300,
+      "lastValue": 552,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -609,7 +609,7 @@
       "table": "PickingOrderItemDetail",
       "sequence": "public.\"PickingOrderItemDetail_id_seq\"",
       "maximumId": 926,
-      "lastValue": 1010,
+      "lastValue": 1528,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -617,7 +617,7 @@
       "table": "PickingResponsibilityRequest",
       "sequence": "public.\"PickingResponsibilityRequest_id_seq\"",
       "maximumId": null,
-      "lastValue": 20,
+      "lastValue": 146,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -625,7 +625,7 @@
       "table": "PickingSession",
       "sequence": "public.\"PickingSession_id_seq\"",
       "maximumId": 465,
-      "lastValue": 517,
+      "lastValue": 860,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -633,7 +633,7 @@
       "table": "PickingSharedResponsibility",
       "sequence": "public.\"PickingSharedResponsibility_id_seq\"",
       "maximumId": null,
-      "lastValue": 22,
+      "lastValue": 168,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -641,15 +641,15 @@
       "table": "PickingUnpickRequest",
       "sequence": "public.\"PickingUnpickRequest_id_seq\"",
       "maximumId": null,
-      "lastValue": 6,
+      "lastValue": 48,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "Product",
       "sequence": "public.\"Product_id_seq\"",
-      "maximumId": 8,
-      "lastValue": 147,
+      "maximumId": 370,
+      "lastValue": 1227,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -657,15 +657,15 @@
       "table": "ProductImage",
       "sequence": "public.\"ProductImage_id_seq\"",
       "maximumId": 40,
-      "lastValue": 46,
+      "lastValue": 94,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "ProductVariant",
       "sequence": "public.\"ProductVariant_id_seq\"",
-      "maximumId": 19,
-      "lastValue": 156,
+      "maximumId": 376,
+      "lastValue": 1220,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -673,7 +673,7 @@
       "table": "Reservation",
       "sequence": "public.\"Reservation_id_seq\"",
       "maximumId": 969,
-      "lastValue": 1049,
+      "lastValue": 1579,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -681,7 +681,7 @@
       "table": "Role",
       "sequence": "public.\"Role_id_seq\"",
       "maximumId": 6,
-      "lastValue": 6,
+      "lastValue": 70,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -689,7 +689,7 @@
       "table": "RolePermission",
       "sequence": "public.\"RolePermission_id_seq\"",
       "maximumId": 78,
-      "lastValue": 1170,
+      "lastValue": 8736,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -697,7 +697,7 @@
       "table": "Size",
       "sequence": "public.\"Size_id_seq\"",
       "maximumId": 4,
-      "lastValue": 6,
+      "lastValue": 22,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -705,7 +705,7 @@
       "table": "StockTransfer",
       "sequence": "public.\"StockTransfer_id_seq\"",
       "maximumId": null,
-      "lastValue": 20,
+      "lastValue": 167,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -713,31 +713,31 @@
       "table": "StockTransferItem",
       "sequence": "public.\"StockTransferItem_id_seq\"",
       "maximumId": null,
-      "lastValue": 12,
+      "lastValue": 99,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "Store",
       "sequence": "public.\"Store_id_seq\"",
-      "maximumId": 2,
-      "lastValue": 41,
+      "maximumId": 107,
+      "lastValue": 394,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "SystemSetting",
       "sequence": "public.\"SystemSetting_id_seq\"",
-      "maximumId": 720,
-      "lastValue": 1004,
+      "maximumId": 40952,
+      "lastValue": 60725,
       "isCalled": true,
       "nextValueSafe": true
     },
     {
       "table": "User",
       "sequence": "public.\"User_id_seq\"",
-      "maximumId": 3,
-      "lastValue": 21,
+      "maximumId": 355,
+      "lastValue": 361,
       "isCalled": true,
       "nextValueSafe": true
     },
@@ -745,7 +745,7 @@
       "table": "UserActivityLog",
       "sequence": "public.\"UserActivityLog_id_seq\"",
       "maximumId": 537,
-      "lastValue": 541,
+      "lastValue": 611,
       "isCalled": true,
       "nextValueSafe": true
     }
@@ -757,17 +757,17 @@
     "unexplainedChanges": 0
   },
   "fingerprints": {
-    "prerequisites": "8648378ec5ad6c2354ea4d79fcd8d37bf678bc549542ecde0984fed0d29ebf16",
-    "coverage": "a0714f3a298ae169545ffcdf33892d9a65c38ff5db978abd678b91941fc3df4c",
+    "prerequisites": "ed5ce46d25c9470100914fa6bb581ff7c4b9fe08f3cfc91193da4cc2415163b1",
+    "coverage": "c5e72ebc9098875fdde5bfbacaa07274fd1ed0bf86855dc510ab8d7ed73ce0eb",
     "controlTotals": "7ef479a70fa8fd4fd2f592b540b553678f79eee1b145db08271d93ffb1eb6dca",
-    "integrity": "a32a4f0d8635c8813c48e0e4a4ff4d92c706efa759720928698d7cfbccfaa0c3",
+    "integrity": "c7f0269743ae703da2bb4c15840a743a122d359782cf60f5b19d218167d07473",
     "quarantine": "0c8c9b8fc045ae716923ff01939f2f423b95aceeaf51d457beab609f85fa77dd",
     "sequences": "bde5efa5c852f0ba2c6e95cfeeb1c61e460033749849c9a5c1861cf69cc769ea",
-    "report": "653f0154c6b349e8a8d6b95cf4d9d8960f6ed4acc757b82ed3d0a4dcae23f6cf"
+    "report": "b730d2aaad2742fcce0fa21c889703d99bc10d7a2c458d49e5af654ad6906e78"
   },
   "execution": {
-    "startedAt": "2026-07-29T22:12:17.401Z",
-    "completedAt": "2026-07-29T22:12:18.404Z",
-    "durationMs": 1002.99
+    "startedAt": "2026-08-02T18:27:11.983Z",
+    "completedAt": "2026-08-02T18:27:13.373Z",
+    "durationMs": 1390.16
   }
 }

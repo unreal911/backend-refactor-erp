@@ -1,7 +1,10 @@
 import "dotenv/config";
 import { tenantPrisma as prisma } from "../../../data/tenant-prisma";
 import { TenantDataContext } from "../../tenant/tenant-data-context";
-import { decryptSecret, decryptSecretString, isSunatEncryptionConfigured } from "./sunat-crypto";
+import {
+    getSunatSecretServiceFromEnvironment,
+    isAnySunatSecretEncryptionConfigured,
+} from "./sunat-secret.service";
 
 // Configuracion SUNAT. Fuente de verdad: tabla SunatEmisorConfig (dashboard).
 // Fallback a variables de entorno (solo BETA) cuando no hay fila configurada.
@@ -105,16 +108,17 @@ export async function loadSunatConfig(): Promise<SunatConfig> {
     if (!row) return envConfig;
 
     const environment: SunatEnvironment = row.environment === "PRODUCCION" ? "PRODUCCION" : "BETA";
-    const canDecrypt = isSunatEncryptionConfigured();
+    const canDecrypt = isAnySunatSecretEncryptionConfigured();
+    const secrets = getSunatSecretServiceFromEnvironment();
 
     let solPassword = envConfig.solPassword;
     let certP12Der: Buffer | undefined;
     let certP12Password: string | undefined;
 
     if (canDecrypt) {
-        if (row.solPasswordEnc) solPassword = decryptSecretString(row.solPasswordEnc);
-        if (row.certP12Enc) certP12Der = decryptSecret(row.certP12Enc);
-        if (row.certPasswordEnc) certP12Password = decryptSecretString(row.certPasswordEnc);
+        if (row.solPasswordEnc) solPassword = await secrets.openString(row.solPasswordEnc, "SOL_PASSWORD");
+        if (row.certP12Enc) certP12Der = await secrets.open(row.certP12Enc, "PFX");
+        if (row.certPasswordEnc) certP12Password = await secrets.openString(row.certPasswordEnc, "PFX_PASSWORD");
     } else {
         console.warn(
             "[SUNAT] SUNAT_CONFIG_ENC_KEY no configurada: se ignoran secretos cifrados del emisor y se usa el fallback de env.",

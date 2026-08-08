@@ -97,7 +97,7 @@ describe("TenantContextService", () => {
         ).rejects.toBeInstanceOf(TenantAccessError);
     });
 
-    it("rechaza tenant suspendido o prueba vencida", async () => {
+    it("permite consultar un tenant suspendido en solo lectura y rechaza una prueba vencida sin transición", async () => {
         vi.mocked(prisma.tenantMembership.findMany)
             .mockResolvedValueOnce([
                 membership({
@@ -118,7 +118,7 @@ describe("TenantContextService", () => {
             ] as never);
 
         await expect(TenantContextService.resolveForLogin(7))
-            .rejects.toThrow("No tienes una empresa activa");
+            .resolves.toMatchObject({ tenant: { status: "SUSPENDED", readOnly: true } });
         await expect(TenantContextService.resolveForLogin(7))
             .rejects.toThrow("No tienes una empresa activa");
     });

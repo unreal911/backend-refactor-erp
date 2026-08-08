@@ -11,6 +11,7 @@ export async function seedLegacyTenantMemberships(): Promise<void> {
             },
         },
         select: {
+            id: true,
             status: true,
             details: true,
         },
@@ -18,14 +19,37 @@ export async function seedLegacyTenantMemberships(): Promise<void> {
     const details = checkpoint?.details as {
         sourceUserIds?: unknown;
     } | null;
-    const completedSourceUserIds = checkpoint?.status === "COMPLETED"
-        && Array.isArray(details?.sourceUserIds)
+    let sealedSourceUserIds = Array.isArray(details?.sourceUserIds)
         ? details.sourceUserIds.filter(
             (value): value is number => Number.isInteger(value) && Number(value) > 0,
         )
         : null;
-    if (checkpoint?.status === "COMPLETED" && !completedSourceUserIds?.length) {
+    if (checkpoint?.status === "COMPLETED" && !sealedSourceUserIds?.length) {
         throw new Error("MIG-003 completado sin sourceUserIds verificables");
+    }
+
+    // Una instalación nueva aplica todas las migraciones antes del primer seed,
+    // por lo que MIG-003 todavía no tenía usuarios que sellar. La primera
+    // ejecución con usuarios fija el alcance una sola vez para no incorporar
+    // silenciosamente cuentas creadas después.
+    if (checkpoint && !sealedSourceUserIds?.length) {
+        const sourceUsers = await prisma.user.findMany({
+            orderBy: { id: "asc" },
+            select: { id: true },
+        });
+        if (sourceUsers.length > 0) {
+            sealedSourceUserIds = sourceUsers.map((user) => user.id);
+            await prisma.tenantMigrationCheckpoint.update({
+                where: { id: checkpoint.id },
+                data: {
+                    details: {
+                        ...((details as Record<string, unknown> | null) ?? {}),
+                        sourceUserIds: sealedSourceUserIds,
+                        sourceUserIdsSealedBy: "seedLegacyTenantMemberships",
+                    },
+                },
+            });
+        }
     }
 
     await prisma.$executeRawUnsafe(
@@ -73,6 +97,6 @@ export async function seedLegacyTenantMemberships(): Promise<void> {
         FROM ranked_users
         ON CONFLICT ("userId", "tenantId") DO NOTHING`,
         LEGACY_TENANT_ID,
-        completedSourceUserIds,
+        sealedSourceUserIds,
     );
 }

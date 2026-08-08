@@ -5,6 +5,8 @@ import helmet from 'helmet';
 import { AuditLogMiddleware } from './audit-log/middleware';
 import { AuditLogService } from './services/audit-log.service';
 import { envs } from '../config/envs';
+import { platformPrisma } from '../data/platform-prisma';
+import { observeRequest } from './observability/request-observability';
 
 interface Options {
     port: number;
@@ -38,7 +40,7 @@ export function createExpressApp(options: CreateAppOptions) {
     // vacio, permite todos los origenes (comportamiento previo, no rompe deploy).
     const corsAllowlist = envs.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
     app.use(cors({
-        exposedHeaders: ['x-access-token'],
+        exposedHeaders: ['x-access-token', 'x-correlation-id', 'x-export-sha256', 'x-export-rows'],
         origin: corsAllowlist.length === 0
             ? true
             : (origin, callback) => {
@@ -49,7 +51,13 @@ export function createExpressApp(options: CreateAppOptions) {
                 return callback(new Error('Origen no permitido por CORS'));
             },
     }));
-    app.use(express.json({ limit: requestBodyLimit }));
+    app.use(express.json({
+        limit: requestBodyLimit,
+        verify: (req, _res, buffer) => {
+            (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+        },
+    }));
+    app.use(observeRequest);
     app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
     app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
         if (err?.type === 'entity.too.large' || err?.status === 413) {
@@ -69,6 +77,14 @@ export function createExpressApp(options: CreateAppOptions) {
     app.use(express.static(publicDir));
     app.get('/api/health', (_req, res) => {
         res.status(200).json({ status: 'ok' });
+    });
+    app.get('/api/ready', async (_req, res) => {
+        try {
+            await platformPrisma.$queryRawUnsafe('SELECT 1');
+            return res.status(200).json({ status: 'ready', database: 'ok' });
+        } catch {
+            return res.status(503).json({ status: 'not-ready', database: 'unavailable' });
+        }
     });
 
     app.use(routes);

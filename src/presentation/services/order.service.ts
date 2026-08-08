@@ -20,6 +20,7 @@ import {
     TenantDataContext,
 } from "../../modules/tenant/tenant-data-context";
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
+import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
 import {
     MarketplaceGuideItem,
     MarketplacePaymentMethod,
@@ -377,6 +378,8 @@ export class OrderService {
             }
         }
 
+        await TenantQuotaService.assertAvailable("orders");
+
         // Validar que la tienda origen existe
         const sourceStore = await prisma.store.findUnique({
             where: { id: dto.sourceStoreId },
@@ -403,6 +406,13 @@ export class OrderService {
             if (!seller) {
                 throw CustomError.badRequest(`El usuario vendedor con ID ${dto.sellerUserId} no existe`);
             }
+        }
+
+        const selectedCustomer = dto.customerId
+            ? await prisma.customer.findUnique({ where: { id: dto.customerId } })
+            : null;
+        if (dto.customerId && (!selectedCustomer || !selectedCustomer.isActive)) {
+            throw CustomError.badRequest('El cliente seleccionado no existe o esta inactivo');
         }
 
         // Validar que todos los productos/variantes existen
@@ -543,11 +553,12 @@ export class OrderService {
                     sourceStoreId: dto.sourceStoreId,
                     fulfillmentStoreId: orderFulfillmentStoreId,
                     sellerUserId: dto.sellerUserId ?? null,
-                    clientName: dto.clientName ?? null,
-                    clientEmail: dto.clientEmail ?? null,
-                    clientPhone: dto.clientPhone ?? null,
-                    clienteTipoDoc: dto.clienteTipoDoc ?? null,
-                    clienteNumDoc: dto.clienteNumDoc ?? null,
+                    customerId: selectedCustomer?.id ?? null,
+                    clientName: dto.clientName ?? selectedCustomer?.name ?? null,
+                    clientEmail: dto.clientEmail ?? selectedCustomer?.email ?? null,
+                    clientPhone: dto.clientPhone ?? selectedCustomer?.phone ?? null,
+                    clienteTipoDoc: dto.clienteTipoDoc ?? selectedCustomer?.documentType ?? null,
+                    clienteNumDoc: dto.clienteNumDoc ?? selectedCustomer?.documentNumber ?? null,
                     comprobanteTipo: dto.comprobanteTipo ?? null,
                     subtotal,
                     tax,
@@ -708,6 +719,8 @@ export class OrderService {
                 return buildMarketplaceOrderResponse(existing);
             }
         }
+
+        await TenantQuotaService.assertAvailable("orders");
 
         const [selectedPaymentMethod, marketplaceSettings] = await Promise.all([
             resolveMarketplacePaymentMethod(dto.paymentMethodId),

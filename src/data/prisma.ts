@@ -34,9 +34,13 @@ const TENANT_MODELS = new Set([
     "Comprobante",
     "ComprobanteItem",
     "SunatDispatch",
+    "SunatArtifact",
+    "SunatJob",
     "ResumenDiario",
     "ComunicacionBaja",
     "SunatEmisorConfig",
+    "TenantLifecycleEvent",
+    "TenantSubscription",
 ]);
 
 const READ_OPERATIONS = new Set([

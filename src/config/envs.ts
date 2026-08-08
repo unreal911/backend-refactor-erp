@@ -57,6 +57,11 @@ export const envs = {
     TENANT_INVITATION_ACCEPT_URL: env.get("TENANT_INVITATION_ACCEPT_URL").default("").asString(),
     TENANT_INVITATION_TTL_HOURS: env.get("TENANT_INVITATION_TTL_HOURS").default("72").asIntPositive(),
 
+    // BIL-001: webhook genérico firmado para el proveedor de pagos elegido.
+    BILLING_WEBHOOK_ENABLED: env.get("BILLING_WEBHOOK_ENABLED").default("false").asBool(),
+    BILLING_WEBHOOK_SECRET: env.get("BILLING_WEBHOOK_SECRET").default("").asString(),
+    TRIAL_EXPORT_URL: env.get("TRIAL_EXPORT_URL").default("").asString(),
+
     // Allowlist de origenes para CORS (coma-separado). Vacio = permitir todos
     // (comportamiento actual); definirlo en produccion para restringir.
     CORS_ORIGINS: env.get("CORS_ORIGINS").default("").asString(),

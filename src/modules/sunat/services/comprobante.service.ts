@@ -27,6 +27,11 @@ import { ZipService } from "../zip/zip.service";
 import { SunatSoapClient } from "../soap/sunat-soap.client";
 import { parseCdr } from "./cdr-parser";
 import { reserveNextNumber } from "./numbering.service";
+import {
+    getSunatArtifactServiceFromEnvironment,
+    SunatArtifactService,
+} from "./sunat-artifact.service";
+import { createHash } from "node:crypto";
 
 const TIPO_CODIGO: Record<ComprobanteTipo, ComprobanteTipoCodigo> = {
     FACTURA: "01",
@@ -52,12 +57,14 @@ export interface EmitirComprobanteOptions {
     // Boletas: crear localmente (BORRADOR) para informar por Resumen Diario
     // en vez de enviarlas individualmente por sendBill.
     viaResumen?: boolean | undefined;
+    idempotencyKey?: string | undefined;
 }
 
 export interface EmitirNotaOptions {
     codigoMotivo: string; // catalogo 09 (NC) / 10 (ND)
     descripcionMotivo: string;
     dryRun?: boolean | undefined;
+    idempotencyKey?: string | undefined;
 }
 
 // Lote de boletas/notas de un dia pendiente de informar a SUNAT via Resumen Diario.
@@ -122,6 +129,18 @@ function round2(n: number): number {
     return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+function normalizeIdempotencyKey(value: string): string {
+    const normalized = String(value || "").trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/.test(normalized)) {
+        throw CustomError.badRequest("Idempotency-Key debe tener entre 8 y 200 caracteres seguros");
+    }
+    return normalized;
+}
+
+function payloadSha256(value: unknown): string {
+    return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
 // Afectaciones onerosas soportadas en el calculo (catalogo 07). Otras => se trata como gravado.
 const AFECTACIONES_SOPORTADAS: readonly string[] = [
     AFECTACION_IGV.GRAVADO,
@@ -154,16 +173,130 @@ export class ComprobanteService {
     private readonly soap: SunatSoapClient;
     private readonly injectedConfig: SunatConfig | null;
     private readonly injectedSigner: XmlSignerService | null;
+    private readonly artifacts: SunatArtifactService | null;
     private readonly tenantRuntime = new Map<string, {
         config: SunatConfig;
         signer: XmlSignerService;
     }>();
 
-    constructor(config?: SunatConfig) {
+    constructor(config?: SunatConfig, artifacts?: SunatArtifactService | null) {
         this.zip = new ZipService();
         this.soap = new SunatSoapClient();
         this.injectedConfig = config ?? null;
         this.injectedSigner = config ? new XmlSignerService(config) : null;
+        this.artifacts = artifacts === undefined
+            ? getSunatArtifactServiceFromEnvironment()
+            : artifacts;
+    }
+
+    private async storeSubmissionArtifacts(
+        owner: { ownerType: "COMPROBANTE" | "RESUMEN" | "BAJA"; ownerId: number },
+        logicalKey: string,
+        fileBase: string,
+        signedXml: string,
+        zipBuffer: Buffer,
+    ): Promise<void> {
+        if (!this.artifacts) return;
+        await this.artifacts.store({
+            ...owner,
+            logicalKey,
+            type: "SIGNED_XML",
+            fileName: `${fileBase}-signed.xml`,
+            body: Buffer.from(signedXml, "latin1"),
+            mimeType: "application/xml",
+        });
+        await this.artifacts.store({
+            ...owner,
+            logicalKey,
+            type: "SUBMISSION_ZIP",
+            fileName: `${fileBase}-submission.zip`,
+            body: zipBuffer,
+            mimeType: "application/zip",
+        });
+    }
+
+    private async storeResponseArtifacts(
+        owner: { ownerType: "DISPATCH" | "RESUMEN" | "BAJA"; ownerId: number },
+        logicalKey: string,
+        fileBase: string,
+        response: { cdrZip?: Buffer; cdrXml?: string; soapXml?: string },
+    ): Promise<void> {
+        if (!this.artifacts) return;
+        if (response.cdrZip) {
+            await this.artifacts.store({
+                ...owner,
+                logicalKey,
+                type: "CDR_ZIP",
+                fileName: `${fileBase}-cdr.zip`,
+                body: response.cdrZip,
+                mimeType: "application/zip",
+            });
+        }
+        if (response.cdrXml) {
+            await this.artifacts.store({
+                ...owner,
+                logicalKey,
+                type: "CDR_XML",
+                fileName: `${fileBase}-cdr.xml`,
+                body: Buffer.from(response.cdrXml, "utf8"),
+                mimeType: "application/xml",
+            });
+        }
+        if (response.soapXml) {
+            await this.artifacts.storeSoap({
+                ...owner,
+                logicalKey,
+                fileName: `${fileBase}-soap-response.xml`,
+                xml: response.soapXml,
+            });
+        }
+    }
+
+    private async scheduleTicketPoll(ownerType: "RESUMEN" | "BAJA", ownerId: number): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        const idempotencyKey = `poll-ticket:${ownerType.toLowerCase()}:${ownerId}`;
+        await prisma.sunatJob.upsert({
+            where: {
+                tenantId_type_idempotencyKey: {
+                    tenantId,
+                    type: "POLL_TICKET",
+                    idempotencyKey,
+                },
+            },
+            create: {
+                tenantId,
+                type: "POLL_TICKET",
+                idempotencyKey,
+                correlationId: idempotencyKey,
+                payload: { tenantId, ownerType, ownerId },
+                maxAttempts: 20,
+                nextRunAt: new Date(Date.now() + 30_000),
+            },
+            update: {},
+        });
+    }
+
+    private async schedulePdf(comprobanteId: number): Promise<void> {
+        if (!this.artifacts) return;
+        const tenantId = TenantDataContext.requireTenantId();
+        const idempotencyKey = `generate-pdf:${comprobanteId}`;
+        await prisma.sunatJob.upsert({
+            where: {
+                tenantId_type_idempotencyKey: {
+                    tenantId,
+                    type: "GENERATE_PDF",
+                    idempotencyKey,
+                },
+            },
+            create: {
+                tenantId,
+                type: "GENERATE_PDF",
+                idempotencyKey,
+                correlationId: idempotencyKey,
+                payload: { tenantId, ownerId: comprobanteId },
+            },
+            update: {},
+        });
     }
 
     private get config(): SunatConfig {
@@ -196,6 +329,31 @@ export class ComprobanteService {
         if (this.injectedConfig) return;
         const tenantId = TenantDataContext.requireTenantId();
         const resolved = await loadSunatConfig();
+        if (resolved.environment === "PRODUCCION") {
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: {
+                    kind: true,
+                    status: true,
+                    sunatProductionEnabled: true,
+                    sunatEmisorConfigs: {
+                        select: { certNotAfter: true },
+                        take: 1,
+                    },
+                },
+            });
+            const certNotAfter = tenant?.sunatEmisorConfigs[0]?.certNotAfter;
+            if (
+                !tenant
+                || tenant.kind === "TRIAL"
+                || tenant.status !== "ACTIVE"
+                || !tenant.sunatProductionEnabled
+                || !certNotAfter
+                || certNotAfter <= new Date()
+            ) {
+                throw CustomError.forbidden("SUNAT producción no está aprobado o el certificado está vencido");
+            }
+        }
         this.tenantRuntime.set(tenantId, {
             config: resolved,
             signer: new XmlSignerService(resolved),
@@ -259,10 +417,39 @@ export class ComprobanteService {
 
         const totales = this.computeTotales(lineas);
         const tipoCodigo = TIPO_CODIGO[tipo];
+        const tenantId = TenantDataContext.requireTenantId();
+        const idempotencyKey = normalizeIdempotencyKey(
+            options.idempotencyKey ?? `order:${order.id}:${tipo}`,
+        );
+        const requestSha256 = payloadSha256({
+            operation: "emitirDesdeOrder",
+            orderId: order.id,
+            tipo,
+            cliente,
+            lineas,
+            totales,
+            viaResumen: options.viaResumen === true,
+        });
+        const replay = await prisma.comprobante.findUnique({
+            where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+        });
+        if (replay) {
+            if (replay.payloadSha256 !== requestSha256) {
+                throw new CustomError("Idempotency-Key ya fue usada con otro payload", 409);
+            }
+            return this.reload(replay.id);
+        }
 
         // Reserva de numero + creacion del comprobante en una transaccion
-        const comprobante = await prisma.$transaction(async (tx) => {
-            const { serieId, serie, numero } = await reserveNextNumber(tx, tipo);
+        let comprobante: Comprobante;
+        try {
+            comprobante = await prisma.$transaction(async (tx) => {
+            const { serieId, serie, numero, scopeKey } = await reserveNextNumber(
+                tx,
+                tipo,
+                undefined,
+                order.sourceStoreId,
+            );
             const nombreArchivo = `${this.config.ruc}-${tipoCodigo}-${serie}-${numero}`;
 
             return tx.comprobante.create({
@@ -272,6 +459,9 @@ export class ComprobanteService {
                     serie,
                     numero,
                     nombreArchivo,
+                    numberingScope: scopeKey,
+                    idempotencyKey,
+                    payloadSha256: requestSha256,
                     estado: "BORRADOR",
                     emisorRuc: this.config.ruc,
                     emisorRazonSocial: this.config.razonSocial,
@@ -308,7 +498,16 @@ export class ComprobanteService {
                     },
                 },
             });
-        });
+            });
+        } catch (caught) {
+            if (caught instanceof Prisma.PrismaClientKnownRequestError && caught.code === "P2002") {
+                const raced = await prisma.comprobante.findUnique({
+                    where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+                });
+                if (raced?.payloadSha256 === requestSha256) return this.reload(raced.id);
+            }
+            throw caught;
+        }
 
         // Boleta por Resumen Diario: se queda en BORRADOR hasta que se genere el RC.
         if (tipo === "BOLETA" && options.viaResumen) {
@@ -316,7 +515,13 @@ export class ComprobanteService {
         }
 
         const data = this.toComprobanteData(comprobante, cliente, lineas, totales);
-        return this.enviar(comprobante.id, data, options.dryRun ?? false);
+        return this.enviar(
+            comprobante.id,
+            data,
+            options.dryRun ?? false,
+            idempotencyKey,
+            requestSha256,
+        );
     }
 
     // -------- Emitir nota de credito / debito sobre un comprobante aceptado --------
@@ -364,9 +569,32 @@ export class ComprobanteService {
             numDoc: base.clienteNumDoc,
             nombre: base.clienteNombre,
         };
+        const tenantId = TenantDataContext.requireTenantId();
+        const idempotencyKey = normalizeIdempotencyKey(
+            options.idempotencyKey
+                ?? `note:${base.id}:${tipoNota}:${options.codigoMotivo}`,
+        );
+        const requestSha256 = payloadSha256({
+            operation: "emitirNota",
+            comprobanteAfectadoId: base.id,
+            tipoNota,
+            codigoMotivo: options.codigoMotivo,
+            descripcionMotivo: options.descripcionMotivo,
+            lineas,
+            totales,
+        });
+        const replay = await prisma.comprobante.findUnique({
+            where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+        });
+        if (replay) {
+            if (replay.payloadSha256 !== requestSha256) {
+                throw new CustomError("Idempotency-Key ya fue usada con otro payload", 409);
+            }
+            return this.reload(replay.id);
+        }
 
         const nota = await prisma.$transaction(async (tx) => {
-            const { serieId, serie, numero } = await reserveNextNumber(tx, tipoNota, serieBaseNota);
+            const { serieId, serie, numero, scopeKey } = await reserveNextNumber(tx, tipoNota, serieBaseNota);
             const nombreArchivo = `${this.config.ruc}-${tipoCodigo}-${serie}-${numero}`;
 
             return tx.comprobante.create({
@@ -376,6 +604,9 @@ export class ComprobanteService {
                     serie,
                     numero,
                     nombreArchivo,
+                    numberingScope: scopeKey,
+                    idempotencyKey,
+                    payloadSha256: requestSha256,
                     estado: "BORRADOR",
                     emisorRuc: this.config.ruc,
                     emisorRazonSocial: this.config.razonSocial,
@@ -430,11 +661,23 @@ export class ComprobanteService {
             serieNumeroAfectado: `${base.serie}-${base.numero}`,
         });
 
-        return this.enviar(nota.id, data, options.dryRun ?? false);
+        return this.enviar(
+            nota.id,
+            data,
+            options.dryRun ?? false,
+            idempotencyKey,
+            requestSha256,
+        );
     }
 
     // -------- Envio: firma + zip + sendBill + CDR --------
-    private async enviar(comprobanteId: number, data: ComprobanteData, dryRun: boolean): Promise<Comprobante> {
+    private async enviar(
+        comprobanteId: number,
+        data: ComprobanteData,
+        dryRun: boolean,
+        idempotencyKey: string,
+        requestSha256: string,
+    ): Promise<Comprobante> {
         const built = buildComprobanteXml(data);
 
         if (dryRun) {
@@ -447,8 +690,12 @@ export class ComprobanteService {
                     metodo: "sendBill",
                     documentTypeCode: built.documentTypeCode,
                     status: "SIMULATED",
+                    idempotencyKey: `${idempotencyKey}:dry-run`,
+                    requestSha256,
                     cdrDescription: "Dry run local: XML/ZIP generados sin envio a SUNAT",
-                    xmlBase64: Buffer.from(built.xml, "latin1").toString("base64"),
+                    xmlBase64: this.artifacts
+                        ? null
+                        : Buffer.from(built.xml, "latin1").toString("base64"),
                 },
             });
             return this.reload(comprobanteId);
@@ -457,6 +704,16 @@ export class ComprobanteService {
         const signedXml = this.signer.sign(built.xml);
         const zipBuffer = await this.zip.createSingleFileZip(`${built.nombreArchivo}.xml`, signedXml);
         const xmlBase64 = Buffer.from(signedXml, "latin1").toString("base64");
+
+        // La evidencia exacta se conserva antes de cualquier llamada SOAP. Si
+        // storage falla, la emisión se aborta sin enviar a SUNAT.
+        await this.storeSubmissionArtifacts(
+            { ownerType: "COMPROBANTE", ownerId: comprobanteId },
+            `comprobante-${comprobanteId}`,
+            built.nombreArchivo,
+            signedXml,
+            zipBuffer,
+        );
 
         const response = await this.soap.sendBill({
             endpoint: this.config.endpointBill,
@@ -469,7 +726,7 @@ export class ComprobanteService {
         });
 
         if (!response.ok || !response.applicationResponseBase64) {
-            await prisma.sunatDispatch.create({
+            const dispatch = await prisma.sunatDispatch.create({
                 data: {
                     comprobanteId,
                     environment: this.config.environment,
@@ -478,12 +735,20 @@ export class ComprobanteService {
                     metodo: "sendBill",
                     documentTypeCode: built.documentTypeCode,
                     status: "ERROR",
+                    idempotencyKey: `${idempotencyKey}:send-bill`,
+                    requestSha256,
                     faultCode: response.faultCode ?? null,
                     faultString: response.faultString ?? null,
-                    rawResponseXml: response.rawResponseXml,
-                    xmlBase64,
+                    rawResponseXml: this.artifacts ? null : response.rawResponseXml,
+                    xmlBase64: this.artifacts ? null : xmlBase64,
                 },
             });
+            await this.storeResponseArtifacts(
+                { ownerType: "DISPATCH", ownerId: dispatch.id },
+                `dispatch-${dispatch.id}`,
+                built.nombreArchivo,
+                { soapXml: response.rawResponseXml },
+            );
             await prisma.comprobante.update({ where: { id: comprobanteId }, data: { estado: "ERROR" } });
             return this.reload(comprobanteId);
         }
@@ -492,7 +757,7 @@ export class ComprobanteService {
         const cdrXml = await this.zip.getFirstXmlFromZip(cdrZip);
         const parsed = parseCdr(cdrXml);
 
-        await prisma.sunatDispatch.create({
+        const dispatch = await prisma.sunatDispatch.create({
             data: {
                 comprobanteId,
                 environment: this.config.environment,
@@ -501,19 +766,34 @@ export class ComprobanteService {
                 metodo: "sendBill",
                 documentTypeCode: built.documentTypeCode,
                 status: parsed.status,
+                idempotencyKey: `${idempotencyKey}:send-bill`,
+                requestSha256,
                 cdrCode: parsed.cdrCode ?? null,
                 cdrDescription: parsed.cdrDescription ?? null,
                 cdrNotes: parsed.cdrNotes,
-                cdrZipBase64: response.applicationResponseBase64,
-                rawResponseXml: response.rawResponseXml,
-                xmlBase64,
+                cdrZipBase64: this.artifacts ? null : response.applicationResponseBase64,
+                rawResponseXml: this.artifacts ? null : response.rawResponseXml,
+                xmlBase64: this.artifacts ? null : xmlBase64,
             },
         });
+        await this.storeResponseArtifacts(
+            { ownerType: "DISPATCH", ownerId: dispatch.id },
+            `dispatch-${dispatch.id}`,
+            built.nombreArchivo,
+            {
+                cdrZip,
+                cdrXml,
+                soapXml: response.rawResponseXml,
+            },
+        );
 
         await prisma.comprobante.update({
             where: { id: comprobanteId },
             data: { estado: estadoFromDispatch(parsed.status) },
         });
+        if (parsed.status === "ACCEPTED" || parsed.status === "ACCEPTED_WITH_OBSERVATIONS") {
+            await this.schedulePdf(comprobanteId);
+        }
 
         return this.reload(comprobanteId);
     }
@@ -521,12 +801,34 @@ export class ComprobanteService {
     // -------- Resumen Diario de boletas (envio asincrono) --------
     // Agrupa las boletas en BORRADOR (aun no informadas) de una fecha y las
     // envia a SUNAT via sendSummary, obteniendo un ticket para consultar luego.
-    async generarResumenDiario(fecha?: string): Promise<ResumenDiario> {
+    async generarResumenDiario(fecha?: string, idempotencyKey?: string): Promise<ResumenDiario> {
         await this.ensureReady();
-        const dia = fecha ? new Date(`${fecha}T00:00:00.000Z`) : new Date();
-        if (Number.isNaN(dia.getTime())) throw CustomError.badRequest("Fecha invalida (usar YYYY-MM-DD)");
-        const inicio = this.dateOnly(dia);
+        if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+            throw CustomError.badRequest("Fecha invalida (usar YYYY-MM-DD)");
+        }
+        const inicio = fecha
+            ? new Date(`${fecha}T00:00:00.000Z`)
+            : this.dateOnly(new Date());
+        if (
+            Number.isNaN(inicio.getTime())
+            || (fecha && inicio.toISOString().slice(0, 10) !== fecha)
+        ) {
+            throw CustomError.badRequest("Fecha invalida (usar YYYY-MM-DD)");
+        }
         const fin = new Date(inicio.getTime() + 24 * 60 * 60 * 1000);
+        const requestSha256 = createHash("sha256")
+            .update(JSON.stringify({ operation: "RESUMEN_ADICION", fecha: inicio.toISOString().slice(0, 10) }))
+            .digest("hex");
+        const requestKey = normalizeIdempotencyKey(
+            idempotencyKey ?? `resumen:add:${inicio.toISOString().slice(0, 10)}`,
+        );
+        const replay = await prisma.resumenDiario.findFirst({ where: { idempotencyKey: requestKey } });
+        if (replay) {
+            if (replay.payloadSha256 !== requestSha256) {
+                throw new CustomError("La idempotency key ya fue usada con otra solicitud", 409);
+            }
+            return this.reloadResumen(replay.id);
+        }
 
         // Incluye boletas (03) y sus notas de credito/debito (07/08), todas en BORRADOR.
         // Las notas de boleta se informan por Resumen Diario, no por sendBill individual.
@@ -553,17 +855,29 @@ export class ComprobanteService {
             throw CustomError.badRequest("No hay boletas ni notas de boleta en borrador para esa fecha");
         }
 
-        return this.enviarResumen(boletas, inicio, false);
+        return this.enviarResumen(boletas, inicio, false, requestKey, requestSha256);
     }
 
     // Anula boletas ya aceptadas por SUNAT enviando un Resumen Diario con
     // estado 3 (anulacion). Las boletas deben compartir fecha de emision.
-    async anularBoletasPorResumen(comprobanteIds: number[]): Promise<ResumenDiario> {
+    async anularBoletasPorResumen(comprobanteIds: number[], idempotencyKey?: string): Promise<ResumenDiario> {
         await this.ensureReady();
         if (!comprobanteIds.length) throw CustomError.badRequest("Indica las boletas a anular");
+        const normalizedIds = [...new Set(comprobanteIds)].sort((a, b) => a - b);
+        const requestSha256 = createHash("sha256")
+            .update(JSON.stringify({ operation: "RESUMEN_ANULACION", comprobanteIds: normalizedIds }))
+            .digest("hex");
+        const requestKey = normalizeIdempotencyKey(idempotencyKey ?? `resumen:void:${requestSha256}`);
+        const replay = await prisma.resumenDiario.findFirst({ where: { idempotencyKey: requestKey } });
+        if (replay) {
+            if (replay.payloadSha256 !== requestSha256) {
+                throw new CustomError("La idempotency key ya fue usada con otra solicitud", 409);
+            }
+            return this.reloadResumen(replay.id);
+        }
 
-        const boletas = await prisma.comprobante.findMany({ where: { id: { in: comprobanteIds } } });
-        if (boletas.length !== comprobanteIds.length) {
+        const boletas = await prisma.comprobante.findMany({ where: { id: { in: normalizedIds } } });
+        if (boletas.length !== normalizedIds.length) {
             throw CustomError.notFound("Alguna de las boletas no existe");
         }
 
@@ -581,7 +895,13 @@ export class ComprobanteService {
             throw CustomError.badRequest("Las boletas deben tener la misma fecha de emision");
         }
 
-        return this.enviarResumen(boletas, this.dateOnly(boletas[0]!.fechaEmision), true);
+        return this.enviarResumen(
+            boletas,
+            this.dateOnly(boletas[0]!.fechaEmision),
+            true,
+            requestKey,
+            requestSha256,
+        );
     }
 
     // Construye, firma y envia un Resumen Diario (adicion o anulacion).
@@ -589,6 +909,8 @@ export class ComprobanteService {
         boletas: ComprobanteConAfectado[],
         fechaReferencia: Date,
         esAnulacion: boolean,
+        idempotencyKey: string,
+        payloadSha256: string,
     ): Promise<ResumenDiario> {
         // En fallo de envio, revertir al estado previo del que partieron las boletas.
         const estadoRevert: ComprobanteEstado = esAnulacion ? "ACEPTADO" : "BORRADOR";
@@ -643,6 +965,8 @@ export class ComprobanteService {
                     environment: this.config.environment,
                     endpoint: this.config.endpointBill,
                     status: "PENDING",
+                    idempotencyKey,
+                    payloadSha256,
                 },
             });
             await tx.comprobante.updateMany({
@@ -655,6 +979,14 @@ export class ComprobanteService {
         const signedXml = this.signer.sign(built.xml);
         const zipBuffer = await this.zip.createSingleFileZip(`${built.fileName}.xml`, signedXml);
         const xmlBase64 = Buffer.from(signedXml, "latin1").toString("base64");
+
+        await this.storeSubmissionArtifacts(
+            { ownerType: "RESUMEN", ownerId: resumen.id },
+            `resumen-${resumen.id}`,
+            built.fileName,
+            signedXml,
+            zipBuffer,
+        );
 
         const response = await this.soap.sendSummary({
             endpoint: this.config.endpointBill,
@@ -678,18 +1010,35 @@ export class ComprobanteService {
                         status: "ERROR",
                         faultCode: response.faultCode ?? null,
                         faultString: response.faultString ?? null,
-                        rawResponseXml: response.rawResponseXml,
-                        xmlBase64,
+                        rawResponseXml: this.artifacts ? null : response.rawResponseXml,
+                        xmlBase64: this.artifacts ? null : xmlBase64,
                     },
                 }),
             ]);
+            await this.storeResponseArtifacts(
+                { ownerType: "RESUMEN", ownerId: resumen.id },
+                `resumen-${resumen.id}-send`,
+                built.fileName,
+                { soapXml: response.rawResponseXml },
+            );
             return this.reloadResumen(resumen.id);
         }
 
         await prisma.resumenDiario.update({
             where: { id: resumen.id },
-            data: { ticket: response.ticket, xmlBase64, rawResponseXml: response.rawResponseXml },
+            data: {
+                ticket: response.ticket,
+                xmlBase64: this.artifacts ? null : xmlBase64,
+                rawResponseXml: this.artifacts ? null : response.rawResponseXml,
+            },
         });
+        await this.scheduleTicketPoll("RESUMEN", resumen.id);
+        await this.storeResponseArtifacts(
+            { ownerType: "RESUMEN", ownerId: resumen.id },
+            `resumen-${resumen.id}-send`,
+            built.fileName,
+            { soapXml: response.rawResponseXml },
+        );
 
         return this.reloadResumen(resumen.id);
     }
@@ -711,12 +1060,18 @@ export class ComprobanteService {
         );
 
         if (!response.ok) {
+            await this.storeResponseArtifacts(
+                { ownerType: "RESUMEN", ownerId: resumen.id },
+                `resumen-${resumen.id}-status-error`,
+                resumen.fileName,
+                { soapXml: response.rawResponseXml },
+            );
             await prisma.resumenDiario.update({
                 where: { id: resumen.id },
                 data: {
                     faultCode: response.faultCode ?? null,
                     faultString: response.faultString ?? null,
-                    rawResponseXml: response.rawResponseXml,
+                    rawResponseXml: this.artifacts ? null : response.rawResponseXml,
                 },
             });
             return this.reloadResumen(resumen.id);
@@ -731,7 +1086,7 @@ export class ComprobanteService {
         if (!response.applicationResponseBase64) {
             await prisma.resumenDiario.update({
                 where: { id: resumen.id },
-                data: { rawResponseXml: response.rawResponseXml },
+                data: { rawResponseXml: this.artifacts ? null : response.rawResponseXml },
             });
             return this.reloadResumen(resumen.id);
         }
@@ -739,6 +1094,13 @@ export class ComprobanteService {
         const cdrZip = Buffer.from(response.applicationResponseBase64, "base64");
         const cdrXml = await this.zip.getFirstXmlFromZip(cdrZip);
         const parsed = parseCdr(cdrXml);
+
+        await this.storeResponseArtifacts(
+            { ownerType: "RESUMEN", ownerId: resumen.id },
+            `resumen-${resumen.id}-cdr`,
+            resumen.fileName,
+            { cdrZip, cdrXml, soapXml: response.rawResponseXml },
+        );
 
         await prisma.$transaction(async (tx) => {
             await tx.resumenDiario.update({
@@ -748,8 +1110,8 @@ export class ComprobanteService {
                     cdrCode: parsed.cdrCode ?? null,
                     cdrDescription: parsed.cdrDescription ?? null,
                     cdrNotes: parsed.cdrNotes,
-                    cdrZipBase64: response.applicationResponseBase64 ?? null,
-                    rawResponseXml: response.rawResponseXml,
+                    cdrZipBase64: this.artifacts ? null : response.applicationResponseBase64 ?? null,
+                    rawResponseXml: this.artifacts ? null : response.rawResponseXml,
                 },
             });
 
@@ -769,6 +1131,14 @@ export class ComprobanteService {
             }
         });
 
+        if (parsed.status === "ACCEPTED" || parsed.status === "ACCEPTED_WITH_OBSERVATIONS") {
+            const comprobantes = await prisma.comprobante.findMany({
+                where: { resumenDiarioId: resumen.id },
+                select: { id: true },
+            });
+            for (const comprobante of comprobantes) await this.schedulePdf(comprobante.id);
+        }
+
         return this.reloadResumen(resumen.id);
     }
 
@@ -784,18 +1154,33 @@ export class ComprobanteService {
     // -------- Comunicacion de Baja (anula facturas y notas aceptadas) --------
     async generarComunicacionBaja(
         items: Array<{ comprobanteId: number; motivo: string }>,
+        idempotencyKey?: string,
     ): Promise<ComunicacionBaja> {
         await this.ensureReady();
         if (!items.length) throw CustomError.badRequest("Debes indicar al menos un comprobante a dar de baja");
+        const canonicalItems = items
+            .map((item) => ({ comprobanteId: item.comprobanteId, motivo: item.motivo.trim() }))
+            .sort((a, b) => a.comprobanteId - b.comprobanteId);
+        const requestSha256 = createHash("sha256")
+            .update(JSON.stringify({ operation: "COMUNICACION_BAJA", items: canonicalItems }))
+            .digest("hex");
+        const requestKey = normalizeIdempotencyKey(idempotencyKey ?? `baja:${requestSha256}`);
+        const replay = await prisma.comunicacionBaja.findFirst({ where: { idempotencyKey: requestKey } });
+        if (replay) {
+            if (replay.payloadSha256 !== requestSha256) {
+                throw new CustomError("La idempotency key ya fue usada con otra solicitud", 409);
+            }
+            return this.reloadBaja(replay.id);
+        }
 
-        const ids = items.map((i) => i.comprobanteId);
+        const ids = canonicalItems.map((i) => i.comprobanteId);
         const comprobantes = await prisma.comprobante.findMany({ where: { id: { in: ids } } });
 
         if (comprobantes.length !== ids.length) {
             throw CustomError.notFound("Alguno de los comprobantes no existe");
         }
 
-        const motivoPorId = new Map(items.map((i) => [i.comprobanteId, i.motivo.trim()]));
+        const motivoPorId = new Map(canonicalItems.map((i) => [i.comprobanteId, i.motivo]));
 
         for (const c of comprobantes) {
             if (c.tipo === "BOLETA") {
@@ -851,6 +1236,8 @@ export class ComprobanteService {
                     environment: this.config.environment,
                     endpoint: this.config.endpointBill,
                     status: "PENDING",
+                    idempotencyKey: requestKey,
+                    payloadSha256: requestSha256,
                 },
             });
             for (const c of comprobantes) {
@@ -865,6 +1252,14 @@ export class ComprobanteService {
         const signedXml = this.signer.sign(built.xml);
         const zipBuffer = await this.zip.createSingleFileZip(`${built.fileName}.xml`, signedXml);
         const xmlBase64 = Buffer.from(signedXml, "latin1").toString("base64");
+
+        await this.storeSubmissionArtifacts(
+            { ownerType: "BAJA", ownerId: baja.id },
+            `baja-${baja.id}`,
+            built.fileName,
+            signedXml,
+            zipBuffer,
+        );
 
         const response = await this.soap.sendSummary({
             endpoint: this.config.endpointBill,
@@ -888,18 +1283,35 @@ export class ComprobanteService {
                         status: "ERROR",
                         faultCode: response.faultCode ?? null,
                         faultString: response.faultString ?? null,
-                        rawResponseXml: response.rawResponseXml,
-                        xmlBase64,
+                        rawResponseXml: this.artifacts ? null : response.rawResponseXml,
+                        xmlBase64: this.artifacts ? null : xmlBase64,
                     },
                 }),
             ]);
+            await this.storeResponseArtifacts(
+                { ownerType: "BAJA", ownerId: baja.id },
+                `baja-${baja.id}-send`,
+                built.fileName,
+                { soapXml: response.rawResponseXml },
+            );
             return this.reloadBaja(baja.id);
         }
 
         await prisma.comunicacionBaja.update({
             where: { id: baja.id },
-            data: { ticket: response.ticket, xmlBase64, rawResponseXml: response.rawResponseXml },
+            data: {
+                ticket: response.ticket,
+                xmlBase64: this.artifacts ? null : xmlBase64,
+                rawResponseXml: this.artifacts ? null : response.rawResponseXml,
+            },
         });
+        await this.scheduleTicketPoll("BAJA", baja.id);
+        await this.storeResponseArtifacts(
+            { ownerType: "BAJA", ownerId: baja.id },
+            `baja-${baja.id}-send`,
+            built.fileName,
+            { soapXml: response.rawResponseXml },
+        );
 
         return this.reloadBaja(baja.id);
     }
@@ -920,12 +1332,18 @@ export class ComprobanteService {
         );
 
         if (!response.ok) {
+            await this.storeResponseArtifacts(
+                { ownerType: "BAJA", ownerId: baja.id },
+                `baja-${baja.id}-status-error`,
+                baja.fileName,
+                { soapXml: response.rawResponseXml },
+            );
             await prisma.comunicacionBaja.update({
                 where: { id: baja.id },
                 data: {
                     faultCode: response.faultCode ?? null,
                     faultString: response.faultString ?? null,
-                    rawResponseXml: response.rawResponseXml,
+                    rawResponseXml: this.artifacts ? null : response.rawResponseXml,
                 },
             });
             return this.reloadBaja(baja.id);
@@ -938,7 +1356,7 @@ export class ComprobanteService {
         if (!response.applicationResponseBase64) {
             await prisma.comunicacionBaja.update({
                 where: { id: baja.id },
-                data: { rawResponseXml: response.rawResponseXml },
+                data: { rawResponseXml: this.artifacts ? null : response.rawResponseXml },
             });
             return this.reloadBaja(baja.id);
         }
@@ -946,6 +1364,13 @@ export class ComprobanteService {
         const cdrZip = Buffer.from(response.applicationResponseBase64, "base64");
         const cdrXml = await this.zip.getFirstXmlFromZip(cdrZip);
         const parsed = parseCdr(cdrXml);
+
+        await this.storeResponseArtifacts(
+            { ownerType: "BAJA", ownerId: baja.id },
+            `baja-${baja.id}-cdr`,
+            baja.fileName,
+            { cdrZip, cdrXml, soapXml: response.rawResponseXml },
+        );
 
         await prisma.$transaction(async (tx) => {
             await tx.comunicacionBaja.update({
@@ -955,8 +1380,8 @@ export class ComprobanteService {
                     cdrCode: parsed.cdrCode ?? null,
                     cdrDescription: parsed.cdrDescription ?? null,
                     cdrNotes: parsed.cdrNotes,
-                    cdrZipBase64: response.applicationResponseBase64 ?? null,
-                    rawResponseXml: response.rawResponseXml,
+                    cdrZipBase64: this.artifacts ? null : response.applicationResponseBase64 ?? null,
+                    rawResponseXml: this.artifacts ? null : response.rawResponseXml,
                 },
             });
 
@@ -986,7 +1411,13 @@ export class ComprobanteService {
     }
 
     private dateOnly(d: Date): Date {
-        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        const fiscalDate = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/Lima",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(d);
+        return new Date(`${fiscalDate}T00:00:00.000Z`);
     }
 
     // -------- Consultas --------

@@ -13,6 +13,7 @@ export interface NextNumberResult {
     serieId: number;
     serie: string;
     numero: number;
+    scopeKey: string;
 }
 
 // Reserva atomicamente el siguiente correlativo dentro de una transaccion.
@@ -20,34 +21,39 @@ export async function reserveNextNumber(
     tx: Prisma.TransactionClient,
     tipo: ComprobanteTipo,
     serie?: string,
+    storeId?: number | null,
 ): Promise<NextNumberResult> {
     const tenantId = TenantDataContext.requireTenantId();
     const targetSerie = serie ?? DEFAULT_SERIE[tipo];
+    const scopeKey = storeId ? `STORE-${storeId}` : "GLOBAL";
+    if (storeId) {
+        const store = await tx.store.findFirst({
+            where: { id: storeId, tenantId, isActive: true },
+            select: { id: true },
+        });
+        if (!store) throw new Error("El local fiscal no pertenece al tenant o está inactivo");
+    }
 
-    // upsert de la serie
-    const existing = await tx.comprobanteSerie.findUnique({
+    // El upsert cubre tambien la carrera de la primera numeracion de una serie.
+    const row = await tx.comprobanteSerie.upsert({
         where: {
-            tenantId_tipo_serie: {
+            tenantId_tipo_serie_scopeKey: {
                 tenantId,
                 tipo,
                 serie: targetSerie,
+                scopeKey,
             },
         },
+        create: {
+            tenantId,
+            tipo,
+            serie: targetSerie,
+            scopeKey,
+            storeId: storeId ?? null,
+            correlativo: 1,
+        },
+        update: { correlativo: { increment: 1 } },
     });
 
-    const row = existing
-        ? await tx.comprobanteSerie.update({
-              where: { id: existing.id },
-              data: { correlativo: { increment: 1 } },
-          })
-        : await tx.comprobanteSerie.create({
-              data: {
-                  tenantId,
-                  tipo,
-                  serie: targetSerie,
-                  correlativo: 1,
-              },
-          });
-
-    return { serieId: row.id, serie: row.serie, numero: row.correlativo };
+    return { serieId: row.id, serie: row.serie, numero: row.correlativo, scopeKey };
 }

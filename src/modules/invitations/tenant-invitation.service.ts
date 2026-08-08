@@ -9,6 +9,7 @@ import {
 import { platformPrisma } from "../../data/platform-prisma";
 import { tenantPrisma } from "../../data/tenant-prisma";
 import { TenantRequestContext } from "../tenant/tenant-context.service";
+import { TenantQuotaService } from "../lifecycle/tenant-lifecycle.service";
 import {
     AcceptTenantInvitationDto,
     CreateTenantInvitationDto,
@@ -154,6 +155,10 @@ export class TenantInvitationService {
             },
             select: { id: true },
         });
+
+        if (!pending) {
+            await TenantQuotaService.assertAvailable("users");
+        }
 
         const invitation = pending
             ? await tenantPrisma.tenantInvitation.update({

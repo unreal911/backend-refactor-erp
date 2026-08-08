@@ -94,6 +94,16 @@ export class TenantService {
             },
         });
 
+        await tx.tenantSubscription.create({
+            data: {
+                tenantId: tenant.id,
+                provider: "internal",
+                planCode: isTrial ? "TRIAL" : "STARTER",
+                status: isTrial ? "TRIALING" : "ACTIVE",
+                currentPeriodEndsAt: trialEndsAt,
+            },
+        });
+
         const membership = await tx.tenantMembership.create({
             data: {
                 tenantId: tenant.id,

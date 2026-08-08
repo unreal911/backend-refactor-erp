@@ -22,6 +22,7 @@ import { CreateStockTransferDto } from '../src/domain/dtos/create-stock-transfer
 import { CreateReservationDto } from '../src/domain/dtos/create-reservation.dto';
 import { ensureInventoryIntegritySchema } from '../src/data/inventory-integrity-bootstrap';
 import { tenantService } from './helpers/tenant-service';
+import { ensureTenantTestUser } from './helpers/tenant-test-user';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -40,6 +41,7 @@ const createdTransferIds: number[] = [];
 const createdStoreIds: number[] = [];
 const createdRoleIds: number[] = [];
 const createdUserIds: number[] = [];
+const createdMembershipIds: string[] = [];
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -104,19 +106,11 @@ beforeAll(async () => {
   );
   sizeId = size.id;
 
-  const existingUser = await prisma.user.findFirst();
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
-    const existingRole = await prisma.role.findFirst();
-    const role = existingRole ?? await prisma.role.create({ data: { name: `INV Role ${uniq}` } });
-    if (!existingRole) createdRoleIds.push(role.id);
-    const user = await prisma.user.create({
-      data: { firstName: 'INV', lastName: 'User', email: `inv-user-${uniq}@test.local`, password: 'x', roleId: role.id },
-    });
-    createdUserIds.push(user.id);
-    userId = user.id;
-  }
+  const testUser = await ensureTenantTestUser('INV');
+  userId = testUser.userId;
+  if (testUser.createdMembershipId) createdMembershipIds.push(testUser.createdMembershipId);
+  if (testUser.createdUserId) createdUserIds.push(testUser.createdUserId);
+  if (testUser.createdRoleId) createdRoleIds.push(testUser.createdRoleId);
 });
 
 afterAll(async () => {
@@ -131,6 +125,7 @@ afterAll(async () => {
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
     try { if (createdStoreIds.length) await prisma.store.deleteMany({ where: { id: { in: createdStoreIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
   }

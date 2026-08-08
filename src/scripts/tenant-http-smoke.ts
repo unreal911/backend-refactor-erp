@@ -144,9 +144,9 @@ async function main(): Promise<void> {
         if (unknownMarketplace.status !== 404) {
             throw new Error(`Marketplace desconocido devolvio ${unknownMarketplace.status}, se esperaba 404`);
         }
-        if (blockedLogins.some((response) => response.status !== 403)) {
+        if (blockedLogins[0]?.status !== 200 || blockedLogins[1]?.status !== 403) {
             throw new Error(
-                `Accesos bloqueados devolvieron ${blockedLogins.map((response) => response.status).join("/")}, se esperaba 403/403`,
+                `Accesos suspendido/inactivo devolvieron ${blockedLogins.map((response) => response.status).join("/")}, se esperaba 200/403`,
             );
         }
 

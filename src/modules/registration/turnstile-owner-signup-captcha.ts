@@ -18,6 +18,7 @@ export type TurnstileOwnerSignupConfig = {
     expectedAction: string;
     expectedHostnames: string[];
     timeoutMs: number;
+    allowMissingAction?: boolean;
 };
 
 export class TurnstileOwnerSignupCaptcha implements OwnerSignupCaptchaVerifier {
@@ -57,7 +58,10 @@ export class TurnstileOwnerSignupCaptcha implements OwnerSignupCaptchaVerifier {
                     ? { status: "UNAVAILABLE" }
                     : { status: "INVALID" };
             }
-            if (result.action !== this.config.expectedAction) {
+            if (
+                result.action !== this.config.expectedAction
+                && !(this.config.allowMissingAction && !result.action)
+            ) {
                 return { status: "INVALID" };
             }
             if (

@@ -11,6 +11,9 @@ const WILDCARD_PERMISSION = '*';
 
 export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'dashboard.view', name: 'Ver dashboard', module: 'dashboard', description: 'Permite ver panel principal' },
+    { code: 'reports.view', name: 'Ver reportes', module: 'reports', description: 'Permite crear y consultar reportes personalizados' },
+    { code: 'reports.export', name: 'Exportar reportes', module: 'reports', description: 'Permite exportar reportes personalizados a Excel' },
+    { code: 'tenant.data.export', name: 'Exportar datos de empresa', module: 'tenant', description: 'Permite descargar una exportacion logica verificable sin secretos' },
 
     { code: 'users.view', name: 'Ver usuarios', module: 'users', description: 'Permite listar usuarios' },
     { code: 'users.create', name: 'Crear usuarios', module: 'users', description: 'Permite crear usuarios' },
@@ -54,6 +57,9 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'orders.cancel', name: 'Cancelar ordenes', module: 'orders', description: 'Permite cancelar ordenes' },
     { code: 'orders.print', name: 'Imprimir ordenes', module: 'orders', description: 'Permite imprimir ordenes' },
 
+    { code: 'customers.view', name: 'Ver clientes', module: 'customers', description: 'Permite buscar y consultar clientes' },
+    { code: 'customers.manage', name: 'Gestionar clientes', module: 'customers', description: 'Permite crear y editar clientes' },
+
     { code: 'pos.view', name: 'Ver POS', module: 'pos', description: 'Permite abrir POS' },
     { code: 'pos.sell', name: 'Vender en POS', module: 'pos', description: 'Permite registrar ventas' },
     { code: 'pos.charge', name: 'Cobrar en POS', module: 'pos', description: 'Permite cobrar ventas' },
@@ -69,12 +75,15 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'settings.manage', name: 'Gestionar configuraciones', module: 'settings', description: 'Permite activar o desactivar reglas operativas globales' },
 
     { code: 'sunat.config', name: 'Configurar emisor SUNAT', module: 'sunat', description: 'Permite ver y editar la configuracion del emisor, credenciales y certificado SUNAT' }
+    ,{ code: 'sunat.documents.download', name: 'Descargar documentos SUNAT', module: 'sunat', description: 'Permite descargar XML, CDR y PDF mediante URL temporal' }
 ];
 
 export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
     ADMIN: [WILDCARD_PERMISSION],
     MANAGER: [
         'dashboard.view',
+        'reports.view',
+        'reports.export',
         'users.view',
         'users.create',
         'users.update',
@@ -105,6 +114,8 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'orders.status.update',
         'orders.cancel',
         'orders.print',
+        'customers.view',
+        'customers.manage',
         'pos.view',
         'pos.sell',
         'pos.charge',
@@ -119,10 +130,14 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
     ],
     SELLER: [
         'dashboard.view',
+        'reports.view',
+        'reports.export',
         'products.view',
         'orders.view',
         'orders.detail.view',
         'orders.print',
+        'customers.view',
+        'customers.manage',
         'pos.view',
         'pos.sell',
         'pos.charge',
@@ -131,6 +146,8 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
     ],
     WAREHOUSE: [
         'dashboard.view',
+        'reports.view',
+        'reports.export',
         'products.view',
         'stores.view',
         'inventory.view',

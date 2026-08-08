@@ -2,11 +2,16 @@ import { Router } from "express";
 import { AuthMiddleware } from "../../presentation/auth/middleware";
 import { SunatController } from "./controller";
 import { EmisorConfigController } from "./config/emisor-config.controller";
+import { SunatArtifactController } from "./artifact.controller";
+import { getSunatArtifactServiceFromEnvironment } from "./services/sunat-artifact.service";
 
 export function registerSunatModuleRoutes(router: Router): void {
     const sunat = Router();
     const controller = new SunatController();
     const configController = new EmisorConfigController();
+    const artifactController = new SunatArtifactController(
+        getSunatArtifactServiceFromEnvironment(),
+    );
 
     // Configuracion del emisor (RUC, credenciales, certificado). Permiso dedicado.
     const requireConfig = AuthMiddleware.requirePermission("sunat.config");
@@ -24,6 +29,16 @@ export function registerSunatModuleRoutes(router: Router): void {
     sunat.post("/comprobantes/:id/nota-credito", controller.emitirNotaCredito);
     sunat.post("/comprobantes/:id/nota-debito", controller.emitirNotaDebito);
     sunat.get("/comprobantes/:id", controller.obtener);
+    sunat.get(
+        "/comprobantes/:id/artifacts",
+        AuthMiddleware.requirePermission("sunat.documents.download"),
+        artifactController.listForComprobante,
+    );
+    sunat.get(
+        "/artifacts/:id/download",
+        AuthMiddleware.requirePermission("sunat.documents.download"),
+        artifactController.download,
+    );
 
     // Bandeja de declaracion: lotes de boletas/notas pendientes de informar
     sunat.get("/pendientes", controller.listarPendientes);

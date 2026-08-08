@@ -78,6 +78,13 @@ export class AuthMiddleware {
             };
             req.tenant = tenantContext;
 
+            const safeMethod = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
+            if (tenantContext.tenant.readOnly && !safeMethod) {
+                return res.status(403).json({
+                    message: 'La empresa está en modo de solo lectura',
+                });
+            }
+
             if (Array.isArray(decoded.permissions)) {
                 req.user.permissions = decoded.permissions;
             }

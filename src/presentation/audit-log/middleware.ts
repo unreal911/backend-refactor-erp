@@ -28,6 +28,7 @@ export class AuditLogMiddleware {
                 const params = this.sanitizeValue(req.params);
 
                 registerResponseTask(res, service.registerRequest({
+                    correlationId: (req as Request & { correlationId?: string }).correlationId ?? null,
                     tenantId: (req as AuthRequest).tenant?.tenant.id
                         ?? (req as PublicTenantRequest).publicTenant?.id
                         ?? null,

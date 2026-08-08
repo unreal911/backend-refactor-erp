@@ -136,7 +136,7 @@ beforeAll(async () => {
         data: {
             slug: `mig007-${tag}`,
             name: `MIG007 ${tag}`,
-            status: "SUSPENDED",
+            status: "ACTIVE",
         },
     });
     tenantBId = tenant.id;

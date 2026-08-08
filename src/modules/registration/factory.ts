@@ -4,6 +4,8 @@ import { SmtpOwnerVerificationEmailSender } from "./smtp-owner-verification-emai
 import { OwnerSignupAbuseService } from "./owner-signup-abuse.service";
 import { TurnstileOwnerSignupCaptcha } from "./turnstile-owner-signup-captcha";
 
+const TURNSTILE_ALWAYS_PASS_TEST_SECRET = "1x0000000000000000000000000000000AA";
+
 function requireSignupSetting(name: string, value: string): string {
     const normalized = value.trim();
     if (!normalized) {
@@ -93,11 +95,21 @@ OwnerSignupAbuseService | null {
         throw new Error("OWNER_SIGNUP_ENABLED requiere TURNSTILE_EXPECTED_HOSTNAMES en producción");
     }
 
+    const turnstileSecretKey = requireSignupSetting(
+        "TURNSTILE_SECRET_KEY",
+        envs.TURNSTILE_SECRET_KEY,
+    );
+    const usesAlwaysPassTestSecret = turnstileSecretKey === TURNSTILE_ALWAYS_PASS_TEST_SECRET;
+    if (envs.IS_PRODUCTION && usesAlwaysPassTestSecret) {
+        throw new Error("TURNSTILE_SECRET_KEY de prueba no esta permitida en produccion");
+    }
+
     const captcha = new TurnstileOwnerSignupCaptcha({
-        secretKey: requireSignupSetting("TURNSTILE_SECRET_KEY", envs.TURNSTILE_SECRET_KEY),
+        secretKey: turnstileSecretKey,
         expectedAction,
         expectedHostnames,
         timeoutMs: envs.TURNSTILE_TIMEOUT_MS,
+        allowMissingAction: !envs.IS_PRODUCTION && usesAlwaysPassTestSecret,
     });
     return new OwnerSignupAbuseService(captcha, {
         fingerprintPepper,
