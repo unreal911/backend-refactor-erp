@@ -59,6 +59,8 @@ model Product {
   tenantId    String  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   name        String
+  // Unicidad lógica por empresa mediante el índice funcional
+  // Product_tenantId_name_normalized_key (REL-001).
   description String?
 
   isActive Boolean @default(true)
