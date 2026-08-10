@@ -309,6 +309,22 @@ describe("MIG-006: conciliación de movimientos y transferencias", () => {
         expect(transfer?.status).toBe("PENDING");
         transferIds.push(transfer!.id);
 
+        expect((await inTenant(
+            tenantBId,
+            () => prisma.inventory.findUnique({
+                where: { id: originInventoryBId },
+            }),
+        ))?.stock).toBe(20);
+
+        const dispatched = await inTenant(
+            tenantBId,
+            () => new InventoryService().dispatchStockTransfer(
+                transfer!.id,
+                userId,
+            ),
+        );
+        expect(dispatched?.status).toBe("IN_TRANSIT");
+
         const [sourceAfterDispatch, tenantBTransfers, legacyTransfers] =
             await Promise.all([
                 inTenant(tenantBId, () => prisma.inventory.findUnique({
@@ -372,7 +388,7 @@ describe("MIG-006: conciliación de movimientos y transferencias", () => {
         )).toBe(2);
     });
 
-    it("cancela una pendiente, repone el origen y no permite recibirla", async (ctx) => {
+    it("cancela una pendiente sin tocar stock y no permite recibirla", async (ctx) => {
         if (!dbReady) return ctx.skip();
 
         const transfer = await inTenant(
@@ -388,7 +404,7 @@ describe("MIG-006: conciliación de movimientos y transferencias", () => {
             () => prisma.inventory.findUnique({
                 where: { id: originInventoryBId },
             }),
-        ))?.stock).toBe(10);
+        ))?.stock).toBe(14);
 
         const cancelled = await inTenant(
             tenantBId,
@@ -411,9 +427,7 @@ describe("MIG-006: conciliación de movimientos y transferencias", () => {
                 orderBy: { id: "asc" },
             }),
         );
-        expect(movements.map((row) => row.type))
-            .toEqual(["TRANSFER_OUT", "ADJUSTMENT"]);
-        expect(movements[1]?.newStock).toBe(14);
+        expect(movements).toEqual([]);
 
         await expect(inTenant(
             tenantBId,
@@ -434,7 +448,7 @@ describe("MIG-006: conciliación de movimientos y transferencias", () => {
             () => prisma.inventoryMovement.count({
                 where: { transferId: transfer!.id },
             }),
-        )).toBe(2);
+        )).toBe(0);
     });
 
     it("serializa la carrera recibir/cancelar y conserva las unidades", async (ctx) => {
@@ -448,6 +462,14 @@ describe("MIG-006: conciliación de movimientos y transferencias", () => {
             ),
         );
         transferIds.push(transfer!.id);
+        const dispatched = await inTenant(
+            tenantBId,
+            () => new InventoryService().dispatchStockTransfer(
+                transfer!.id,
+                userId,
+            ),
+        );
+        expect(dispatched?.status).toBe("IN_TRANSIT");
         const results = await Promise.allSettled([
             inTenant(
                 tenantBId,

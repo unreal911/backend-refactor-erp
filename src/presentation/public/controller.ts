@@ -145,14 +145,21 @@ export class PublicController {
         }
     };
 
-    createMarketplaceOrder = async (req: Request, res: Response) => {
+    createMarketplaceOrder = async (req: MarketplaceAuthRequest, res: Response) => {
         const [error, dto] = CreateMarketplaceOrderDto.create(req.body as { [key: string]: unknown });
         if (error) {
             return res.status(400).json({ message: error });
         }
 
         try {
-            const order = await this.orderService.createMarketplaceOrder(dto!);
+            const marketplaceCustomerId = Number(req.marketplaceCustomer?.id || 0);
+            if (marketplaceCustomerId > 0) {
+                await this.marketplaceAuthService.me(marketplaceCustomerId);
+            }
+            const order = await this.orderService.createMarketplaceOrder(
+                dto!,
+                marketplaceCustomerId > 0 ? marketplaceCustomerId : undefined,
+            );
             return res.status(201).json({
                 success: true,
                 data: order,
@@ -214,12 +221,8 @@ export class PublicController {
         }
 
         try {
-            const me = await this.marketplaceAuthService.me(customerId);
-            const user = me?.user;
-            const orders = await this.orderService.listMarketplaceOrdersByCustomerProfile({
-                phone: String(user?.phone || ''),
-                email: String(user?.email || ''),
-            });
+            await this.marketplaceAuthService.me(customerId);
+            const orders = await this.orderService.listMarketplaceOrdersByCustomerId(customerId);
 
             return res.status(200).json({
                 success: true,

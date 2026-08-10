@@ -47,6 +47,7 @@ async function seedEcommerceOrder(opts: { status?: string; quantity: number; res
   const order = await prisma.order.create({
     data: {
       code: `MK-${tag}`, // MK- => ECOMMERCE
+      salesChannel: 'ECOMMERCE',
       status: (opts.status ?? 'CONFIRMED') as any,
       sourceStoreId: storeId,
       sellerUserId: userId,

@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/data/prisma', () => {
   const client: any = {
-    order: { findUnique: vi.fn() },
+    order: { findUnique: vi.fn(), findMany: vi.fn() },
     $transaction: vi.fn(),
   };
   return { prisma: client };
@@ -26,6 +26,7 @@ function existingOrder() {
     subtotal: 100,
     tax: 18,
     total: 118,
+    marketplaceCustomerId: null,
     items: [],
   };
 }
@@ -33,6 +34,33 @@ function existingOrder() {
 describe('createMarketplaceOrder — idempotencia (replay)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('no permite reutilizar una clave idempotente de otro cliente autenticado', async () => {
+    vi.mocked(prisma.order.findUnique).mockResolvedValueOnce({
+      ...existingOrder(),
+      marketplaceCustomerId: 41,
+    } as never);
+
+    await expect(
+      new OrderService().createMarketplaceOrder({ idempotencyKey: 'MK-REPLAY' } as any, 99),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('permite el replay solamente al mismo propietario autenticado', async () => {
+    vi.mocked(prisma.order.findUnique).mockResolvedValueOnce({
+      ...existingOrder(),
+      marketplaceCustomerId: 41,
+    } as never);
+
+    const result: any = await new OrderService().createMarketplaceOrder(
+      { idempotencyKey: 'MK-REPLAY' } as any,
+      41,
+    );
+
+    expect(result.code).toBe('MK-REPLAY');
   });
 
   it('con idempotencyKey ya existente devuelve el pedido sin abrir transaccion', async () => {
@@ -77,5 +105,19 @@ describe('createMarketplaceOrder — idempotencia (replay)', () => {
         },
       }),
     );
+  });
+});
+
+describe('propiedad de pedidos marketplace autenticados', () => {
+  it('lista por marketplaceCustomerId y no por telefono o correo mutable', async () => {
+    vi.mocked(prisma.order.findMany).mockResolvedValueOnce([] as never);
+
+    await new OrderService().listMarketplaceOrdersByCustomerId(41);
+
+    expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ marketplaceCustomerId: 41 }),
+    }));
+    const call = vi.mocked(prisma.order.findMany).mock.calls[0]?.[0] as any;
+    expect(JSON.stringify(call.where)).not.toMatch(/clientPhone|clientEmail/);
   });
 });

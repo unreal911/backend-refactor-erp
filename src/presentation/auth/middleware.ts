@@ -45,6 +45,7 @@ export class AuthMiddleware {
                 tenantSlug?: string;
                 membershipId?: string;
                 tenantRole?: string;
+                authVersion?: number;
             };
 
             if (
@@ -53,6 +54,17 @@ export class AuthMiddleware {
                 || !decoded.membershipId
             ) {
                 return res.status(401).json({ message: 'Token tenant inválido' });
+            }
+
+            const tokenUser = await platformPrisma.user.findUnique({
+                where: { id: decoded.id },
+                select: { authVersion: true, isActive: true },
+            });
+            if (
+                !tokenUser?.isActive
+                || tokenUser.authVersion !== (decoded.authVersion ?? 0)
+            ) {
+                return res.status(401).json({ message: 'La sesión ya no es válida' });
             }
 
             const tenantContext = await TenantContextService.resolveAuthenticatedContext({
@@ -100,6 +112,7 @@ export class AuthMiddleware {
                     tenantSlug: tenantContext.tenant.slug,
                     membershipId: tenantContext.membership.id,
                     tenantRole: tenantContext.membership.role,
+                    authVersion: tokenUser.authVersion,
                 },
                 envs.JWT_SECRET,
                 { expiresIn: '1h' },
@@ -137,6 +150,7 @@ export class AuthMiddleware {
                 email: string;
                 role: string;
                 platformAdminId?: string;
+                authVersion?: number;
             };
             if (
                 decoded.scope !== 'platform'
@@ -155,8 +169,15 @@ export class AuthMiddleware {
                         isActive: true,
                     },
                 },
+                select: {
+                    id: true,
+                    user: { select: { authVersion: true } },
+                },
             });
-            if (!platformAdmin) {
+            if (
+                !platformAdmin
+                || platformAdmin.user.authVersion !== (decoded.authVersion ?? 0)
+            ) {
                 return res.status(403).json({ message: 'Acceso de plataforma revocado' });
             }
 

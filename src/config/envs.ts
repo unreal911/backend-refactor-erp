@@ -51,6 +51,13 @@ export const envs = {
     SMTP_PASSWORD: env.get("SMTP_PASSWORD").default("").asString(),
     SMTP_FROM: env.get("SMTP_FROM").default("").asString(),
 
+    // Recuperación de contraseña del panel administrativo.
+    PASSWORD_RESET_ENABLED: env.get("PASSWORD_RESET_ENABLED").default("false").asBool(),
+    PASSWORD_RESET_TOKEN_PEPPER: env.get("PASSWORD_RESET_TOKEN_PEPPER").default("").asString(),
+    PASSWORD_RESET_URL: env.get("PASSWORD_RESET_URL").default("").asString(),
+    PASSWORD_RESET_TTL_MINUTES: env.get("PASSWORD_RESET_TTL_MINUTES").default("30").asIntPositive(),
+    PASSWORD_RESET_COOLDOWN_SECONDS: env.get("PASSWORD_RESET_COOLDOWN_SECONDS").default("60").asIntPositive(),
+
     // EMP-005: invitaciones tenant por correo, cerradas hasta configurar SMTP.
     TENANT_INVITATION_ENABLED: env.get("TENANT_INVITATION_ENABLED").default("false").asBool(),
     TENANT_INVITATION_TOKEN_PEPPER: env.get("TENANT_INVITATION_TOKEN_PEPPER").default("").asString(),

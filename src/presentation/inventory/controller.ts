@@ -267,6 +267,32 @@ export class InventoryController {
         }
     }
 
+    dispatchStockTransfer = async (req: AuthRequest, res: Response) => {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id < 1) {
+            return res.status(400).json({ message: 'El ID de la transferencia debe ser un numero valido' });
+        }
+
+        try {
+            const transfer = await this.inventoryService.dispatchStockTransfer(id, req.user?.id);
+            this.registerUserActivity(req, {
+                module: 'TRANSFERS',
+                actionType: 'TRANSFER_DISPATCHED',
+                actionLabel: 'Transferencia despachada',
+                entityType: 'TRANSFER',
+                entityId: Number(transfer?.id || id),
+                entityCode: transfer?.code ? String(transfer.code) : null,
+                description: `Transferencia ${transfer?.code || id} despachada`,
+                products: [],
+                context: { transferId: id, fromStoreId: transfer?.fromStoreId ?? null },
+            });
+            this.publishInventoryEvent(req.user?.id, id);
+            return res.status(200).json(transfer);
+        } catch (err) {
+            return this.handleError(err, res);
+        }
+    };
+
     cancelStockTransfer = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
 

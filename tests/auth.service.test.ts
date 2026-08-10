@@ -5,6 +5,9 @@ vi.mock('../src/data/prisma', () => {
     user: {
       findUnique: vi.fn(),
     },
+    ownerRegistration: {
+      findUnique: vi.fn(),
+    },
   };
   return { prisma: client, platformPrisma: client };
 });
@@ -43,7 +46,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../src/data/prisma';
 import { LoginDto } from '../src/domain/dtos/login.dto';
-import { AuthService } from '../src/presentation/services/auth.service';
+import {
+  AccountActivationRequiredError,
+  AuthService,
+} from '../src/presentation/services/auth.service';
 import { PermissionService } from '../src/presentation/services/permission.service';
 import { TenantContextService } from '../src/modules/tenant/tenant-context.service';
 
@@ -67,6 +73,7 @@ const tenantContext = {
 describe('AuthService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.ownerRegistration.findUnique).mockResolvedValue(null as never);
   });
 
   it('throws when login user is not found', async () => {
@@ -77,6 +84,33 @@ describe('AuthService', () => {
     expect(bcrypt.compare).not.toHaveBeenCalled();
   });
 
+  it('informa cuando las credenciales pertenecen a un correo pendiente de verificar', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null as never);
+    vi.mocked(prisma.ownerRegistration.findUnique).mockResolvedValueOnce({
+      passwordHash: 'pending-hash',
+      status: 'EMAIL_PENDING',
+    } as never);
+    vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
+
+    const [, loginDto] = LoginDto.create({ email: 'pendiente@tienda.com', password: 'secret' });
+    const error = await AuthService.login(loginDto!).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(AccountActivationRequiredError);
+    expect(error).toMatchObject({ code: 'EMAIL_VERIFICATION_REQUIRED', statusCode: 403 });
+  });
+
+  it('no revela un registro pendiente cuando la contrasena no coincide', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null as never);
+    vi.mocked(prisma.ownerRegistration.findUnique).mockResolvedValueOnce({
+      passwordHash: 'pending-hash',
+      status: 'EMAIL_PENDING',
+    } as never);
+    vi.mocked(bcrypt.compare).mockResolvedValueOnce(false as never);
+
+    const [, loginDto] = LoginDto.create({ email: 'pendiente@tienda.com', password: 'wrong' });
+    await expect(AuthService.login(loginDto!)).rejects.toThrow('Credenciales invalidas');
+  });
+
   it('throws when login user is inactive', async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
       id: 1,
@@ -85,6 +119,7 @@ describe('AuthService', () => {
       email: 'demo@tienda.com',
       password: 'hashed',
       isActive: false,
+      authVersion: 0,
       role: { name: 'ADMIN' },
     } as never);
 
@@ -100,6 +135,7 @@ describe('AuthService', () => {
       email: 'demo@tienda.com',
       password: 'hashed',
       isActive: true,
+      authVersion: 0,
       role: { name: 'ADMIN' },
     } as never);
     vi.mocked(bcrypt.compare).mockResolvedValueOnce(false as never);
@@ -116,6 +152,7 @@ describe('AuthService', () => {
       email: 'demo@tienda.com',
       password: 'hashed',
       isActive: true,
+      authVersion: 0,
       role: { name: 'ADMIN' },
     } as never);
     vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
@@ -137,6 +174,7 @@ describe('AuthService', () => {
         tenantSlug: tenantContext.tenant.slug,
         membershipId: tenantContext.membership.id,
         tenantRole: tenantContext.membership.role,
+        authVersion: 0,
       },
       'test-secret',
       { expiresIn: '1h' },

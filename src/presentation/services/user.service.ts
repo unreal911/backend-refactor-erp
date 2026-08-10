@@ -36,13 +36,25 @@ export class UserService {
 
     private static toTenantRole(roleName: string): TenantMembershipRole {
         const normalized = String(roleName || '').trim().toUpperCase();
-        if (normalized === 'ADMIN' || normalized === 'MANAGER') {
+        if (normalized === 'ADMIN') {
             return TenantMembershipRole.ADMIN;
         }
-        if (normalized === 'SELLER') {
-            return TenantMembershipRole.SELLER;
+        if (normalized === 'MANAGER') {
+            return TenantMembershipRole.MANAGER;
         }
-        return TenantMembershipRole.VIEWER;
+        if (normalized === 'SELLER') return TenantMembershipRole.SELLER;
+        if (normalized === 'WAREHOUSE') return TenantMembershipRole.WAREHOUSE;
+        if (normalized === 'PICKER') return TenantMembershipRole.PICKER;
+        if (normalized === 'USER' || normalized === 'VIEWER') {
+            return TenantMembershipRole.VIEWER;
+        }
+        throw new Error(`El rol ${roleName} no se puede asignar a una membresia`);
+    }
+
+    private static membershipRoleName(role: TenantMembershipRole): string {
+        if (role === TenantMembershipRole.OWNER) return 'ADMIN';
+        if (role === TenantMembershipRole.VIEWER) return 'USER';
+        return role;
     }
 
     static async create(createUserDto: CreateUserDto, tenantId?: string) {
@@ -58,7 +70,7 @@ export class UserService {
         }
 
         const role = await this.ensureAssignableRole(roleId, tenantId);
-        const membershipRole = this.toTenantRole(role.name);
+        const membershipRole = tenantId ? this.toTenantRole(role.name) : null;
 
         if (tenantId && existingUser) {
             const existingMembership = await prisma.tenantMembership.findUnique({
@@ -77,7 +89,7 @@ export class UserService {
                 data: {
                     tenantId,
                     userId: existingUser.id,
-                    role: membershipRole,
+                    role: membershipRole!,
                     status: isActive
                         ? TenantMembershipStatus.ACTIVE
                         : TenantMembershipStatus.INACTIVE,
@@ -114,7 +126,7 @@ export class UserService {
                     data: {
                         tenantId,
                         userId: user.id,
-                        role: membershipRole,
+                        role: membershipRole!,
                         status: isActive
                             ? TenantMembershipStatus.ACTIVE
                             : TenantMembershipStatus.INACTIVE,
@@ -170,10 +182,24 @@ export class UserService {
                 },
                 orderBy: { createdAt: 'asc' },
             });
+            const tenantRoles = await prisma.role.findMany({
+                where: {
+                    name: {
+                        in: [...new Set(memberships.map((item) => this.membershipRoleName(item.role)))],
+                    },
+                },
+                select: { id: true, name: true },
+            });
+            const roleByName = new Map(tenantRoles.map((role) => [role.name.toUpperCase(), role]));
             return memberships.map((membership) => {
                 const { password, ...userWithoutPassword } = membership.user;
+                const membershipRoleName = this.membershipRoleName(membership.role);
                 return {
                     ...userWithoutPassword,
+                    role: roleByName.get(membershipRoleName) ?? {
+                        id: userWithoutPassword.role.id,
+                        name: membershipRoleName,
+                    },
                     isActive: membership.status === TenantMembershipStatus.ACTIVE,
                     tenantRole: membership.role,
                     membershipId: membership.id,
@@ -225,8 +251,17 @@ export class UserService {
                 throw new Error('Usuario no encontrado en esta empresa');
             }
             const { password, ...userWithoutPassword } = membership.user;
+            const membershipRoleName = this.membershipRoleName(membership.role);
+            const membershipRole = await prisma.role.findFirst({
+                where: { name: { equals: membershipRoleName, mode: 'insensitive' } },
+                select: { id: true, name: true },
+            });
             return {
                 ...userWithoutPassword,
+                role: membershipRole ?? {
+                    id: userWithoutPassword.role.id,
+                    name: membershipRoleName,
+                },
                 isActive: membership.status === TenantMembershipStatus.ACTIVE,
                 tenantRole: membership.role,
                 membershipId: membership.id,
@@ -263,16 +298,16 @@ export class UserService {
             isActive?: boolean;
         } = {};
 
-        if (updateUserDto.firstName !== undefined) updateData.firstName = updateUserDto.firstName;
-        if (updateUserDto.lastName !== undefined) updateData.lastName = updateUserDto.lastName;
-        if (updateUserDto.email !== undefined) updateData.email = updateUserDto.email;
+        if (!tenantId && updateUserDto.firstName !== undefined) updateData.firstName = updateUserDto.firstName;
+        if (!tenantId && updateUserDto.lastName !== undefined) updateData.lastName = updateUserDto.lastName;
+        if (!tenantId && updateUserDto.email !== undefined) updateData.email = updateUserDto.email;
         let tenantRole: TenantMembershipRole | undefined;
         if (updateUserDto.roleId !== undefined) {
             const role = await this.ensureAssignableRole(
                 updateUserDto.roleId,
                 tenantId,
             );
-            updateData.roleId = updateUserDto.roleId;
+            if (!tenantId) updateData.roleId = updateUserDto.roleId;
             tenantRole = this.toTenantRole(role.name);
         }
         if (updateUserDto.isActive !== undefined && !tenantId) {
@@ -356,13 +391,7 @@ export class UserService {
     static async changePassword(id: number, newPassword: string, tenantId?: string) {
         const prisma = this.database(tenantId);
         if (tenantId) {
-            const membership = await prisma.tenantMembership.findUnique({
-                where: { userId_tenantId: { userId: id, tenantId } },
-                select: { id: true },
-            });
-            if (!membership) {
-                throw new Error('Usuario no encontrado en esta empresa');
-            }
+            throw new Error('La empresa no puede cambiar la contrasena global de un usuario');
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);

@@ -18,6 +18,7 @@ import {
     listProductAssetReferencesOutsideTenant,
 } from "../../modules/platform/product-asset-reference";
 import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
+import { sanitizeProductDescriptionHtml } from "../../domain/sanitization/product-description";
 
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
@@ -1233,7 +1234,7 @@ export class ProductService {
             return {
                 id: product.id,
                 name: product.name,
-                description: product.description,
+                description: sanitizeProductDescriptionHtml(product.description),
                 category: product.category ? { id: product.category.id, name: product.category.name } : null,
                 imageUrl: product.images?.[0]?.url || variants.find((variant) => !!variant.imageUrl)?.imageUrl || null,
                 images: (product.images || []).map((image) => ({ id: image.id, url: image.url })),
@@ -1419,7 +1420,7 @@ export class ProductService {
         return {
             id: product.id,
             name: product.name,
-            description: product.description,
+            description: sanitizeProductDescriptionHtml(product.description),
             category: product.category ? { id: product.category.id, name: product.category.name } : null,
             imageUrl: product.images?.[0]?.url || variants.find((variant) => !!variant.imageUrl)?.imageUrl || null,
             images: (product.images || []).map((image) => ({ id: image.id, url: image.url })),

@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
+import { LoginDto } from "../../domain/dtos/login.dto";
 import {
     OwnerSignupDto,
     VerifyOwnerEmailDto,
 } from "./owner-registration.dto";
 import {
     OwnerRegistrationService,
+    OwnerRegistrationEmailDeliveryError,
     OwnerRegistrationTokenError,
     OwnerRegistrationTrialLimitError,
 } from "./owner-registration.service";
@@ -18,7 +20,11 @@ import {
 } from "./trial-provisioning.service";
 
 export const GENERIC_SIGNUP_RESPONSE = {
-    message: "Si los datos son válidos, recibirás instrucciones para verificar tu correo.",
+    message: "Si el correo es nuevo o tiene una activación pendiente, recibirás instrucciones. Si ya tienes una cuenta activa, puedes iniciar sesión.",
+};
+
+export const GENERIC_RESEND_RESPONSE = {
+    message: "Si la cuenta está pendiente y las credenciales coinciden, recibirás un nuevo enlace de activación.",
 };
 
 export class OwnerRegistrationController {
@@ -93,6 +99,24 @@ export class OwnerRegistrationController {
                 return res.status(caught.statusCode).json({ message: caught.message });
             }
             return res.status(500).json({ message: "No se pudo verificar el correo" });
+        }
+    };
+
+    resendVerification = async (req: Request, res: Response) => {
+        if (!this.service) {
+            return res.status(503).json({ message: "El registro no está disponible temporalmente" });
+        }
+        const [error, dto] = LoginDto.create(req.body as { [key: string]: unknown });
+        if (error) return res.status(400).json({ message: error });
+
+        try {
+            await this.service.resendVerification(dto!.email, dto!.password);
+            return res.status(202).json(GENERIC_RESEND_RESPONSE);
+        } catch (caught) {
+            if (caught instanceof OwnerRegistrationEmailDeliveryError) {
+                return res.status(caught.statusCode).json({ message: caught.message });
+            }
+            return res.status(500).json({ message: "No se pudo reenviar la verificación" });
         }
     };
 

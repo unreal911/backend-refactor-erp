@@ -254,6 +254,24 @@ describe("EMP-001 registro de propietario", () => {
         });
     });
 
+    it("reenvía un enlace vigente solo cuando la contraseña del registro coincide", async () => {
+        const dto = signupDto("resend");
+        await service.signup(dto);
+        const originalToken = sender.messages.at(-1)!.token;
+        const messagesBefore = sender.messages.length;
+
+        await service.resendVerification(dto.email, "Clave-incorrecta-2026!");
+        expect(sender.messages).toHaveLength(messagesBefore);
+
+        await service.resendVerification(dto.email, dto.password);
+        expect(sender.messages).toHaveLength(messagesBefore + 1);
+        const resentToken = sender.messages.at(-1)!.token;
+        expect(resentToken).not.toBe(originalToken);
+        await expect(service.verifyEmail(resentToken)).resolves.toMatchObject({
+            trialToken: expect.any(String),
+        });
+    });
+
     it("responde igual para un correo que ya pertenece a un usuario", async () => {
         const existingUser = await platformPrisma.user.findFirst({
             orderBy: { id: "asc" },

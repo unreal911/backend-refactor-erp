@@ -244,7 +244,10 @@ enum BillingWebhookStatus {
 enum TenantMembershipRole {
   OWNER
   ADMIN
+  MANAGER
   SELLER
+  WAREHOUSE
+  PICKER
   VIEWER
 }
 
@@ -301,6 +304,7 @@ model Tenant {
   id String @id @default(uuid()) @db.Uuid
 
   slug      String  @unique
+  marketplaceSlug String? @unique
   name      String
   legalName String?
 
@@ -703,6 +707,7 @@ model User {
 
   email    String @unique
   password String
+  authVersion Int @default(0)
 
   isActive Boolean @default(true)
 
@@ -715,6 +720,7 @@ model User {
   tenantMemberships TenantMembership[]
   platformAdmin     PlatformAdmin?
   trialRegistration OwnerRegistration? @relation("ProvisionedTrialUser")
+  passwordResetTokens PasswordResetToken[]
 
   inventoryMovements InventoryMovement[]
 
@@ -732,6 +738,21 @@ model User {
   cancelledOrders         Order[] @relation("OrderCancelledBy")
   returnResponsibleOrders Order[] @relation("OrderReturnResponsible")
   delegatedReturnOrders   Order[] @relation("OrderReturnDelegatedBy")
+}
+
+model PasswordResetToken {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, usedAt])
 }
 
 enum StoreType {
@@ -1003,6 +1024,7 @@ model Order {
   idempotencyKey String?
 
   status OrderStatus @default(PENDING)
+  salesChannel String @default("INTERNAL")
 
   clientName  String?
   clientEmail String?
@@ -1016,6 +1038,10 @@ model Order {
   // como snapshot historico para comprobantes y reportes.
   customerId Int?
   customer   Customer? @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  // Propietario de cuenta marketplace. Es un FK SQL compuesto hacia la tabla
+  // MarketplaceCustomer, gestionada fuera del cliente Prisma.
+  marketplaceCustomerId Int?
 
   // Comprobante electronico solicitado al vender: BOLETA | FACTURA (null/NOTA = sin comprobante SUNAT).
   // El backend crea el Comprobante en BORRADOR al registrar la venta (fuente de verdad, reconciliable).
@@ -1073,6 +1099,7 @@ model Order {
   @@unique([tenantId, idempotencyKey])
   @@unique([id, tenantId])
   @@index([tenantId, customerId])
+  @@index([tenantId, marketplaceCustomerId])
 }
 
 model OrderItem {

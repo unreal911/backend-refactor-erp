@@ -81,6 +81,7 @@ export class TenantService {
         const tenant = await tx.tenant.create({
             data: {
                 slug,
+                marketplaceSlug: slug,
                 name,
                 legalName,
                 kind,

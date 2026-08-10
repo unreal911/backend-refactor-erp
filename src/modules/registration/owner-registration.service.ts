@@ -24,6 +24,14 @@ export class OwnerRegistrationTrialLimitError extends Error {
     }
 }
 
+export class OwnerRegistrationEmailDeliveryError extends Error {
+    readonly statusCode = 503;
+
+    constructor() {
+        super("No pudimos enviar el correo de verificación. Inténtalo nuevamente en unos minutos");
+    }
+}
+
 export type VerifiedOwnerIdentity = {
     id: string;
     firstName: string;
@@ -183,6 +191,71 @@ export class OwnerRegistrationService {
             console.error("[owner-signup] verification delivery failed", {
                 registrationId: delivery.registrationId,
             });
+        }
+    }
+
+    async resendVerification(email: string, password: string): Promise<void> {
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+        const registration = await platformPrisma.ownerRegistration.findUnique({
+            where: { email: normalizedEmail },
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                passwordHash: true,
+                status: true,
+            },
+        });
+        if (!registration) return;
+
+        const passwordMatches = await bcrypt.compare(password, registration.passwordHash);
+        if (!passwordMatches) return;
+        if (
+            registration.status !== OwnerRegistrationStatus.EMAIL_PENDING
+            && registration.status !== OwnerRegistrationStatus.EMAIL_VERIFIED
+        ) return;
+
+        const token = this.createToken();
+        const verificationTokenHash = this.hashToken(token);
+        const now = this.now();
+        const verificationTokenExpiresAt = this.expiresAt(
+            now,
+            this.options.verificationTtlMinutes,
+        );
+        const renewed = await platformPrisma.ownerRegistration.updateMany({
+            where: {
+                id: registration.id,
+                status: {
+                    in: [
+                        OwnerRegistrationStatus.EMAIL_PENDING,
+                        OwnerRegistrationStatus.EMAIL_VERIFIED,
+                    ],
+                },
+            },
+            data: {
+                verificationTokenHash,
+                verificationTokenExpiresAt,
+                verificationRequestedAt: now,
+            },
+        });
+        if (renewed.count !== 1) return;
+
+        try {
+            await this.emailSender.sendVerificationEmail({
+                to: registration.email,
+                ownerName: registration.firstName,
+                token,
+                expiresAt: verificationTokenExpiresAt,
+            });
+        } catch {
+            await platformPrisma.ownerRegistration.updateMany({
+                where: { id: registration.id, verificationTokenHash },
+                data: {
+                    verificationTokenHash: null,
+                    verificationTokenExpiresAt: null,
+                },
+            });
+            throw new OwnerRegistrationEmailDeliveryError();
         }
     }
 

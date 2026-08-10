@@ -15,10 +15,23 @@ type AuthUserPayload = {
     lastName: string;
     email: string;
     isActive: boolean;
+    authVersion: number;
     role: {
         name: string;
     };
 };
+
+export class AccountActivationRequiredError extends Error {
+    readonly statusCode = 403;
+    readonly code: "EMAIL_VERIFICATION_REQUIRED" | "TRIAL_SETUP_REQUIRED";
+
+    constructor(code: AccountActivationRequiredError["code"]) {
+        super(code === "EMAIL_VERIFICATION_REQUIRED"
+            ? "Tu correo todavía no está verificado. Reenvía el enlace de activación y revisa también la carpeta de spam."
+            : "Tu correo ya está verificado, pero falta terminar de crear la prueba. Solicita un nuevo enlace para continuar.");
+        this.code = code;
+    }
+}
 
 export class AuthService {
     private static async buildAuthUserContext(
@@ -64,6 +77,7 @@ export class AuthService {
                 email: true,
                 password: true,
                 isActive: true,
+                authVersion: true,
                 role: {
                     select: {
                         name: true
@@ -73,6 +87,22 @@ export class AuthService {
         });
 
         if (!user) {
+            const pendingRegistration = await prisma.ownerRegistration.findUnique({
+                where: { email },
+                select: { passwordHash: true, status: true },
+            });
+            if (pendingRegistration) {
+                const pendingPasswordValid = await bcrypt.compare(
+                    password,
+                    pendingRegistration.passwordHash,
+                );
+                if (pendingPasswordValid && pendingRegistration.status === "EMAIL_PENDING") {
+                    throw new AccountActivationRequiredError("EMAIL_VERIFICATION_REQUIRED");
+                }
+                if (pendingPasswordValid && pendingRegistration.status === "EMAIL_VERIFIED") {
+                    throw new AccountActivationRequiredError("TRIAL_SETUP_REQUIRED");
+                }
+            }
             throw new Error('Credenciales invalidas');
         }
 
@@ -105,6 +135,7 @@ export class AuthService {
                 tenantSlug: tenantContext.tenant.slug,
                 membershipId: tenantContext.membership.id,
                 tenantRole: tenantContext.membership.role,
+                authVersion: user.authVersion,
             },
             envs.JWT_SECRET,
             { expiresIn: '1h' }
@@ -168,6 +199,7 @@ export class AuthService {
                 email: true,
                 password: true,
                 isActive: true,
+                authVersion: true,
                 platformAdmin: {
                     select: {
                         id: true,
@@ -192,6 +224,7 @@ export class AuthService {
                 email: user.email,
                 role: 'PLATFORM_ADMIN',
                 platformAdminId: user.platformAdmin.id,
+                authVersion: user.authVersion,
             },
             envs.JWT_SECRET,
             { expiresIn: '30m' },

@@ -27,6 +27,7 @@ export function registerOwnerRegistrationRoutes(
     const controller = new OwnerRegistrationController(service, abuseService, trialService);
     const abuseController = new SignupAbuseController(reviewService);
     router.post("/api/public/signup", ownerSignupEdgeRateLimiter, controller.signup);
+    router.post("/api/public/signup/resend", authRateLimiter, controller.resendVerification);
     router.post("/api/public/signup/verify", authRateLimiter, controller.verifyEmail);
     router.post("/api/public/signup/trial", authRateLimiter, controller.provisionTrial);
     router.get(

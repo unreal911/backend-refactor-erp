@@ -109,6 +109,7 @@ describe('Ciclo de vida: transiciones invalidas rechazadas sin efectos', () => {
     ['PENDING', 'READY'],        // salto
     ['PENDING', 'DELIVERED'],    // salto
     ['CONFIRMED', 'DELIVERED'],  // salto (falta PREPARING/READY)
+    ['PREPARING', 'READY'],      // READY solo se alcanza completando picking
     ['READY', 'PENDING'],        // retroceso
     ['DELIVERED', 'CANCELLED'],  // estado final
     ['DELIVERED', 'RETURN_PENDING'], // estado final
