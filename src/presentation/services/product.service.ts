@@ -19,6 +19,10 @@ import {
 } from "../../modules/platform/product-asset-reference";
 import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
 import { sanitizeProductDescriptionHtml } from "../../domain/sanitization/product-description";
+import {
+    normalizeProductDisplayName,
+    normalizeProductNameKey,
+} from "../../domain/normalization/product-name";
 
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
@@ -47,6 +51,42 @@ export class ProductService {
     private readonly marketplaceVariantSettingKeyPrefix = 'marketplace_product_variants_';
 
     constructor() { }
+
+    private async assertUniqueProductName(name: string, excludeProductId?: number): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        const normalizedKey = normalizeProductNameKey(name);
+        const exclusion = excludeProductId
+            ? Prisma.sql`AND "id" <> ${excludeProductId}`
+            : Prisma.empty;
+        const duplicate = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+            SELECT "id"
+            FROM "Product"
+            WHERE "tenantId" = ${tenantId}::uuid
+              AND regexp_replace(
+                    btrim(translate(
+                        lower("name"),
+                        'áàâäãåéèêëíìîïóòôöõúùûüñç',
+                        'aaaaaaeeeeiiiiooooouuuunc'
+                    )),
+                    '[[:space:]]+',
+                    ' ',
+                    'g'
+                  ) = ${normalizedKey}
+              ${exclusion}
+            LIMIT 1
+        `);
+
+        if (duplicate[0]) {
+            throw CustomError.badRequest('Ya existe un producto con el mismo nombre en esta empresa');
+        }
+    }
+
+    private productNameConflict(error: unknown): CustomError | null {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            return CustomError.badRequest('Ya existe un producto con el mismo nombre en esta empresa');
+        }
+        return null;
+    }
 
     /**
      * Normalizar valores para SKU
@@ -676,6 +716,7 @@ export class ProductService {
             variants = [],
             marketplaceColorImages = [],
         } = createProductDto;
+        const normalizedName = normalizeProductDisplayName(name);
 
         console.log('Creando producto con datos:', {
             name,
@@ -692,6 +733,7 @@ export class ProductService {
         try {
             // Validar que la categoría existe
             await this.validateCategory(categoryId);
+            await this.assertUniqueProductName(normalizedName);
 
             // Validar que hay variantes
             if (variants.length === 0) {
@@ -791,18 +833,23 @@ export class ProductService {
             const now = new Date();
 
             // Crear el producto (dimensiones explicitas segun el modo)
-            const product = await prisma.product.create({
-                data: {
-                    name,
-                    description: description || null,
-                    categoryId,
-                    afectacionIgv: afectacionIgv ?? '10',
-                    isActive: true,
-                    hasColor: variantMode === 'MATRIX',
-                    hasSize: variantMode !== 'SIMPLE',
-                    updatedAt: now,
-                },
-            });
+            let product;
+            try {
+                product = await prisma.product.create({
+                    data: {
+                        name: normalizedName,
+                        description: description || null,
+                        categoryId,
+                        afectacionIgv: afectacionIgv ?? '10',
+                        isActive: true,
+                        hasColor: variantMode === 'MATRIX',
+                        hasSize: variantMode !== 'SIMPLE',
+                        updatedAt: now,
+                    },
+                });
+            } catch (error) {
+                throw this.productNameConflict(error) || error;
+            }
 
             const marketplaceColorImageConfig = simpleMarketplaceConfig
                 ? await this.resolveMarketplaceColorImages(product.id, simpleMarketplaceConfig.colorIds, marketplaceColorImages)
@@ -859,10 +906,10 @@ export class ProductService {
                 variants: createdVariants.map(v => ProductVariantEntity.fromObject(v)),
                 images: allImageUrls,
                 message: isSimpleMode
-                    ? `Producto "${name}" creado exitosamente como producto unico`
+                    ? `Producto "${normalizedName}" creado exitosamente como producto unico`
                     : isSizeOnlyMode
-                        ? `Producto "${name}" creado exitosamente como producto con talla`
-                    : `Producto "${name}" creado exitosamente con ${createdVariants.length} variantes`,
+                        ? `Producto "${normalizedName}" creado exitosamente como producto con talla`
+                        : `Producto "${normalizedName}" creado exitosamente con ${createdVariants.length} variantes`,
             };
         } catch (error) {
             if (error instanceof CustomError) {
@@ -1641,6 +1688,13 @@ export class ProductService {
                 throw CustomError.notFound(`El producto con ID ${id} no existe`);
             }
 
+            const normalizedName = updateData.name !== undefined
+                ? normalizeProductDisplayName(updateData.name)
+                : product.name;
+            if (updateData.name !== undefined) {
+                await this.assertUniqueProductName(normalizedName, id);
+            }
+
             if (updateData.categoryId) {
                 await this.validateCategory(updateData.categoryId);
             }
@@ -1696,7 +1750,7 @@ export class ProductService {
             }
 
             if (updateData.variants) {
-                const productName = updateData.name ?? product.name;
+                const productName = normalizedName;
                 if (isSimpleMode) {
                     const firstVariant = updateData.variants[0];
                     if (!firstVariant) {
@@ -1736,20 +1790,25 @@ export class ProductService {
                 await this.upsertMarketplaceSimpleVariantConfig(id, simpleMarketplaceConfigToPersist);
             }
 
-            const updated = await prisma.product.update({
-                where: { id },
-                data: {
-                    name: updateData.name ?? product.name,
-                    description: updateData.description !== undefined ? updateData.description : product.description,
-                    categoryId: updateData.categoryId ?? product.categoryId,
-                    isActive: updateData.isActive !== undefined ? updateData.isActive : product.isActive,
-                    afectacionIgv: updateData.afectacionIgv ?? product.afectacionIgv,
-                    // Dimensiones explicitas derivadas del modo resultante.
-                    hasColor: nextMode === 'MATRIX',
-                    hasSize: nextMode !== 'SIMPLE',
-                    updatedAt: new Date(),
-                },
-            });
+            let updated;
+            try {
+                updated = await prisma.product.update({
+                    where: { id },
+                    data: {
+                        name: normalizedName,
+                        description: updateData.description !== undefined ? updateData.description : product.description,
+                        categoryId: updateData.categoryId ?? product.categoryId,
+                        isActive: updateData.isActive !== undefined ? updateData.isActive : product.isActive,
+                        afectacionIgv: updateData.afectacionIgv ?? product.afectacionIgv,
+                        // Dimensiones explicitas derivadas del modo resultante.
+                        hasColor: nextMode === 'MATRIX',
+                        hasSize: nextMode !== 'SIMPLE',
+                        updatedAt: new Date(),
+                    },
+                });
+            } catch (error) {
+                throw this.productNameConflict(error) || error;
+            }
 
             return ProductEntity.fromObject(updated);
         } catch (error) {
