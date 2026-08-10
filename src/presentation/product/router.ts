@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { ProductService } from "../services/product.service";
 import { ProductController } from "./controller";
+import { AuthMiddleware } from "../auth/middleware";
 
 export class productRoute {
     static get router(): Router {
@@ -9,25 +10,25 @@ export class productRoute {
         const controller = new ProductController(productServiceInstance);
 
         // Crear producto
-        router.post('/', controller.createProduct);
+        router.post('/', AuthMiddleware.requirePermission('products.create'), controller.createProduct);
 
         // Generar variantes automáticamente
-        router.post('/generate-variants', controller.generateVariants);
+        router.post('/generate-variants', AuthMiddleware.requirePermission('products.create'), controller.generateVariants);
 
         // Eliminar imagen de Cloudinary
-        router.delete('/image/:publicId', controller.deleteImage);
+        router.delete('/image/:publicId', AuthMiddleware.requirePermission('products.update'), controller.deleteImage);
 
         // Listar productos
-        router.get('/', controller.listProducts);
+        router.get('/', AuthMiddleware.requirePermission('products.view'), controller.listProducts);
 
         // Obtener producto por ID
-        router.get('/:id', controller.getProductById);
+        router.get('/:id', AuthMiddleware.requirePermission('products.view'), controller.getProductById);
 
         // Actualizar producto
-        router.patch('/:id', controller.updateProduct);
+        router.patch('/:id', AuthMiddleware.requirePermission('products.update'), controller.updateProduct);
 
         // Eliminar producto
-        router.delete('/:id', controller.deleteProduct);
+        router.delete('/:id', AuthMiddleware.requirePermission('products.disable'), controller.deleteProduct);
 
         return router;
     }

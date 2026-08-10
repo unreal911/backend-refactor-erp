@@ -19,6 +19,13 @@ type MarketplaceTokenPayload = {
 };
 
 export class MarketplaceAuthMiddleware {
+    static optionalJWT(req: MarketplaceAuthRequest, res: Response, next: NextFunction) {
+        if (!req.header('Authorization')) {
+            return next();
+        }
+        return MarketplaceAuthMiddleware.validateJWT(req, res, next);
+    }
+
     static validateJWT(req: MarketplaceAuthRequest, res: Response, next: NextFunction) {
         const token = req.header('Authorization')?.replace('Bearer ', '');
         if (!token) {

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     resolveAuthenticatedContext: vi.fn(),
     resolvePermissionsForTenantRole: vi.fn(),
     platformAdminFindFirst: vi.fn(),
+    userFindUnique: vi.fn(),
     runTenantDatabaseTransaction: vi.fn(),
 }));
 
@@ -24,6 +25,8 @@ vi.mock("../src/modules/tenant/tenant-context.service", async (importOriginal) =
     return {
         ...original,
         TenantContextService: {
+            ...original.TenantContextService,
+            roleToRbacRole: original.TenantContextService.roleToRbacRole,
             resolveAuthenticatedContext: mocks.resolveAuthenticatedContext,
         },
     };
@@ -38,6 +41,9 @@ vi.mock("../src/modules/auth/services/permission.service", () => ({
 
 vi.mock("../src/data/prisma", () => ({
     platformPrisma: {
+        user: {
+            findUnique: mocks.userFindUnique,
+        },
         platformAdmin: {
             findFirst: mocks.platformAdminFindFirst,
         },
@@ -53,6 +59,8 @@ vi.mock("../src/config/envs", () => ({
 }));
 
 import { AuthMiddleware, AuthRequest } from "../src/presentation/auth/middleware";
+import { TenantContextService } from "../src/modules/tenant/tenant-context.service";
+import { TenantMembershipRole } from "@prisma/client";
 
 const context = {
     tenant: {
@@ -106,6 +114,7 @@ describe("AuthMiddleware tenant-aware", () => {
             tenantRole: context.membership.role,
         });
         mocks.resolveAuthenticatedContext.mockResolvedValue(context);
+        mocks.userFindUnique.mockResolvedValue({ authVersion: 0, isActive: true });
         mocks.sign.mockReturnValue("refreshed-token");
         mocks.runTenantDatabaseTransaction.mockImplementation(
             async (_tenantId: string, callback: () => Promise<unknown>) =>
@@ -151,6 +160,47 @@ describe("AuthMiddleware tenant-aware", () => {
         expect(next).not.toHaveBeenCalled();
     });
 
+    it("rechaza un JWT valido cuando el rol no tiene el permiso funcional", async () => {
+        const req = requestDouble();
+        req.user = { id: 7, email: "seller@tienda.test", role: "SELLER" };
+        req.tenant = { ...context, rbacRole: "SELLER" } as AuthRequest["tenant"];
+        const res = responseDouble();
+        const next = vi.fn();
+        mocks.resolvePermissionsForTenantRole.mockResolvedValue(["products.view"]);
+
+        await AuthMiddleware.requirePermission("products.update")(req, res as never, next);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it("acepta cualquiera de los permisos alternativos declarados por la ruta", async () => {
+        const req = requestDouble();
+        req.user = { id: 7, email: "seller@tienda.test", role: "SELLER" };
+        req.tenant = { ...context, rbacRole: "SELLER" } as AuthRequest["tenant"];
+        const res = responseDouble();
+        const next = vi.fn();
+        mocks.resolvePermissionsForTenantRole.mockResolvedValue(["pos.sell"]);
+
+        await AuthMiddleware.requirePermission(["orders.create", "pos.sell"])(req, res as never, next);
+
+        expect(next).toHaveBeenCalledOnce();
+        expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("acepta el permiso comodin administrativo", async () => {
+        const req = requestDouble();
+        req.user = { id: 7, email: "owner@tienda.test", role: "ADMIN" };
+        req.tenant = context as AuthRequest["tenant"];
+        const res = responseDouble();
+        const next = vi.fn();
+        mocks.resolvePermissionsForTenantRole.mockResolvedValue(["*"]);
+
+        await AuthMiddleware.requirePermission("sunat.documents.cancel")(req, res as never, next);
+
+        expect(next).toHaveBeenCalledOnce();
+    });
+
     it("un token tenant nunca se acepta como token de plataforma", async () => {
         const req = requestDouble({ Authorization: "Bearer token" });
         const res = responseDouble();
@@ -161,5 +211,19 @@ describe("AuthMiddleware tenant-aware", () => {
         expect(res.status).toHaveBeenCalledWith(401);
         expect(next).not.toHaveBeenCalled();
         expect(mocks.platformAdminFindFirst).not.toHaveBeenCalled();
+    });
+});
+
+describe("mapeo de roles de membresia a RBAC", () => {
+    it.each([
+        [TenantMembershipRole.OWNER, "ADMIN"],
+        [TenantMembershipRole.ADMIN, "ADMIN"],
+        [TenantMembershipRole.MANAGER, "MANAGER"],
+        [TenantMembershipRole.SELLER, "SELLER"],
+        [TenantMembershipRole.WAREHOUSE, "WAREHOUSE"],
+        [TenantMembershipRole.PICKER, "PICKER"],
+        [TenantMembershipRole.VIEWER, "USER"],
+    ])("mapea %s sin escalar ni degradar permisos", (membershipRole, expected) => {
+        expect(TenantContextService.roleToRbacRole(membershipRole)).toBe(expected);
     });
 });

@@ -1,3 +1,5 @@
+import { sanitizeProductDescriptionHtml } from '../sanitization/product-description';
+
 type ProductVariantMode = 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY';
 
 type UpdateVariantInput = {
@@ -221,7 +223,7 @@ export class UpdateProductDto {
 
         return [undefined, new UpdateProductDto(
             name?.trim(),
-            description?.trim(),
+            description === undefined ? undefined : sanitizeProductDescriptionHtml(description),
             categoryId,
             isActive,
             afectacionIgv,

@@ -9,7 +9,7 @@ import { continueThroughResponse } from "../response-tasks";
 export interface PublicTenantRequest extends Request {
     publicTenant?: {
         id: string;
-        slug: string;
+        marketplaceSlug: string;
     };
 }
 
@@ -31,15 +31,23 @@ export class PublicTenantMiddleware {
         const tenants = requestedSlug
             ? await platformPrisma.tenant.findMany({
                 where: {
-                    slug: requestedSlug,
-                    ...activeWhere,
+                    AND: [
+                        {
+                            OR: [
+                                { marketplaceSlug: requestedSlug },
+                                // Compatibilidad para tenants creados antes de la separacion.
+                                { marketplaceSlug: null, slug: requestedSlug },
+                            ],
+                        },
+                        activeWhere,
+                    ],
                 },
-                select: { id: true, slug: true },
+                select: { id: true, slug: true, marketplaceSlug: true },
                 take: 1,
             })
             : await platformPrisma.tenant.findMany({
                 where: activeWhere,
-                select: { id: true, slug: true },
+                select: { id: true, slug: true, marketplaceSlug: true },
                 orderBy: { createdAt: "asc" },
                 take: 2,
             });
@@ -54,7 +62,10 @@ export class PublicTenantMiddleware {
         }
 
         const tenant = tenants[0]!;
-        req.publicTenant = tenant;
+        req.publicTenant = {
+            id: tenant.id,
+            marketplaceSlug: tenant.marketplaceSlug || tenant.slug,
+        };
         return runTenantDatabaseTransaction(
             tenant.id,
             () => continueThroughResponse(res, next),

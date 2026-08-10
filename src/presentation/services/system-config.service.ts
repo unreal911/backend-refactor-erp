@@ -192,6 +192,8 @@ export class SystemConfigService {
                 where: { id: tenantId },
                 select: {
                     name: true,
+                    slug: true,
+                    marketplaceSlug: true,
                     legalName: true,
                     ruc: true,
                     address: true,
@@ -214,6 +216,7 @@ export class SystemConfigService {
             marketplacePaymentMethodIds: fallbackIds,
             marketplaceIncludeIgv: this.parseBoolean(marketplaceIncludeIgvRaw, true),
             marketplaceAutoReserveStock: this.parseBoolean(marketplaceAutoReserveStockRaw, false),
+            marketplaceSlug: tenantProfile?.marketplaceSlug || tenantProfile?.slug || '',
             companyName: tenantProfile?.name || this.parseText(companyNameRaw) || 'B2B Marketplace',
             companyLegalName: tenantProfile?.legalName || this.parseText(companyLegalNameRaw),
             companyRuc: tenantProfile?.ruc || this.parseText(companyRucRaw),
@@ -235,6 +238,7 @@ export class SystemConfigService {
             logoUrl: settings.companyLogoUrl,
             heroHeading: settings.marketplaceHeroHeading,
             brandDisplay: settings.brandDisplay,
+            marketplaceSlug: settings.marketplaceSlug,
         };
     }
 
@@ -254,6 +258,7 @@ export class SystemConfigService {
             ?? currentSettings.marketplaceIncludeIgv;
         const marketplaceAutoReserveStock = dto.marketplaceAutoReserveStock
             ?? currentSettings.marketplaceAutoReserveStock;
+        const marketplaceSlug = dto.marketplaceSlug ?? currentSettings.marketplaceSlug;
         const companyName = dto.companyName ?? currentSettings.companyName;
         const companyLegalName = dto.companyLegalName ?? currentSettings.companyLegalName;
         const companyRuc = dto.companyRuc ?? currentSettings.companyRuc;
@@ -276,10 +281,12 @@ export class SystemConfigService {
             throw CustomError.badRequest('Debes activar al menos un metodo de pago para el marketplace');
         }
 
-        await prisma.tenant.update({
-            where: { id: tenantId },
-            data: {
-                name: companyName,
+        try {
+            await prisma.tenant.update({
+                where: { id: tenantId },
+                data: {
+                    name: companyName,
+                    marketplaceSlug,
                 legalName: companyLegalName || null,
                 ruc: companyRuc || null,
                 address: companyAddress || null,
@@ -289,8 +296,14 @@ export class SystemConfigService {
                 ...(companyRuc !== currentSettings.companyRuc
                     ? { rucConfirmedAt: null }
                     : {}),
-            },
-        });
+                },
+            });
+        } catch (error) {
+            if ((error as { code?: string })?.code === 'P2002') {
+                throw CustomError.badRequest('La direccion publica ya esta siendo usada por otra tienda');
+            }
+            throw error;
+        }
 
         await this.upsertSettingValue(
             RETURN_RESPONSIBILITY_MANAGEMENT_KEY,

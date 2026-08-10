@@ -56,7 +56,10 @@ export function strongInvitationPasswordError(password: string): string | null {
 
 const INVITABLE_ROLES = new Set<TenantMembershipRole>([
     TenantMembershipRole.ADMIN,
+    TenantMembershipRole.MANAGER,
     TenantMembershipRole.SELLER,
+    TenantMembershipRole.WAREHOUSE,
+    TenantMembershipRole.PICKER,
     TenantMembershipRole.VIEWER,
 ]);
 
@@ -72,7 +75,7 @@ export class CreateTenantInvitationDto {
         const role = String(body.role || "").trim().toUpperCase() as TenantMembershipRole;
         if (!email) return ["El correo electr\u00f3nico no es v\u00e1lido", undefined];
         if (!INVITABLE_ROLES.has(role)) {
-            return ["El rol debe ser ADMIN, SELLER o VIEWER", undefined];
+            return ["El rol debe ser ADMIN, MANAGER, SELLER, WAREHOUSE, PICKER o VIEWER", undefined];
         }
         return [undefined, new CreateTenantInvitationDto(email, role)];
     }

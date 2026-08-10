@@ -218,7 +218,15 @@ export function resolvePreferredResponsibleUserId(...candidates: Array<number | 
     return null;
 }
 
-export function detectSalesChannel(note?: string | null, code?: string | null): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
+export function detectSalesChannel(
+    note?: string | null,
+    code?: string | null,
+    explicitChannel?: string | null,
+): 'POS' | 'ECOMMERCE' | 'INTERNAL' {
+    const explicit = String(explicitChannel || '').trim().toUpperCase();
+    if (explicit === 'POS' || explicit === 'ECOMMERCE' || explicit === 'INTERNAL') {
+        return explicit;
+    }
     const text = (note || '').toUpperCase();
     const orderCode = String(code || '').trim().toUpperCase();
     if (text.includes('POS-') || text.includes('METODO DE PAGO')) {

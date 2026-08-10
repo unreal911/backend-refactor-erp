@@ -10,7 +10,7 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260802133000_add_trial_expiry_notification_job";
+export const REQUIRED_SCHEMA_MIGRATION = "20260810203000_add_password_reset_flow";
 export const REQUIRED_SCHEMA_TABLES = [
     "AuditLog",
     "BillingWebhookEvent",
@@ -28,6 +28,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "OrderReturn",
     "OrderReturnItem",
     "OwnerRegistration",
+    "PasswordResetToken",
     "PaymentMethod",
     "Permission",
     "PlatformAdmin",

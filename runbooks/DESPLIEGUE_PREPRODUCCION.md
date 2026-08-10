@@ -1,5 +1,7 @@
 # Despliegue de preproducción
 
+Mapa y puertas de salida: `../../INFORME_PRODUCCION.md`.
+
 Objetivos mínimos antes de contratar/activar producción: RPO de base de datos
 menor o igual a 15 minutos y RTO menor o igual a 120 minutos. Deben comprobarse
 con las capacidades reales del plan Neon; documentarlos aquí no sustituye el
@@ -14,7 +16,7 @@ versiones no vigentes, ajustables por política legal aprobada.
    (`railway.scheduler.toml`). Solo API ejecuta el pre-deploy de migraciones.
 4. Configurar `.env.production.example`; `DIRECT_DATABASE_URL` se limita al
    release y no se comparte con el runtime si la plataforma permite separarlo.
-5. Desplegar admin y marketplace como proyectos Vercel separados. Previews
+5. Desplegar admin y marketplace como sitios Netlify separados. Los previews
    apuntan a staging o quedan sin URL productiva.
 6. Validar `/api/health`, `/api/ready`, `/api/platform/metrics`, migraciones,
    RLS, contratos AWS, dos tenants, worker y URLs. Configurar

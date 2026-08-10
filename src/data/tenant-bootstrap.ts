@@ -83,8 +83,11 @@ export async function seedLegacyTenantMemberships(): Promise<void> {
             "id",
             CASE
                 WHEN "id" = owner_user_id THEN 'OWNER'::"TenantMembershipRole"
-                WHEN upper(role_name) IN ('ADMIN', 'MANAGER') THEN 'ADMIN'::"TenantMembershipRole"
+                WHEN upper(role_name) = 'ADMIN' THEN 'ADMIN'::"TenantMembershipRole"
+                WHEN upper(role_name) = 'MANAGER' THEN 'MANAGER'::"TenantMembershipRole"
                 WHEN upper(role_name) = 'SELLER' THEN 'SELLER'::"TenantMembershipRole"
+                WHEN upper(role_name) = 'WAREHOUSE' THEN 'WAREHOUSE'::"TenantMembershipRole"
+                WHEN upper(role_name) = 'PICKER' THEN 'PICKER'::"TenantMembershipRole"
                 ELSE 'VIEWER'::"TenantMembershipRole"
             END,
             CASE

@@ -17,6 +17,7 @@ import {
 } from "../src/modules/tenant/tenant-data-context";
 import { AuthService } from "../src/presentation/services/auth.service";
 import { RoleService } from "../src/presentation/services/role.service";
+import { ROLE_PERMISSION_MATRIX } from "../src/presentation/auth/permission-catalog";
 
 const tag = Date.now().toString(36);
 const createdMembershipIds: string[] = [];
@@ -86,7 +87,14 @@ describe("MIG-003: conciliación de identidad", () => {
         expect(summary.ownerUserId).toBeGreaterThan(0);
         expect(summary.roleCount).toBe(6);
         expect(summary.permissionCount).toBeGreaterThanOrEqual(47);
-        expect(summary.rolePermissionCount).toBe(88);
+        expect(summary.rolePermissionCount).toBe(
+            Object.values(ROLE_PERMISSION_MATRIX)
+                .reduce(
+                    (total, permissions) => total
+                        + new Set(permissions.filter((code) => code !== "*")).size,
+                    0,
+                ),
+        );
         expect(summary.compatiblePasswordCount).toBe(3);
         expect(summary.referenceCount).toBe(22);
         expect(summary.tenantMembershipForeignKeys).toBeGreaterThanOrEqual(21);
@@ -95,6 +103,10 @@ describe("MIG-003: conciliación de identidad", () => {
     it("mantiene byte por byte hashes y matriz RBAC al reejecutar seeds", async (ctx) => {
         if (!dbReady || !historicalBaselineReady) return ctx.skip();
 
+        // La huella debe partir del catálogo vigente, incluso si otro test
+        // ejecutó la suite contra una base sembrada con una versión anterior.
+        await seedRbacDefaults();
+        await seedLegacyTenantMemberships();
         const before = await identityFingerprints();
         await seedRbacDefaults();
         await seedLegacyTenantMemberships();

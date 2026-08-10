@@ -88,10 +88,13 @@ function expectedMembershipRole(
 ): TenantMembershipRole {
     if (userId === ownerUserId) return TenantMembershipRole.OWNER;
     const normalized = legacyRoleName.trim().toUpperCase();
-    if (normalized === "ADMIN" || normalized === "MANAGER") {
+    if (normalized === "ADMIN") {
         return TenantMembershipRole.ADMIN;
     }
+    if (normalized === "MANAGER") return TenantMembershipRole.MANAGER;
     if (normalized === "SELLER") return TenantMembershipRole.SELLER;
+    if (normalized === "WAREHOUSE") return TenantMembershipRole.WAREHOUSE;
+    if (normalized === "PICKER") return TenantMembershipRole.PICKER;
     return TenantMembershipRole.VIEWER;
 }
 

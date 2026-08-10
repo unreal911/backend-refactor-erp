@@ -93,8 +93,14 @@ export class TenantContextService {
             case TenantMembershipRole.OWNER:
             case TenantMembershipRole.ADMIN:
                 return "ADMIN";
+            case TenantMembershipRole.MANAGER:
+                return "MANAGER";
             case TenantMembershipRole.SELLER:
                 return "SELLER";
+            case TenantMembershipRole.WAREHOUSE:
+                return "WAREHOUSE";
+            case TenantMembershipRole.PICKER:
+                return "PICKER";
             case TenantMembershipRole.VIEWER:
             default:
                 return "USER";

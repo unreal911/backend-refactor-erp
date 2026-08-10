@@ -81,6 +81,7 @@ describe('OrderService POS stock fulfillment', () => {
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       {
         id: 10,
+        price: 18,
         product: { name: 'Polo para Caballero - Algodon Licrado 30/1 v2' },
       },
     ] as never);
@@ -176,6 +177,7 @@ describe('OrderService POS stock fulfillment', () => {
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       {
         id: 10,
+        price: 18,
         product: { name: 'Polo para Caballero - Algodon Licrado 30/1' },
       },
     ] as never);
@@ -256,7 +258,7 @@ describe('OrderService POS stock fulfillment', () => {
 
     vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria manana' } as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
-      { id: 10, product: { name: 'Polo' } },
+      { id: 10, price: 18, product: { name: 'Polo' } },
     ] as never);
     // getOrCreateInventory del primer loop resuelve el par (1:10) una sola vez;
     // el segundo loop ya NO re-consulta (usa el snapshot bajo lock).

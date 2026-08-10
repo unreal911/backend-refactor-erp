@@ -64,7 +64,7 @@ El backup corresponde al estado local de desarrollo capturado el 2 de agosto de
 - Desplegar y probar AWS staging real: S3 con SSE-KMS, dos claves KMS,
   CloudTrail, IAM mínimo y rotación/revocación.
 - Restaurar un backup en Neon staging y comprobar RPO/RTO contratados.
-- Desplegar API, worker y scheduler en Railway y ambos frontends en Vercel.
+- Desplegar API, worker y scheduler en Railway y ambos frontends en Netlify.
 - Ejecutar canario AWS, alertas y observación de lectura S3 antes de retirar
   Base64 o la llave v1.
 - Acordar ventana de mantenimiento, margen, responsables, contactos y punto de

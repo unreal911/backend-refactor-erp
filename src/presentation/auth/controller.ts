@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
-import { AuthService } from '../../modules/auth/services/auth.service';
+import {
+    AccountActivationRequiredError,
+    AuthService,
+} from '../../modules/auth/services/auth.service';
 import { LoginDto } from '../../domain/dtos/login.dto';
 import { AuthRequest } from './middleware';
 import {
@@ -18,6 +21,13 @@ export class AuthController {
             const result = await AuthService.login(loginDto!);
             res.json(result);
         } catch (error: unknown) {
+            if (error instanceof AccountActivationRequiredError) {
+                return res.status(error.statusCode).json({
+                    message: error.message,
+                    code: error.code,
+                    action: 'RESEND_VERIFICATION',
+                });
+            }
             if (error instanceof TenantSelectionRequiredError) {
                 return res.status(error.statusCode).json({
                     message: error.message,

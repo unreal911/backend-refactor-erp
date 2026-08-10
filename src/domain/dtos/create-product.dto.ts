@@ -1,3 +1,5 @@
+import { sanitizeProductDescriptionHtml } from '../sanitization/product-description';
+
 type ProductVariantMode = 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY';
 
 type CreateVariantInput = {
@@ -188,7 +190,7 @@ export class CreateProductDto {
         return [undefined, new CreateProductDto(
             name.trim(),
             categoryId,
-            description?.trim(),
+            description === undefined ? undefined : sanitizeProductDescriptionHtml(description),
             afectacionIgv,
             variantMode,
             colorIds,

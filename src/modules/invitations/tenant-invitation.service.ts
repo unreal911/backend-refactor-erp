@@ -82,7 +82,10 @@ export class TenantInvitationService {
 
     private globalRoleName(role: TenantMembershipRole): string {
         if (role === TenantMembershipRole.ADMIN) return "ADMIN";
+        if (role === TenantMembershipRole.MANAGER) return "MANAGER";
         if (role === TenantMembershipRole.SELLER) return "SELLER";
+        if (role === TenantMembershipRole.WAREHOUSE) return "WAREHOUSE";
+        if (role === TenantMembershipRole.PICKER) return "PICKER";
         return "USER";
     }
 
