@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
 
 export type AdminEventType =
     | 'ORDER_CREATED'
@@ -7,22 +8,26 @@ export type AdminEventType =
     | 'ORDER_RESPONSIBLE_ASSIGNED'
     | 'ORDER_RETURN_UPDATED'
     | 'ORDER_PICKING_UPDATED'
-    | 'INVENTORY_UPDATED';
+    | 'INVENTORY_UPDATED'
+    | 'TRANSFER_CREATED'
+    | 'TRANSFER_UPDATED';
 
 export interface AdminEventPayload {
     type: AdminEventType;
-    entity: 'ORDER' | 'INVENTORY';
+    entity: 'ORDER' | 'INVENTORY' | 'TRANSFER';
     entityId?: number | null;
     entityCode?: string | null;
     status?: string | null;
     actorUserId?: number | null;
     targetUserId?: number | null;
     timestamp?: string;
+    sequence?: number;
 }
 
 interface AdminEventClient {
     id: number;
     userId: number | null;
+    tenantId: string;
     response: Response;
     heartbeat: NodeJS.Timeout;
 }
@@ -30,8 +35,9 @@ interface AdminEventClient {
 export class AdminEventBus {
     private static clients = new Map<number, AdminEventClient>();
     private static nextClientId = 1;
+    private static sequences = new Map<string, number>();
 
-    static subscribe(response: Response, userId?: number | null) {
+    static subscribe(response: Response, tenantId: string, userId?: number | null) {
         const clientId = this.nextClientId++;
         response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
         response.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -61,6 +67,7 @@ export class AdminEventBus {
         this.clients.set(clientId, {
             id: clientId,
             userId: Number.isInteger(Number(userId)) ? Number(userId) : null,
+            tenantId,
             response,
             heartbeat,
         });
@@ -72,12 +79,22 @@ export class AdminEventBus {
     }
 
     static publish(payload: AdminEventPayload) {
+        const tenantId = TenantDataContext.currentTenantId();
+        if (!tenantId) return;
+        TenantDataContext.afterCommit(() => this.deliver(tenantId, payload));
+    }
+
+    private static deliver(tenantId: string, payload: AdminEventPayload) {
+        const sequence = (this.sequences.get(tenantId) ?? 0) + 1;
+        this.sequences.set(tenantId, sequence);
         const event = {
             ...payload,
+            sequence,
             timestamp: payload.timestamp || new Date().toISOString(),
         };
 
         for (const [clientId, client] of this.clients) {
+            if (client.tenantId !== tenantId) continue;
             if (client.response.writableEnded) {
                 clearInterval(client.heartbeat);
                 this.clients.delete(clientId);
@@ -85,6 +102,7 @@ export class AdminEventBus {
             }
 
             try {
+                client.response.write(`id: ${sequence}\n`);
                 client.response.write('event: admin-update\n');
                 client.response.write(`data: ${JSON.stringify(event)}\n\n`);
             } catch {

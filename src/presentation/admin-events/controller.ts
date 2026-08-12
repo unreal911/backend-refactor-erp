@@ -4,6 +4,9 @@ import { AdminEventBus } from './admin-event-bus';
 
 export class AdminEventsController {
     stream = (req: AuthRequest, res: Response) => {
-        AdminEventBus.subscribe(res, req.user?.id ?? null);
+        if (!req.tenant) {
+            return res.status(403).json({ message: 'Contexto de empresa requerido' });
+        }
+        AdminEventBus.subscribe(res, req.tenant.tenant.id, req.user?.id ?? null);
     };
 }

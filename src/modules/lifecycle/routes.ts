@@ -23,6 +23,12 @@ export function registerTenantLifecycleRoutes(router: Router): void {
         AuthMiddleware.requireTenantContext,
         lifecycle.updateLegalProfile,
     );
+    router.put(
+        "/api/tenant/primary-store",
+        AuthMiddleware.validateJWT,
+        AuthMiddleware.requireTenantContext,
+        lifecycle.setPrimaryStore,
+    );
     router.get(
         "/api/tenant/export",
         AuthMiddleware.validateJWT,

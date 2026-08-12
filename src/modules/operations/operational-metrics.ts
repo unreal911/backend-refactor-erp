@@ -165,9 +165,9 @@ export class OperationalMetrics {
                     WHERE product."tenantId" = tenant."id")::bigint AS "productsUsed",
                 (SELECT COUNT(*) FROM "Order" business_order
                     WHERE business_order."tenantId" = tenant."id")::bigint AS "ordersUsed",
-                COALESCE((SELECT SUM(artifact."sizeBytes") FROM "SunatArtifact" artifact
-                    WHERE artifact."tenantId" = tenant."id"
-                      AND artifact."storageStatus" <> 'DELETED'), 0)::bigint AS "storageUsed",
+                COALESCE((SELECT SUM(asset."sizeBytes") FROM "CommercialAsset" asset
+                    WHERE asset."tenantId" = tenant."id"
+                      AND asset."status" = 'ACTIVE'), 0)::bigint AS "storageUsed",
                 tenant."maxUsers",
                 tenant."maxProducts",
                 tenant."maxOrders",

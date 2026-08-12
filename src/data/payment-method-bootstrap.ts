@@ -49,7 +49,7 @@ export async function seedDefaultPaymentMethodsForTenant(
                 "updatedAt"
              )
              VALUES ($1::uuid, $2, $3, $4, true, CURRENT_TIMESTAMP)
-             ON CONFLICT ("tenantId", "code") DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
             tenantId,
             method.name,
             method.code,

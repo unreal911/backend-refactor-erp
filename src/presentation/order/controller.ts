@@ -15,6 +15,7 @@ import { CustomError } from '../../domain/errors/custom.error';
 import { AuthRequest } from '../auth/middleware';
 import { AdminEventBus, AdminEventType } from '../admin-events/admin-event-bus';
 import { UserActivityProduct, UserActivityService } from '../services/user-activity.service';
+import { TenantQuotaService } from '../../modules/lifecycle/tenant-lifecycle.service';
 
 export class OrderController {
     constructor(
@@ -158,10 +159,25 @@ export class OrderController {
             });
             this.publishOrderEvent('ORDER_CREATED', order, req.user?.id);
 
+            const posUsage = resolvedSalesChannel === 'POS'
+                ? await TenantQuotaService.getPosSalesUsage()
+                : null;
+
             res.status(201).json({
                 success: true,
                 data: order,
                 message: 'Pedido creado exitosamente',
+                ...(posUsage ? {
+                    planUsage: {
+                        used: posUsage.used,
+                        limit: posUsage.limit,
+                        periodEnd: posUsage.periodEnd,
+                        graceUntil: posUsage.graceUntil,
+                        warning: posUsage.used >= posUsage.limit
+                            ? `Cuota POS alcanzada. Puedes continuar vendiendo hasta las 23:59:59 de hoy.`
+                            : null,
+                    },
+                } : {}),
             });
         } catch (error) {
             if (error instanceof CustomError) {

@@ -3,7 +3,6 @@ import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import {
     MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY,
-    MARKETPLACE_AUTO_RESERVE_STOCK_KEY,
     MARKETPLACE_INCLUDE_IGV_KEY,
     MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY,
 } from "../../data/system-config-keys";
@@ -24,18 +23,19 @@ function currentTenantId(): string {
 // reciben `dbClient` y no dependen de estado de OrderService.
 
 export async function getMarketplacePaymentSettings(dbClient: any = prisma): Promise<MarketplacePaymentSettings> {
-    const [enabledRaw, allowedIdsRaw, includeIgvRaw, autoReserveStockRaw] = await Promise.all([
+    const [enabledRaw, allowedIdsRaw, includeIgvRaw] = await Promise.all([
         getSystemSettingValue(MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY, dbClient),
         getSystemSettingValue(MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY, dbClient),
         getSystemSettingValue(MARKETPLACE_INCLUDE_IGV_KEY, dbClient),
-        getSystemSettingValue(MARKETPLACE_AUTO_RESERVE_STOCK_KEY, dbClient),
     ]);
 
     return {
         enabled: parseBooleanSetting(enabledRaw, false),
         allowedPaymentMethodIds: parseNumberArraySetting(allowedIdsRaw),
         includeIgv: parseBooleanSetting(includeIgvRaw, true),
-        autoReserveStock: parseBooleanSetting(autoReserveStockRaw, false),
+        // El marketplace siempre crea una proforma. La reserva ocurre después
+        // de la revisión explícita de un vendedor en el panel.
+        autoReserveStock: false,
     };
 }
 

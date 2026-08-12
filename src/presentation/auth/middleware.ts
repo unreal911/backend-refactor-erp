@@ -12,6 +12,9 @@ import {
 } from '../../data/prisma';
 import { platformPrisma } from '../../data/platform-prisma';
 import { continueThroughResponse } from '../response-tasks';
+import { CustomError } from '../../domain/errors/custom.error';
+import { PlanAccessService } from '../../modules/plans/plan-access.service';
+import { PlanFeature } from '../../modules/plans/plan-catalog';
 
 export interface AuthRequest extends Request {
     user?: {
@@ -23,7 +26,22 @@ export interface AuthRequest extends Request {
     tenant?: TenantRequestContext;
     platform?: {
         platformAdminId: string;
+        role: string;
+        permissions: string[];
+        mfaVerifiedAt: number | null;
+        mfaStatus: string;
     };
+}
+
+function isFiscalSafeMutation(req: Request): boolean {
+    if (req.method !== 'POST') return false;
+    const path = String(req.originalUrl || req.path).split('?')[0] || '';
+    return [
+        /^\/api\/sunat\/orders\/\d+\/(factura|boleta)\/?$/,
+        /^\/api\/sunat\/comprobantes\/\d+\/(nota-credito|nota-debito)\/?$/,
+        /^\/api\/sunat\/resumen-diario(?:\/anulacion|\/\d+\/consultar)?\/?$/,
+        /^\/api\/sunat\/comunicacion-baja(?:\/\d+\/consultar)?\/?$/,
+    ].some((pattern) => pattern.test(path));
 }
 
 export class AuthMiddleware {
@@ -91,7 +109,7 @@ export class AuthMiddleware {
             req.tenant = tenantContext;
 
             const safeMethod = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
-            if (tenantContext.tenant.readOnly && !safeMethod) {
+            if (tenantContext.tenant.readOnly && !safeMethod && !isFiscalSafeMutation(req)) {
                 return res.status(403).json({
                     message: 'La empresa está en modo de solo lectura',
                 });
@@ -151,6 +169,7 @@ export class AuthMiddleware {
                 role: string;
                 platformAdminId?: string;
                 authVersion?: number;
+                mfaAt?: number;
             };
             if (
                 decoded.scope !== 'platform'
@@ -171,11 +190,20 @@ export class AuthMiddleware {
                 },
                 select: {
                     id: true,
+                    mfaStatus: true,
+                    role: {
+                        select: {
+                            code: true,
+                            isActive: true,
+                            permissions: { select: { permissionCode: true } },
+                        },
+                    },
                     user: { select: { authVersion: true } },
                 },
             });
             if (
                 !platformAdmin
+                || !platformAdmin.role.isActive
                 || platformAdmin.user.authVersion !== (decoded.authVersion ?? 0)
             ) {
                 return res.status(403).json({ message: 'Acceso de plataforma revocado' });
@@ -186,7 +214,13 @@ export class AuthMiddleware {
                 email: decoded.email,
                 role: 'PLATFORM_ADMIN',
             };
-            req.platform = { platformAdminId: platformAdmin.id };
+            req.platform = {
+                platformAdminId: platformAdmin.id,
+                role: platformAdmin.role.code,
+                permissions: platformAdmin.role.permissions.map((item) => item.permissionCode),
+                mfaVerifiedAt: typeof decoded.mfaAt === 'number' ? decoded.mfaAt : null,
+                mfaStatus: platformAdmin.mfaStatus,
+            };
             return next();
         } catch (error: unknown) {
             if (error instanceof jwt.TokenExpiredError) {
@@ -194,6 +228,27 @@ export class AuthMiddleware {
             }
             return res.status(401).json({ message: 'Token de plataforma invalido' });
         }
+    }
+
+    static requirePlatformPermission(permission: string) {
+        return (req: AuthRequest, res: Response, next: NextFunction) => {
+            if (!req.platform?.permissions.includes(permission)) {
+                return res.status(403).json({ message: 'No tienes permiso para esta operación' });
+            }
+            return next();
+        };
+    }
+
+    static requireRecentPlatformMfa(req: AuthRequest, res: Response, next: NextFunction) {
+        const verifiedAt = req.platform?.mfaVerifiedAt;
+        const recent = typeof verifiedAt === 'number' && Math.floor(Date.now() / 1000) - verifiedAt <= 10 * 60;
+        if (!recent) {
+            return res.status(428).json({
+                message: 'Esta operación requiere una sesión iniciada con MFA durante los últimos 10 minutos',
+                code: 'PLATFORM_MFA_RECENT_REQUIRED',
+            });
+        }
+        return next();
     }
 
     static requireTenantContext(req: AuthRequest, res: Response, next: NextFunction) {
@@ -249,6 +304,27 @@ export class AuthMiddleware {
             } catch (error: unknown) {
                 const message = error instanceof Error ? error.message : 'No se pudo validar permisos';
                 return res.status(500).json({ message });
+            }
+        };
+    }
+
+    static requirePlanFeature(feature: PlanFeature) {
+        return async (req: AuthRequest, res: Response, next: NextFunction) => {
+            if (!req.tenant) {
+                return res.status(403).json({ message: 'Contexto de empresa requerido' });
+            }
+            try {
+                await PlanAccessService.assert(feature);
+                return next();
+            } catch (caught) {
+                if (caught instanceof CustomError) {
+                    return res.status(caught.statusCode).json({
+                        message: caught.message,
+                        reason: 'PLAN_FEATURE_NOT_INCLUDED',
+                        feature,
+                    });
+                }
+                return res.status(500).json({ message: 'No se pudo validar el plan' });
             }
         };
     }

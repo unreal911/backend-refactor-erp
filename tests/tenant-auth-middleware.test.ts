@@ -40,6 +40,7 @@ vi.mock("../src/modules/auth/services/permission.service", () => ({
 }));
 
 vi.mock("../src/data/prisma", () => ({
+    prisma: {},
     platformPrisma: {
         user: {
             findUnique: mocks.userFindUnique,

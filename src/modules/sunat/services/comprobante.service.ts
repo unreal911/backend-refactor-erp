@@ -10,6 +10,7 @@ import {
 import { tenantPrisma as prisma } from "../../../data/tenant-prisma";
 import { CustomError } from "../../../domain/errors/custom.error";
 import { TenantDataContext } from "../../tenant/tenant-data-context";
+import { PlanAccessService } from "../../plans/plan-access.service";
 import { IGV_PORCENTAJE, TIPO_DOC, TIPO_DOC_IDENTIDAD, AFECTACION_IGV } from "../catalogs/sunat-catalogs";
 import { loadSunatConfig, SunatConfig } from "../config/sunat.config";
 import { buildComprobanteXml } from "../builder/ubl.builder";
@@ -326,6 +327,9 @@ export class ComprobanteService {
     // Carga la configuracion de la empresa actual. El mapa se separa por
     // tenantId para que una instancia compartida nunca reutilice otro emisor.
     private async ensureReady(): Promise<void> {
+        if (TenantDataContext.currentTenantId()) {
+            await PlanAccessService.assert("sunat");
+        }
         if (this.injectedConfig) return;
         const tenantId = TenantDataContext.requireTenantId();
         const resolved = await loadSunatConfig();
@@ -346,7 +350,7 @@ export class ComprobanteService {
             if (
                 !tenant
                 || tenant.kind === "TRIAL"
-                || tenant.status !== "ACTIVE"
+                || (tenant.status !== "ACTIVE" && tenant.status !== "SUSPENDED")
                 || !tenant.sunatProductionEnabled
                 || !certNotAfter
                 || certNotAfter <= new Date()
@@ -379,6 +383,23 @@ export class ComprobanteService {
 
         if (!order) throw CustomError.notFound("Orden no encontrada");
         if (order.items.length === 0) throw CustomError.badRequest("La orden no tiene items facturables");
+
+        const tenantId = TenantDataContext.requireTenantId();
+        const tenantAccess = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: {
+                status: true,
+                subscription: { select: { suspendedAt: true } },
+            },
+        });
+        if (tenantAccess?.status === "SUSPENDED") {
+            const suspendedAt = tenantAccess.subscription?.suspendedAt;
+            if (!suspendedAt || order.createdAt.getTime() > suspendedAt.getTime()) {
+                throw CustomError.forbidden(
+                    "El modo fiscal seguro solo permite comprobantes de ventas previas a la suspensión",
+                );
+            }
+        }
 
         // El doc del adquirente puede venir en el request o estar persistido en la orden.
         const clienteInput: ClienteInput = {
@@ -417,7 +438,6 @@ export class ComprobanteService {
 
         const totales = this.computeTotales(lineas);
         const tipoCodigo = TIPO_CODIGO[tipo];
-        const tenantId = TenantDataContext.requireTenantId();
         const idempotencyKey = normalizeIdempotencyKey(
             options.idempotencyKey ?? `order:${order.id}:${tipo}`,
         );

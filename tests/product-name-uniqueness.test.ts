@@ -6,11 +6,12 @@ import {
     normalizeProductDisplayName,
     normalizeProductNameKey,
 } from '../src/domain/normalization/product-name';
-import { LEGACY_TENANT_ID } from '../src/modules/tenant/tenant-data-context';
 import { ProductService } from '../src/presentation/services/product.service';
+import { planLimitsAsTenantFields } from '../src/modules/plans/plan-catalog';
 
 const tag = Date.now().toString(36);
 let dbReady = false;
+let tenantAId = '';
 let tenantBId = '';
 let categoryAId = 0;
 let categoryBId = 0;
@@ -58,17 +59,26 @@ describe('REL-001: unicidad de producto por empresa', () => {
             );
             if (migration.length !== 1) return;
 
-            const tenantB = await prisma.tenant.create({
+            const [tenantA, tenantB] = await Promise.all([prisma.tenant.create({
+                data: {
+                    slug: `product-name-a-${tag}`,
+                    name: `Product Name A ${tag}`,
+                    status: 'ACTIVE',
+                    ...planLimitsAsTenantFields('TRIAL'),
+                },
+            }), prisma.tenant.create({
                 data: {
                     slug: `product-name-b-${tag}`,
                     name: `Product Name B ${tag}`,
                     status: 'ACTIVE',
+                    ...planLimitsAsTenantFields('TRIAL'),
                 },
-            });
+            })]);
+            tenantAId = tenantA.id;
             tenantBId = tenantB.id;
             const categoryName = `Product Name Category ${tag}`;
             const categoryA = await runTenantDatabaseTransaction(
-                LEGACY_TENANT_ID,
+                tenantAId,
                 () => prisma.category.create({ data: { name: categoryName } }),
             );
             const categoryB = await runTenantDatabaseTransaction(
@@ -93,7 +103,7 @@ describe('REL-001: unicidad de producto por empresa', () => {
             if (categoryAId || categoryBId) {
                 await prisma.category.deleteMany({ where: { id: { in: [categoryAId, categoryBId].filter(Boolean) } } });
             }
-            if (tenantBId) await prisma.tenant.delete({ where: { id: tenantBId } });
+            if (tenantAId || tenantBId) await prisma.tenant.deleteMany({ where: { id: { in: [tenantAId, tenantBId].filter(Boolean) } } });
         } catch { /* limpieza de mejor esfuerzo */ }
         await prisma.$disconnect().catch(() => undefined);
     });
@@ -102,8 +112,8 @@ describe('REL-001: unicidad de producto por empresa', () => {
         if (!dbReady) return ctx.skip();
         const base = `Pólo Carrera ${tag}`;
         const results = await Promise.allSettled([
-            createProduct(LEGACY_TENANT_ID, base, categoryAId),
-            createProduct(LEGACY_TENANT_ID, `  POLO   CARRERA ${tag} `, categoryAId),
+            createProduct(tenantAId, base, categoryAId),
+            createProduct(tenantAId, `  POLO   CARRERA ${tag} `, categoryAId),
         ]);
         const fulfilled = results.filter((result) => result.status === 'fulfilled');
         const rejected = results.filter((result) => result.status === 'rejected');
@@ -118,18 +128,18 @@ describe('REL-001: unicidad de producto por empresa', () => {
 
     it('bloquea una edicion que colisiona y conserva el nombre anterior', async (ctx) => {
         if (!dbReady) return ctx.skip();
-        const first = await createProduct(LEGACY_TENANT_ID, `Camísa Formal ${tag}`, categoryAId);
-        const second = await createProduct(LEGACY_TENANT_ID, `Pantalon Formal ${tag}`, categoryAId);
+        const first = await createProduct(tenantAId, `Camísa Formal ${tag}`, categoryAId);
+        const second = await createProduct(tenantAId, `Pantalon Formal ${tag}`, categoryAId);
         const [error, dto] = UpdateProductDto.create({ name: ` camisa   formal ${tag} ` });
         expect(error).toBeUndefined();
 
         await expect(runTenantDatabaseTransaction(
-            LEGACY_TENANT_ID,
+            tenantAId,
             () => new ProductService().updateProduct(second.id, dto!),
         )).rejects.toMatchObject({ statusCode: 400 });
 
         const persisted = await runTenantDatabaseTransaction(
-            LEGACY_TENANT_ID,
+            tenantAId,
             () => prisma.product.findUnique({ where: { id: second.id } }),
         );
         expect(persisted?.name).toBe(`Pantalon Formal ${tag}`);
@@ -138,10 +148,10 @@ describe('REL-001: unicidad de producto por empresa', () => {
 
     it('permite el mismo nombre logico en empresas diferentes', async (ctx) => {
         if (!dbReady) return ctx.skip();
-        const companyA = await createProduct(LEGACY_TENANT_ID, `Zapatílla Urbana ${tag}`, categoryAId);
+        const companyA = await createProduct(tenantAId, `Zapatílla Urbana ${tag}`, categoryAId);
         const companyB = await createProduct(tenantBId, ` zapatilla   urbana ${tag} `, categoryBId);
         const persistedA = await runTenantDatabaseTransaction(
-            LEGACY_TENANT_ID,
+            tenantAId,
             () => prisma.product.findUnique({ where: { id: companyA.id } }),
         );
         const persistedB = await runTenantDatabaseTransaction(
@@ -149,7 +159,7 @@ describe('REL-001: unicidad de producto por empresa', () => {
             () => prisma.product.findUnique({ where: { id: companyB.id } }),
         );
 
-        expect(persistedA?.tenantId).toBe(LEGACY_TENANT_ID);
+        expect(persistedA?.tenantId).toBe(tenantAId);
         expect(persistedB?.tenantId).toBe(tenantBId);
         expect(normalizeProductNameKey(companyA.name)).toBe(normalizeProductNameKey(companyB.name));
     }, 60_000);

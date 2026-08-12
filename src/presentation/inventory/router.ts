@@ -20,12 +20,14 @@ export class inventoryRoute {
 
         router.get('/', AuthMiddleware.requirePermission('inventory.view'), controller.listInventories);
         router.get('/movements', AuthMiddleware.requirePermission('inventory.history.view'), controller.listMovements);
+        // Listar y cerrar transferencias existentes sigue permitido al vencer una
+        // promoción o bajar de plan. Solo crear una nueva requiere el beneficio.
         router.get('/transfers', AuthMiddleware.requirePermission('transfers.view'), controller.listTransfers);
         router.get('/reservations', AuthMiddleware.requirePermission('inventory.view'), controller.listReservations);
         router.get('/reserved-audit', AuthMiddleware.requirePermission('inventory.reconcile'), controller.auditReservedStock);
 
         router.post('/movements', requireMovementPermission, controller.createMovement);
-        router.post('/transfers', AuthMiddleware.requirePermission('transfers.create'), controller.createStockTransfer);
+        router.post('/transfers', AuthMiddleware.requirePlanFeature('transfers'), AuthMiddleware.requirePermission('transfers.create'), controller.createStockTransfer);
         router.post('/reservations', AuthMiddleware.requirePermission('inventory.reservation.manage'), controller.createReservation);
         router.post('/reconcile-reserved', AuthMiddleware.requirePermission('inventory.reconcile'), controller.reconcileReservedStock);
         router.patch('/transfers/:id/dispatch', AuthMiddleware.requirePermission('transfers.dispatch'), controller.dispatchStockTransfer);

@@ -2,6 +2,7 @@ import {
     TenantDatabaseMode,
     TenantMembershipRole,
     TenantMembershipStatus,
+    TenantPlanCode,
     TenantStatus,
 } from "@prisma/client";
 import { platformPrisma as prisma } from "../../data/platform-prisma";
@@ -14,6 +15,9 @@ export type TenantRequestContext = {
         status: TenantStatus;
         databaseMode: TenantDatabaseMode;
         trialEndsAt: Date | null;
+        planCode?: TenantPlanCode;
+        planFeatures?: string[];
+        welcomeStorePromotionEndsAt?: Date | null;
         readOnly: boolean;
     };
     membership: {
@@ -148,6 +152,9 @@ export class TenantContextService {
                 status: membership.tenant.status,
                 databaseMode: membership.tenant.databaseMode,
                 trialEndsAt: membership.tenant.trialEndsAt,
+                planCode: membership.tenant.planCode,
+                planFeatures: membership.tenant.planFeatures,
+                welcomeStorePromotionEndsAt: membership.tenant.welcomeStorePromotionEndsAt,
                 readOnly: membership.tenant.status === TenantStatus.EXPIRED
                     || membership.tenant.status === TenantStatus.SUSPENDED,
             },

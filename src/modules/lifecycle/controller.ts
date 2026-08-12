@@ -37,6 +37,21 @@ export class TenantLifecycleController {
         }
     };
 
+    setPrimaryStore = async (req: AuthRequest, res: Response) => {
+        if (!req.user || !req.tenant) {
+            return res.status(403).json({ message: "Contexto de empresa requerido" });
+        }
+        try {
+            const store = await TenantLifecycleService.setPrimaryStore(
+                Number(req.body?.storeId),
+                { userId: req.user.id, role: req.tenant.membership.role },
+            );
+            return res.json({ store });
+        } catch (caught) {
+            return handle(caught, res);
+        }
+    };
+
     exportData = async (_req: AuthRequest, res: Response) => {
         try {
             const exported = await TenantExportService.createCurrentTenantExport();

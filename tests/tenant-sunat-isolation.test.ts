@@ -37,6 +37,7 @@ async function createCompany(label: "A" | "B"): Promise<CompanyFixture> {
             slug: `ten007-${label.toLowerCase()}-${suffix}`,
             name: `TEN007 Empresa ${label} ${suffix}`,
             status: "SUSPENDED",
+            planCode: "PREMIUM",
         },
     });
     tenantIds.push(tenant.id);

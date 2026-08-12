@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import {
     AccountActivationRequiredError,
     AuthService,
@@ -9,6 +10,7 @@ import {
     TenantAccessError,
     TenantSelectionRequiredError,
 } from '../../modules/tenant/tenant-context.service';
+import { PlatformAuditService } from '../../modules/platform-admin/platform-audit.service';
 
 export class AuthController {
     static async login(req: Request, res: Response) {
@@ -69,8 +71,17 @@ export class AuthController {
             const result = await AuthService.loginPlatform(loginDto!);
             return res.json(result);
         } catch {
+            const emailHash = createHash('sha256').update(String(req.body?.email || '').trim().toLowerCase()).digest('hex');
+            await PlatformAuditService.record({ action: 'PLATFORM_LOGIN_FAILED', entityType: 'PlatformAuthentication', after: { emailHash } }).catch(() => undefined);
             return res.status(401).json({ message: 'Credenciales de plataforma invalidas' });
         }
+    }
+
+    static async platformLogout(req: AuthRequest, res: Response) {
+        if (req.platform?.platformAdminId) {
+            await PlatformAuditService.record({ actorPlatformAdminId: req.platform.platformAdminId, action: 'PLATFORM_LOGOUT', entityType: 'PlatformAdmin', entityId: req.platform.platformAdminId }).catch(() => undefined);
+        }
+        return res.json({ message: 'Sesión cerrada' });
     }
 
     static async me(req: AuthRequest, res: Response) {

@@ -14,6 +14,8 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'reports.view', name: 'Ver reportes', module: 'reports', description: 'Permite crear y consultar reportes personalizados' },
     { code: 'reports.export', name: 'Exportar reportes', module: 'reports', description: 'Permite exportar reportes personalizados a Excel' },
     { code: 'tenant.data.export', name: 'Exportar datos de empresa', module: 'tenant', description: 'Permite descargar una exportacion logica verificable sin secretos' },
+    { code: 'subscription.view', name: 'Ver suscripción', module: 'subscription', description: 'Permite consultar plan, vigencia y solicitudes de pago' },
+    { code: 'subscription.request', name: 'Solicitar plan', module: 'subscription', description: 'Permite solicitar una contratación o renovación manual' },
 
     { code: 'users.view', name: 'Ver usuarios', module: 'users', description: 'Permite listar usuarios' },
     { code: 'users.create', name: 'Crear usuarios', module: 'users', description: 'Permite crear usuarios' },

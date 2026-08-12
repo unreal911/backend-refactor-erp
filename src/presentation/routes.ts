@@ -25,6 +25,7 @@ import { registerOperationsRoutes } from "../modules/operations";
 import { registerReportModuleRoutes } from "../modules/reports/routes";
 import { PublicTenantMiddleware } from "./public/tenant.middleware";
 import { customerRoute } from "./customer/router";
+import { registerPlatformAdminRoutes } from "../modules/platform-admin/routes";
 
 export class AppRouter {
     static get router(): Router {
@@ -36,6 +37,7 @@ export class AppRouter {
         registerTenantInvitationRoutes(router);
         registerTenantLifecycleRoutes(router);
         registerOperationsRoutes(router);
+        registerPlatformAdminRoutes(router);
         registerReportModuleRoutes(router);
 
         if (envs.SEED_ENDPOINT_ENABLED) {

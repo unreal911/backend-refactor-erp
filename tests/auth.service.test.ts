@@ -190,6 +190,10 @@ describe('AuthService', () => {
         permissions: ['users.view'],
         tenant: tenantContext.tenant,
         membership: tenantContext.membership,
+        plan: {
+          code: 'STARTER',
+          features: ['picking.basic', 'sunat'],
+        },
       },
     });
   });
@@ -224,6 +228,10 @@ describe('AuthService', () => {
         permissions: ['orders.view'],
         tenant: tenantContext.tenant,
         membership: tenantContext.membership,
+        plan: {
+          code: 'STARTER',
+          features: ['picking.basic', 'sunat'],
+        },
       },
     });
   });

@@ -6,7 +6,6 @@ import {
 } from "@prisma/client";
 import { tenantPrisma } from "../../../data/tenant-prisma";
 import { CustomError } from "../../../domain/errors/custom.error";
-import { TenantQuotaService } from "../../lifecycle/tenant-lifecycle.service";
 import { TenantDataContext } from "../../tenant/tenant-data-context";
 import { createSunatInfrastructure, SunatInfrastructure } from "../infrastructure/sunat-infrastructure.factory";
 import { isSunatDocumentStorageEnabled } from "../infrastructure/sunat-infrastructure.config";
@@ -169,7 +168,8 @@ export class SunatArtifactService {
             return existing;
         }
 
-        await TenantQuotaService.assertAvailable("storage", input.body.length);
+        // Los artefactos fiscales tienen almacenamiento protegido: una cuota
+        // comercial nunca puede impedir conservar XML, ZIP, CDR o PDF.
         const date = new Date().toISOString().slice(0, 10).replaceAll("-", "/");
         // Content-addressed: una carrera con bytes distintos no sobrescribe el
         // objeto que termino asociado a la version logica ganadora.

@@ -458,9 +458,11 @@ describe("MIG-009: marketplace, métodos de pago y configuración", () => {
                 }),
             ]),
         );
-        expect(stateA[0].reservedStock).toBe(2);
-        expect(stateA[1]).toHaveLength(1);
-        expect(stateA[2].items[0]?.reserved).toBe(2);
+        // El marketplace siempre crea proformas. La reserva ocurre después,
+        // cuando el vendedor la confirma desde el panel.
+        expect(stateA[0].reservedStock).toBe(0);
+        expect(stateA[1]).toHaveLength(0);
+        expect(stateA[2].items[0]?.reserved).toBe(0);
         expect(Number(stateA[2].tax)).toBe(0);
         expect(stateB[0].reservedStock).toBe(0);
         expect(stateB[1]).toHaveLength(0);

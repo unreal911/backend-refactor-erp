@@ -41,6 +41,9 @@ const TENANT_MODELS = new Set([
     "SunatEmisorConfig",
     "TenantLifecycleEvent",
     "TenantSubscription",
+    "TenantPlanAssignment",
+    "ManualPaymentRequest",
+    "CommercialAsset",
 ]);
 
 const READ_OPERATIONS = new Set([
@@ -232,7 +235,8 @@ export async function runTenantDatabaseTransaction<T>(
         return callback();
     }
 
-    return scopedPrisma.$transaction(
+    const afterCommitTasks: Array<() => void | Promise<void>> = [];
+    const result = await scopedPrisma.$transaction(
         async (tx) => {
             await tx.$executeRawUnsafe(
                 `SET LOCAL ROLE "tienda_tenant_app"`,
@@ -245,6 +249,7 @@ export async function runTenantDatabaseTransaction<T>(
                 normalizedTenantId,
                 tx,
                 callback,
+                afterCommitTasks,
             );
         },
         {
@@ -252,6 +257,14 @@ export async function runTenantDatabaseTransaction<T>(
             timeout: 120_000,
         },
     );
+    for (const task of afterCommitTasks) {
+        try {
+            await task();
+        } catch (caught) {
+            console.error("[tenant-after-commit]", caught instanceof Error ? caught.message : caught);
+        }
+    }
+    return result;
 }
 
 const platformPrisma = basePrisma;

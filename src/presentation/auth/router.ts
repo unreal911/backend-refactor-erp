@@ -16,6 +16,7 @@ export class AuthRouter {
         router.post('/password-reset/request', authRateLimiter, passwordResetController.request);
         router.post('/password-reset/confirm', authRateLimiter, passwordResetController.confirm);
         router.post('/platform/login', authRateLimiter, AuthController.platformLogin);
+        router.post('/platform/logout', AuthMiddleware.validatePlatformJWT, AuthController.platformLogout);
         router.get('/me', AuthMiddleware.validateJWT, AuthController.me);
         router.post('/logout', AuthController.logout);
 
