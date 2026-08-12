@@ -21,6 +21,7 @@ import {
 } from "../../modules/tenant/tenant-data-context";
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
 import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
+import { PlanAccessService } from "../../modules/plans/plan-access.service";
 import {
     MarketplaceGuideItem,
     MarketplacePaymentMethod,
@@ -387,23 +388,25 @@ export class OrderService {
             }
         }
 
-        await TenantQuotaService.assertAvailable("orders");
+        if (salesChannel === "POS") {
+            await TenantQuotaService.assertPosSaleAllowed();
+        }
 
         // Validar que la tienda origen existe
-        const sourceStore = await prisma.store.findUnique({
-            where: { id: dto.sourceStoreId },
+        const sourceStore = await prisma.store.findFirst({
+            where: { id: dto.sourceStoreId, isActive: true },
         });
         if (!sourceStore) {
-            throw CustomError.badRequest(`La tienda origen con ID ${dto.sourceStoreId} no existe`);
+            throw CustomError.badRequest(`La tienda origen con ID ${dto.sourceStoreId} no existe o está inactiva`);
         }
 
         // Validar que la tienda de fulfillment existe si se proporciona
         if (dto.fulfillmentStoreId) {
-            const fulfillmentStore = await prisma.store.findUnique({
-                where: { id: dto.fulfillmentStoreId },
+            const fulfillmentStore = await prisma.store.findFirst({
+                where: { id: dto.fulfillmentStoreId, isActive: true },
             });
             if (!fulfillmentStore) {
-                throw CustomError.badRequest(`La tienda de fulfillment con ID ${dto.fulfillmentStoreId} no existe`);
+                throw CustomError.badRequest(`La tienda de fulfillment con ID ${dto.fulfillmentStoreId} no existe o está inactiva`);
             }
         }
 
@@ -741,7 +744,7 @@ export class OrderService {
             }
         }
 
-        await TenantQuotaService.assertAvailable("orders");
+        await PlanAccessService.assert("marketplace");
 
         const [selectedPaymentMethod, marketplaceSettings] = await Promise.all([
             resolveMarketplacePaymentMethod(dto.paymentMethodId),

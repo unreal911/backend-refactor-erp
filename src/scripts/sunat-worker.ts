@@ -83,7 +83,7 @@ async function execute(type: SunatJobType, payload: WorkerPayload): Promise<void
         where: { id: payload.tenantId },
         select: { status: true },
     });
-    if (!tenant || (tenant.status !== "TRIAL" && tenant.status !== "ACTIVE")) {
+    if (!tenant || (tenant.status !== "ACTIVE" && tenant.status !== "SUSPENDED")) {
         throw new Error("TENANT_NOT_OPERATIONAL");
     }
     await runTenantDatabaseTransaction(payload.tenantId, async () => {

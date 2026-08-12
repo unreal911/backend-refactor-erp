@@ -4,12 +4,13 @@ import { ListProductDto } from "../../domain/dtos/list-product.dto";
 import { PublicListProductDto } from "../../domain/dtos/public-list-product.dto";
 import { GenerateVariantsDto } from "../../domain/dtos/generate-variants.dto";
 import { tenantPrisma as prisma } from "../../data/tenant-prisma";
-import { Prisma } from "@prisma/client";
+import { CommercialAssetPurpose, Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import { ProductEntity } from "../../domain/entities/product.entity";
 import { ProductVariantEntity } from "../../domain/entities/product-variant.entity";
 import { ProductImageEntity } from "../../domain/entities/product-image.entity";
 import { cloudinary } from "../../config/cloudinary";
+import { CommercialAssetService } from "../../modules/commercial-assets/commercial-asset.service";
 import {
     LEGACY_TENANT_ID,
     TenantDataContext,
@@ -486,20 +487,21 @@ export class ProductService {
     }
 
     private async uploadBase64Image(data: string, publicId: string): Promise<string> {
-        const payload = data.startsWith('data:') ? data : `data:image/jpeg;base64,${data}`;
-
         try {
-            const uploadResult = await cloudinary.uploader.upload(payload, {
-                folder: 'product_images',
-                public_id: publicId,
-                overwrite: true,
-                resource_type: 'image',
+            const productId = publicId.match(/product_(\d+)/)?.[1] || 'unknown';
+            const variantAsset = publicId.includes('_variant_') || publicId.includes('_marketplace_color_');
+            const asset = await CommercialAssetService.upload({
+                data,
+                key: publicId,
+                purpose: variantAsset ? CommercialAssetPurpose.VARIANT : CommercialAssetPurpose.PRODUCT,
+                ownerType: variantAsset ? 'ProductVariantDraft' : 'Product',
+                ownerId: variantAsset ? publicId : productId,
             });
-
-            return uploadResult.secure_url;
+            return asset.url;
         } catch (error) {
-            console.error('Error subiendo imagen a Cloudinary:', error);
-            throw CustomError.internal('Error al subir la imagen');
+            if (error instanceof CustomError) throw error;
+            console.error('Error subiendo imagen comercial:', error);
+            throw CustomError.internal('Error al almacenar la imagen');
         }
     }
 
@@ -564,6 +566,9 @@ export class ProductService {
     }
 
     private async deleteCloudinaryUrl(url: string): Promise<void> {
+        if (await CommercialAssetService.deleteByUrl(url)) {
+            return;
+        }
         const publicId = this.extractPublicIdFromUrl(url);
         if (!publicId) {
             return;
@@ -614,7 +619,10 @@ export class ProductService {
                 canonicalPublicId,
                 tenantId,
             );
-            if (!shared) {
+            const managedResults = await Promise.all(
+                matchingImages.map((image) => CommercialAssetService.deleteByUrl(image.url)),
+            );
+            if (!shared && !managedResults.some(Boolean)) {
                 await cloudinary.uploader.destroy(canonicalPublicId, {
                     resource_type: 'image',
                 });
@@ -829,6 +837,17 @@ export class ProductService {
                 colorById = new Map(colorRecords.map((color) => [color.id, color.name]));
                 sizeById = new Map(sizeRecords.map((size) => [size.id, size.name]));
             }
+
+            const activeVariantCount = variantsToCreate.filter((variant) => variant.isActive !== false).length;
+            const requestedMainImages = new Set(imageUrls || []).size + (imageFiles || []).length;
+            const requestedVariantImages = variantsToCreate.filter(
+                (variant) => Boolean(variant.imageFile || variant.imageUrl),
+            ).length + (marketplaceColorImages || []).filter(
+                (image) => Boolean(image.imageFile || image.imageUrl),
+            ).length;
+            await TenantQuotaService.assertVariantsAvailable(0, activeVariantCount, true);
+            await TenantQuotaService.assertMainImagesAvailable(0, requestedMainImages, true);
+            await TenantQuotaService.assertVariantImagesAllowed(requestedVariantImages);
 
             const now = new Date();
 
@@ -1487,6 +1506,11 @@ export class ProductService {
      * Eliminar y recrear las imágenes de producto
      */
     private async replaceProductImages(productId: number, imageUrls: string[] = [], imageFiles: Array<{ filename: string; data: string }> = []) {
+        await TenantQuotaService.assertMainImagesAvailable(
+            productId,
+            new Set(imageUrls || []).size + (imageFiles || []).length,
+            true,
+        );
         const existingImages = await prisma.productImage.findMany({ where: { productId }, select: { url: true } });
         const uploadedUrls = await this.uploadProductFiles(productId, imageFiles);
         const allImageUrls = [...new Set([...(imageUrls || []), ...uploadedUrls])];
@@ -1513,6 +1537,14 @@ export class ProductService {
      * Reemplazar las variantes de un producto
      */
     private async replaceVariants(productId: number, productName: string, variants: VariantWriteInput[]) {
+        await TenantQuotaService.assertVariantsAvailable(
+            productId,
+            variants.filter((variant) => variant.isActive !== false).length,
+            true,
+        );
+        await TenantQuotaService.assertVariantImagesAllowed(
+            variants.filter((variant) => Boolean(variant.imageFile || variant.imageUrl)).length,
+        );
         const existingVariants = await prisma.productVariant.findMany({
             where: { productId },
             select: { id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true },
@@ -1686,6 +1718,17 @@ export class ProductService {
 
             if (!product) {
                 throw CustomError.notFound(`El producto con ID ${id} no existe`);
+            }
+
+            if (updateData.isActive === true && !product.isActive) {
+                await TenantQuotaService.assertAvailable("products");
+            }
+            if (updateData.marketplaceColorImages) {
+                await TenantQuotaService.assertVariantImagesAllowed(
+                    updateData.marketplaceColorImages.filter(
+                        (image) => Boolean(image.imageFile || image.imageUrl),
+                    ).length,
+                );
             }
 
             const normalizedName = updateData.name !== undefined

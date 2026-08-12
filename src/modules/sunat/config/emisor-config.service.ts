@@ -15,6 +15,7 @@ import {
     isAnySunatSecretEncryptionConfigured,
     isKmsSecretWritingEnabled,
 } from "./sunat-secret.service";
+import { PlanAccessService } from "../../plans/plan-access.service";
 
 // Fila cruda (lectura via SQL para no depender del cliente Prisma generado).
 interface EmisorRow {
@@ -129,6 +130,7 @@ export class EmisorConfigService {
 
     // Devuelve el id de la unica fila de la empresa, creandola si no existe.
     private async ensureRow(): Promise<number> {
+        await PlanAccessService.assert("sunat");
         const tenantId = TenantDataContext.requireTenantId();
         const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
             `SELECT "id"
@@ -191,6 +193,7 @@ export class EmisorConfigService {
     }
 
     async obtener(): Promise<EmisorConfigView> {
+        await PlanAccessService.assert("sunat");
         TenantDataContext.requireTenantId();
         try {
             return this.toView(await this.fetchRow());
@@ -427,6 +430,7 @@ export class EmisorConfigService {
 
     // Prueba conexion + credenciales con la configuracion efectiva actual.
     async probarConexion(): Promise<{ ok: boolean; environment: SunatEnvironment; message: string; code?: string }> {
+        await PlanAccessService.assert("sunat");
         const config = await loadSunatConfig();
         const result = await this.probe(config.environment, config.ruc, config.solUser, config.solPassword);
         if (result.ok) {

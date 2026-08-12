@@ -3,7 +3,7 @@ import {
     runTenantDatabaseTransaction,
 } from "../../data/prisma";
 import { platformPrisma } from "../../data/platform-prisma";
-import { TenantStatus } from "@prisma/client";
+import { TenantPlanCode, TenantStatus } from "@prisma/client";
 import { continueThroughResponse } from "../response-tasks";
 
 export interface PublicTenantRequest extends Request {
@@ -22,6 +22,7 @@ export class PublicTenantMiddleware {
         const requestedSlug = String(headerSlug || querySlug || "").trim().toLowerCase();
         const activeWhere = {
             status: { in: [TenantStatus.TRIAL, TenantStatus.ACTIVE] },
+            planCode: { in: [TenantPlanCode.TRIAL, TenantPlanCode.GROWTH, TenantPlanCode.PREMIUM] },
             OR: [
                 { status: TenantStatus.ACTIVE },
                 { trialEndsAt: { gt: new Date() } },

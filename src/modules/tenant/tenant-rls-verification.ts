@@ -10,6 +10,7 @@ export const RLS_TABLES = [
     "AuditLog",
     "Category",
     "Color",
+    "CommercialAsset",
     "Comprobante",
     "ComprobanteItem",
     "ComprobanteSerie",
@@ -17,6 +18,7 @@ export const RLS_TABLES = [
     "Customer",
     "Inventory",
     "InventoryMovement",
+    "ManualPaymentRequest",
     "MarketplaceCustomer",
     "Order",
     "OrderItem",
@@ -50,6 +52,7 @@ export const RLS_TABLES = [
     "TenantMembership",
     "TenantMigrationCheckpoint",
     "TenantMigrationQuarantine",
+    "TenantPlanAssignment",
     "TenantSubscription",
     "UserActivityLog",
 ] as const;

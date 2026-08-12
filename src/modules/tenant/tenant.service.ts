@@ -3,12 +3,14 @@ import {
     TenantKind,
     TenantMembershipRole,
     TenantMembershipStatus,
+    TenantPlanAssignmentSource,
     TenantStatus,
 } from "@prisma/client";
 import { platformPrisma as prisma } from "../../data/platform-prisma";
 import { TenantAccessError } from "./tenant-context.service";
 import { seedDefaultPaymentMethodsForTenant } from "../../data/payment-method-bootstrap";
 import { seedDefaultSystemSettingsForTenant } from "../../data/system-config-bootstrap";
+import { planLimitsAsTenantFields } from "../plans/plan-catalog";
 
 export type CreateTenantInput = {
     slug: string;
@@ -78,6 +80,18 @@ export class TenantService {
 
         const legalName = input.legalName?.trim() || null;
         const contactEmail = input.contactEmail?.trim().toLowerCase() || null;
+        const planCode = isTrial ? "TRIAL" : "STARTER";
+        const planLimits = planLimitsAsTenantFields(planCode);
+        const activePlanVersion = await tx.planVersion.findFirst({
+            where: {
+                plan: { code: planCode },
+                status: "ACTIVE",
+            },
+            orderBy: { version: "desc" },
+        });
+        if (!activePlanVersion) {
+            throw new TenantAccessError(`No existe una versión activa para el plan ${planCode}`, 503);
+        }
         const tenant = await tx.tenant.create({
             data: {
                 slug,
@@ -90,8 +104,15 @@ export class TenantService {
                 contactEmail,
                 status: input.status,
                 databaseMode: "SHARED",
+                planCode,
+                activePlanVersionId: activePlanVersion.id,
+                ...planLimits,
                 trialStartedAt: isTrial ? now : null,
                 trialEndsAt,
+                welcomeStorePromotionStartedAt: isTrial ? null : now,
+                welcomeStorePromotionEndsAt: isTrial
+                    ? null
+                    : new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
             },
         });
 
@@ -99,9 +120,26 @@ export class TenantService {
             data: {
                 tenantId: tenant.id,
                 provider: "internal",
-                planCode: isTrial ? "TRIAL" : "STARTER",
+                planCode,
+                planVersionId: activePlanVersion.id,
                 status: isTrial ? "TRIALING" : "ACTIVE",
                 currentPeriodEndsAt: trialEndsAt,
+            },
+        });
+
+        await tx.tenantPlanAssignment.create({
+            data: {
+                tenantId: tenant.id,
+                planVersionId: activePlanVersion.id,
+                status: "ACTIVE",
+                source: isTrial
+                    ? TenantPlanAssignmentSource.TRIAL
+                    : TenantPlanAssignmentSource.PLATFORM,
+                price: activePlanVersion.monthlyPrice,
+                currency: activePlanVersion.currency,
+                startsAt: now,
+                endsAt: trialEndsAt,
+                reason: isTrial ? "Alta de prueba" : "Alta inicial de empresa",
             },
         });
 

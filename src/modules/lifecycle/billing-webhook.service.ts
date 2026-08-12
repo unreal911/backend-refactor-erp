@@ -9,7 +9,7 @@ import {
 } from "@prisma/client";
 import { platformPrisma } from "../../data/platform-prisma";
 import { CustomError } from "../../domain/errors/custom.error";
-import { PLAN_LIMITS } from "./tenant-lifecycle.service";
+import { planLimitsAsTenantFields } from "../plans/plan-catalog";
 
 type BillingWebhookPayload = {
     id: string;
@@ -20,6 +20,8 @@ type BillingWebhookPayload = {
     subscriptionId?: string;
     currentPeriodEndsAt?: string;
 };
+
+const PAYMENT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function sha256(value: Buffer | string): string {
     return createHash("sha256").update(value).digest("hex");
@@ -137,13 +139,21 @@ export class BillingWebhookService {
                 }
 
                 const activate = payload.type === "subscription.activated" || payload.type === "payment.succeeded";
-                const suspended = payload.type === "subscription.suspended" || payload.type === "payment.failed";
+                const hardSuspension = payload.type === "subscription.suspended";
+                const paymentFailed = payload.type === "payment.failed";
+                const cancelled = payload.type === "subscription.cancelled";
                 const subscriptionStatus = activate
                     ? TenantSubscriptionStatus.ACTIVE
-                    : payload.type === "subscription.cancelled"
+                    : cancelled
                         ? TenantSubscriptionStatus.CANCELLED
-                        : TenantSubscriptionStatus.SUSPENDED;
+                        : paymentFailed
+                            ? TenantSubscriptionStatus.PAST_DUE
+                            : TenantSubscriptionStatus.SUSPENDED;
                 const periodEnd = validatedPeriodEnd;
+                const effectivePlan = activate ? payload.plan : tenant.planCode;
+                const cancellationStillPaid = cancelled
+                    && Boolean(periodEnd && periodEnd.getTime() > now.getTime());
+                const tenantRemainsActive = activate || paymentFailed || cancellationStillPaid;
 
                 await tx.tenantSubscription.upsert({
                     where: { tenantId: tenant.id },
@@ -152,43 +162,74 @@ export class BillingWebhookService {
                         provider: normalizedProvider,
                         externalCustomerId: payload.customerId ?? null,
                         externalSubscriptionId: payload.subscriptionId ?? null,
-                        planCode: payload.plan,
+                        planCode: effectivePlan,
                         status: subscriptionStatus,
                         currentPeriodEndsAt: periodEnd,
-                        suspendedAt: suspended ? now : null,
+                        suspendedAt: hardSuspension ? now : null,
                     },
                     update: {
                         provider: normalizedProvider,
                         externalCustomerId: payload.customerId ?? null,
                         externalSubscriptionId: payload.subscriptionId ?? null,
-                        planCode: payload.plan,
+                        planCode: effectivePlan,
                         status: subscriptionStatus,
                         currentPeriodEndsAt: periodEnd,
-                        suspendedAt: suspended ? now : null,
+                        suspendedAt: hardSuspension ? now : null,
                     },
                 });
 
-                const limits = PLAN_LIMITS[payload.plan];
-                const status = activate ? TenantStatus.ACTIVE : TenantStatus.SUSPENDED;
+                const limits = planLimitsAsTenantFields(effectivePlan);
+                const status = tenantRemainsActive ? TenantStatus.ACTIVE : TenantStatus.SUSPENDED;
+                const grantStarterWelcomePromotion = activate
+                    && payload.plan === TenantPlanCode.STARTER
+                    && tenant.planCode === TenantPlanCode.TRIAL;
                 await tx.tenant.update({
                     where: { id: tenant.id },
                     data: {
                         kind: activate ? TenantKind.CUSTOMER : tenant.kind,
                         status,
-                        planCode: payload.plan,
+                        planCode: effectivePlan,
                         ...limits,
-                        readOnlyAt: activate ? null : now,
-                        graceEndsAt: activate ? null : tenant.graceEndsAt,
+                        welcomeStorePromotionStartedAt: grantStarterWelcomePromotion
+                            ? now
+                            : tenant.welcomeStorePromotionStartedAt,
+                        welcomeStorePromotionEndsAt: grantStarterWelcomePromotion
+                            ? new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000)
+                            : tenant.welcomeStorePromotionEndsAt,
+                        readOnlyAt: tenantRemainsActive ? null : now,
+                        graceEndsAt: activate
+                            ? null
+                            : paymentFailed
+                                ? new Date(now.getTime() + PAYMENT_GRACE_MS)
+                                : cancellationStillPaid
+                                    ? periodEnd
+                                    : tenant.graceEndsAt,
                         purgeScheduledAt: activate ? null : tenant.purgeScheduledAt,
-                        sunatProductionEnabled: activate ? tenant.sunatProductionEnabled : false,
+                        // Una suspensión es comercial: se conserva la aprobación
+                        // para completar obligaciones fiscales ya comprometidas.
+                        sunatProductionEnabled: tenant.sunatProductionEnabled,
                     },
                 });
                 await tx.tenantLifecycleEvent.create({
                     data: {
                         tenantId: tenant.id,
-                        type: activate ? "SUBSCRIPTION_ACTIVATED" : "SUBSCRIPTION_SUSPENDED",
+                        type: activate
+                            ? "SUBSCRIPTION_ACTIVATED"
+                            : paymentFailed
+                                ? "SUBSCRIPTION_PAST_DUE"
+                                : cancelled
+                                    ? "SUBSCRIPTION_CANCELLED"
+                                    : "SUBSCRIPTION_SUSPENDED",
                         source: `billing:${normalizedProvider}`,
-                        metadata: { plan: payload.plan, eventType: payload.type },
+                        metadata: {
+                            plan: effectivePlan,
+                            eventType: payload.type,
+                            graceEndsAt: paymentFailed
+                                ? new Date(now.getTime() + PAYMENT_GRACE_MS).toISOString()
+                                : cancellationStillPaid
+                                    ? periodEnd?.toISOString()
+                                    : null,
+                        },
                     },
                 });
                 const processed = await tx.billingWebhookEvent.update({

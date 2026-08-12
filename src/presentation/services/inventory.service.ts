@@ -223,8 +223,8 @@ export class InventoryService {
 
     private async validateStore(storeId: number) {
         const store = await prisma.store.findUnique({ where: { id: storeId } });
-        if (!store) {
-            throw CustomError.badRequest(`La tienda con ID ${storeId} no existe`);
+        if (!store || !store.isActive) {
+            throw CustomError.badRequest(`La tienda con ID ${storeId} no existe o está inactiva`);
         }
     }
 

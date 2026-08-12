@@ -69,6 +69,21 @@ export class InventoryController {
         });
     }
 
+    private publishTransferEvent(
+        type: 'TRANSFER_CREATED' | 'TRANSFER_UPDATED',
+        transfer: any,
+        actorUserId?: number | null,
+    ) {
+        AdminEventBus.publish({
+            type,
+            entity: 'TRANSFER',
+            entityId: Number(transfer?.id || 0) || null,
+            entityCode: transfer?.code ? String(transfer.code) : null,
+            status: transfer?.status ? String(transfer.status) : null,
+            actorUserId: Number(actorUserId || 0) || null,
+        });
+    }
+
     private handleError(error: unknown, res: Response) {
         if (error instanceof CustomError) {
             return res.status(error.statusCode).json({ message: error.message });
@@ -221,6 +236,8 @@ export class InventoryController {
                 },
             });
 
+            this.publishTransferEvent('TRANSFER_CREATED', transfer, req.user?.id);
+
             return res.status(201).json(transfer);
         } catch (err) {
             return this.handleError(err, res);
@@ -261,6 +278,7 @@ export class InventoryController {
             });
 
             this.publishInventoryEvent(req.user?.id, Number(transfer?.id || 0) || null);
+            this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -287,6 +305,7 @@ export class InventoryController {
                 context: { transferId: id, fromStoreId: transfer?.fromStoreId ?? null },
             });
             this.publishInventoryEvent(req.user?.id, id);
+            this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(transfer);
         } catch (err) {
             return this.handleError(err, res);
@@ -335,6 +354,7 @@ export class InventoryController {
                 req.user?.id,
                 Number(transfer?.id || 0) || null,
             );
+            this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(transfer);
         } catch (err) {
             return this.handleError(err, res);

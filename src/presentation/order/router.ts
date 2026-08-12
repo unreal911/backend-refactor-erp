@@ -46,19 +46,19 @@ export class orderRoute {
         router.patch('/:id/picking/order-items/:orderItemId', AuthMiddleware.requirePermission('picking.update'), controller.updatePickingOrderItem);
 
         // Solicitar accion para unpick en item de picking
-        router.post('/:id/picking/items/:itemId/unpick-request', AuthMiddleware.requirePermission('picking.update'), controller.requestPickingUnpickAction);
+        router.post('/:id/picking/items/:itemId/unpick-request', AuthMiddleware.requirePlanFeature('picking.collaborative'), AuthMiddleware.requirePermission('picking.update'), controller.requestPickingUnpickAction);
 
         // Resolver solicitud de accion de unpick
-        router.patch('/:id/picking/unpick-requests/:requestId', AuthMiddleware.requirePermission('picking.complete'), controller.resolvePickingUnpickAction);
+        router.patch('/:id/picking/unpick-requests/:requestId', AuthMiddleware.requirePlanFeature('picking.collaborative'), AuthMiddleware.requirePermission('picking.complete'), controller.resolvePickingUnpickAction);
 
         // Solicitar responsabilidad en picking
-        router.post('/:id/picking/responsibility/request', AuthMiddleware.requirePermission('picking.update'), controller.requestPickingResponsibility);
+        router.post('/:id/picking/responsibility/request', AuthMiddleware.requirePlanFeature('picking.collaborative'), AuthMiddleware.requirePermission('picking.update'), controller.requestPickingResponsibility);
 
         // Delegar responsabilidad en picking
-        router.patch('/:id/picking/responsibility/delegate', AuthMiddleware.requirePermission('orders.assign'), controller.delegatePickingResponsibility);
+        router.patch('/:id/picking/responsibility/delegate', AuthMiddleware.requirePlanFeature('picking.collaborative'), AuthMiddleware.requirePermission('orders.assign'), controller.delegatePickingResponsibility);
 
         // Resolver solicitud de responsabilidad en picking
-        router.patch('/:id/picking/responsibility/requests/:requestId', AuthMiddleware.requirePermission('orders.assign'), controller.resolvePickingResponsibilityRequest);
+        router.patch('/:id/picking/responsibility/requests/:requestId', AuthMiddleware.requirePlanFeature('picking.collaborative'), AuthMiddleware.requirePermission('orders.assign'), controller.resolvePickingResponsibilityRequest);
 
         // Obtener pedido por ID
         router.get('/:id', AuthMiddleware.requirePermission('orders.detail.view'), controller.getOrderById);

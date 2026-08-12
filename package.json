@@ -29,6 +29,8 @@
     "seed:build": "npm run build && npm run seed:prod",
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
     "bootstrap:admin:prod": "node dist/scripts/bootstrap-admin.js",
+    "bootstrap:platform-admin": "tsx src/scripts/bootstrap-platform-admin.ts",
+    "bootstrap:platform-admin:prod": "node dist/scripts/bootstrap-platform-admin.js",
     "db:clean:keep-users": "tsx src/data/clean-db-keep-users.ts",
     "sunat:smoke": "tsx src/scripts/sunat-beta-smoke.ts",
     "sunat:http-smoke": "tsx src/scripts/sunat-http-smoke.ts",
@@ -64,7 +66,7 @@
     "ops:rollback:verify": "tsx src/scripts/verify-service-rollback.ts",
     "local:infra": "docker compose up -d --wait --wait-timeout 300",
     "local:infra:down": "docker compose down",
-    "local:prepare": "npm run local:infra && npm run db:migrate:deploy && npm run tenant:runtime-grants && npm run cloud:local:init && npm run seed",
+    "local:prepare": "npm run local:infra && npm run db:migrate:deploy && npm run tenant:runtime-grants && npm run cloud:local:init && npm run seed && npm run bootstrap:platform-admin",
     "local:start": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-stack.ps1",
     "local:verify": "node scripts/run-local-verify.mjs"
   },

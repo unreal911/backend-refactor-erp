@@ -4,6 +4,7 @@ vi.mock('../src/data/prisma', () => {
   const prismaMock: any = {
     store: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
     },
     user: {
@@ -37,6 +38,7 @@ vi.mock('../src/data/prisma', () => {
 vi.mock('../src/modules/lifecycle/tenant-lifecycle.service', () => ({
   TenantQuotaService: {
     assertAvailable: vi.fn().mockResolvedValue(undefined),
+    assertPosSaleAllowed: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -76,7 +78,7 @@ describe('OrderService POS stock fulfillment', () => {
       reservedStock: 0,
     };
 
-    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
+    vi.mocked(prisma.store.findFirst).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
     vi.mocked(prisma.store.findMany).mockResolvedValueOnce([{ id: 2 }] as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       {
@@ -173,7 +175,7 @@ describe('OrderService POS stock fulfillment', () => {
       reservedStock: 1,
     };
 
-    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
+    vi.mocked(prisma.store.findFirst).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       {
         id: 10,
@@ -256,7 +258,7 @@ describe('OrderService POS stock fulfillment', () => {
       reservedStock: 0,
     };
 
-    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria manana' } as never);
+    vi.mocked(prisma.store.findFirst).mockResolvedValueOnce({ id: 1, name: 'Feria manana' } as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       { id: 10, price: 18, product: { name: 'Polo' } },
     ] as never);

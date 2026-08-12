@@ -383,7 +383,7 @@ describe("ciclo SaaS preproductivo", () => {
             .toBe(TenantStatus.ACTIVE);
     });
 
-    it("suspende y reactiva el mismo tenant sin borrar ni duplicar datos", async () => {
+    it("da gracia por mora, suspende al vencerla y reactiva sin duplicar datos", async () => {
         const service = new BillingWebhookService(secret);
         const failedBody = Buffer.from(JSON.stringify({
             id: `evt-failed-${tag}`,
@@ -393,9 +393,17 @@ describe("ciclo SaaS preproductivo", () => {
         }));
         const failedSignature = createHmac("sha256", secret).update(failedBody).digest("hex");
         await service.process("sandbox", failedBody, failedSignature);
+        const pastDue = await platformPrisma.tenant.findUniqueOrThrow({ where: { id: activeId } });
+        expect(pastDue.status).toBe(TenantStatus.ACTIVE);
+        expect(pastDue.graceEndsAt).not.toBeNull();
+        expect((await platformPrisma.tenantSubscription.findUniqueOrThrow({ where: { tenantId: activeId } })).status)
+            .toBe("PAST_DUE");
+
+        await TenantLifecycleService.suspendSubscriptionsPastGrace(
+            new Date(pastDue.graceEndsAt!.getTime() + 1),
+        );
         const suspended = await platformPrisma.tenant.findUniqueOrThrow({ where: { id: activeId } });
         expect(suspended.status).toBe(TenantStatus.SUSPENDED);
-        expect(suspended.sunatProductionEnabled).toBe(false);
 
         const activeBody = Buffer.from(JSON.stringify({
             id: `evt-reactivate-${tag}`,
@@ -412,7 +420,7 @@ describe("ciclo SaaS preproductivo", () => {
         expect(await platformPrisma.tenantLifecycleEvent.count({
             where: {
                 tenantId: activeId,
-                type: { in: ["SUBSCRIPTION_SUSPENDED", "SUBSCRIPTION_ACTIVATED"] },
+                type: { in: ["SUBSCRIPTION_PAST_DUE", "SUBSCRIPTION_ACTIVATED"] },
             },
         })).toBe(2);
     });

@@ -10,18 +10,22 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260810203000_add_password_reset_flow";
+export const REQUIRED_SCHEMA_MIGRATION = "20260811155000_platform_admin_default_role";
 export const REQUIRED_SCHEMA_TABLES = [
     "AuditLog",
     "BillingWebhookEvent",
     "Category",
     "Color",
+    "CommercialAsset",
     "Comprobante",
     "ComprobanteItem",
     "ComprobanteSerie",
     "ComunicacionBaja",
     "Inventory",
     "InventoryMovement",
+    "ImageProviderProfile",
+    "ManualPaymentMethod",
+    "ManualPaymentRequest",
     "MarketplaceCustomer",
     "Order",
     "OrderItem",
@@ -31,7 +35,13 @@ export const REQUIRED_SCHEMA_TABLES = [
     "PasswordResetToken",
     "PaymentMethod",
     "Permission",
+    "Plan",
+    "PlanVersion",
     "PlatformAdmin",
+    "PlatformPermission",
+    "PlatformRole",
+    "PlatformRolePermission",
+    "PlatformAuditEvent",
     "PickingItem",
     "PickingItemContribution",
     "PickingOrderItemDetail",
@@ -63,6 +73,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "TenantMembership",
     "TenantMigrationCheckpoint",
     "TenantMigrationQuarantine",
+    "TenantPlanAssignment",
     "TenantSubscription",
     "User",
     "UserActivityLog",
@@ -90,6 +101,10 @@ export function validateProductionRuntime(source: EnvironmentSource = process.en
     }
     if (!String(source.DIRECT_DATABASE_URL ?? "").trim()) {
         throw new Error("Producción exige DIRECT_DATABASE_URL separada para migraciones");
+    }
+    const mfaKey = String(source.PLATFORM_MFA_ENC_KEY ?? "").trim();
+    if (Buffer.from(mfaKey, "base64").length !== 32) {
+        throw new Error("Producción exige PLATFORM_MFA_ENC_KEY Base64 de 32 bytes");
     }
     if (String(source.CLOUD_MODE ?? "").toLowerCase() !== "aws") {
         throw new Error("Producción exige CLOUD_MODE=aws");

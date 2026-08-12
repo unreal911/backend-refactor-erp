@@ -13,6 +13,10 @@ export function registerSunatModuleRoutes(router: Router): void {
         getSunatArtifactServiceFromEnvironment(),
     );
 
+    // El trial no accede a BETA ni a producción. Esta validación se aplica a
+    // lectura, configuración, descargas, emisión y procesos correctivos.
+    sunat.use(AuthMiddleware.requirePlanFeature("sunat"));
+
     // Configuracion del emisor (RUC, credenciales, certificado). Permiso dedicado.
     const requireConfig = AuthMiddleware.requirePermission("sunat.config");
     const requireView = AuthMiddleware.requirePermission("sunat.documents.view");

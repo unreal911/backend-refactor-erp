@@ -1,5 +1,5 @@
-import { Prisma } from '@prisma/client';
-import { cloudinary } from '../../config/cloudinary';
+import { CommercialAssetPurpose, Prisma } from '@prisma/client';
+import { CommercialAssetService } from '../../modules/commercial-assets/commercial-asset.service';
 import { tenantPrisma as prisma } from '../../data/tenant-prisma';
 import { UpdateOrderWorkflowSettingsDto } from '../../domain/dtos/update-order-workflow-settings.dto';
 import {
@@ -113,19 +113,18 @@ export class SystemConfigService {
     private async uploadCompanyLogo(file: { filename: string; data: string }): Promise<string> {
         const tenantId = TenantDataContext.requireTenantId();
         const filenameBase = file.filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
-        const payload = file.data.startsWith('data:') ? file.data : `data:image/jpeg;base64,${file.data}`;
-
         try {
-            const uploadResult = await cloudinary.uploader.upload(payload, {
-                folder: `company_assets/${tenantId}`,
-                public_id: `company_logo_${filenameBase || 'logo'}`,
-                overwrite: true,
-                resource_type: 'image',
+            const asset = await CommercialAssetService.upload({
+                data: file.data,
+                key: `company_assets/${tenantId}/company_logo_${filenameBase || 'logo'}`,
+                purpose: CommercialAssetPurpose.COMPANY_LOGO,
+                ownerType: 'Tenant',
+                ownerId: tenantId,
             });
-
-            return uploadResult.secure_url;
+            return asset.url;
         } catch (error) {
-            console.error('Error subiendo logo de empresa a Cloudinary:', error);
+            if (error instanceof CustomError) throw error;
+            console.error('Error subiendo logo de empresa:', error);
             throw CustomError.internal('Error al subir el logo de la empresa');
         }
     }
@@ -155,7 +154,6 @@ export class SystemConfigService {
             marketplacePaymentsRaw,
             marketplacePaymentIdsRaw,
             marketplaceIncludeIgvRaw,
-            marketplaceAutoReserveStockRaw,
             companyNameRaw,
             companyLegalNameRaw,
             companyRucRaw,
@@ -175,7 +173,6 @@ export class SystemConfigService {
             this.getSettingValue(MARKETPLACE_PAYMENT_METHODS_ENABLED_KEY),
             this.getSettingValue(MARKETPLACE_ALLOWED_PAYMENT_METHOD_IDS_KEY),
             this.getSettingValue(MARKETPLACE_INCLUDE_IGV_KEY),
-            this.getSettingValue(MARKETPLACE_AUTO_RESERVE_STOCK_KEY),
             this.getSettingValue(COMPANY_NAME_KEY),
             this.getSettingValue(COMPANY_LEGAL_NAME_KEY),
             this.getSettingValue(COMPANY_RUC_KEY),
@@ -215,7 +212,7 @@ export class SystemConfigService {
             marketplacePaymentMethodsEnabled: this.parseBoolean(marketplacePaymentsRaw, false),
             marketplacePaymentMethodIds: fallbackIds,
             marketplaceIncludeIgv: this.parseBoolean(marketplaceIncludeIgvRaw, true),
-            marketplaceAutoReserveStock: this.parseBoolean(marketplaceAutoReserveStockRaw, false),
+            marketplaceAutoReserveStock: false,
             marketplaceSlug: tenantProfile?.marketplaceSlug || tenantProfile?.slug || '',
             companyName: tenantProfile?.name || this.parseText(companyNameRaw) || 'B2B Marketplace',
             companyLegalName: tenantProfile?.legalName || this.parseText(companyLegalNameRaw),
@@ -256,8 +253,7 @@ export class SystemConfigService {
             ?? currentSettings.marketplacePaymentMethodsEnabled;
         const marketplaceIncludeIgv = dto.marketplaceIncludeIgv
             ?? currentSettings.marketplaceIncludeIgv;
-        const marketplaceAutoReserveStock = dto.marketplaceAutoReserveStock
-            ?? currentSettings.marketplaceAutoReserveStock;
+        const marketplaceAutoReserveStock = false;
         const marketplaceSlug = dto.marketplaceSlug ?? currentSettings.marketplaceSlug;
         const companyName = dto.companyName ?? currentSettings.companyName;
         const companyLegalName = dto.companyLegalName ?? currentSettings.companyLegalName;

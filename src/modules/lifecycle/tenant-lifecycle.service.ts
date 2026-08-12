@@ -12,41 +12,16 @@ import { tenantPrisma } from "../../data/tenant-prisma";
 import { CustomError } from "../../domain/errors/custom.error";
 import { TenantDataContext } from "../tenant/tenant-data-context";
 import { TenantPurgeService } from "./tenant-purge.service";
+import { getPlanDefinition, planLimitsAsTenantFields } from "../plans/plan-catalog";
+import { PlanAccessService } from "../plans/plan-access.service";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_GRACE_DAYS = 30;
+const DEFAULT_GRACE_DAYS = 90;
 
-export const PLAN_LIMITS: Record<TenantPlanCode, {
-    maxUsers: number;
-    maxProducts: number;
-    maxOrders: number;
-    maxStorageBytes: bigint;
-}> = {
-    TRIAL: {
-        maxUsers: 3,
-        maxProducts: 100,
-        maxOrders: 250,
-        maxStorageBytes: 500n * 1024n * 1024n,
-    },
-    STARTER: {
-        maxUsers: 5,
-        maxProducts: 1_000,
-        maxOrders: 5_000,
-        maxStorageBytes: 5n * 1024n * 1024n * 1024n,
-    },
-    GROWTH: {
-        maxUsers: 25,
-        maxProducts: 20_000,
-        maxOrders: 100_000,
-        maxStorageBytes: 50n * 1024n * 1024n * 1024n,
-    },
-    PREMIUM: {
-        maxUsers: 100,
-        maxProducts: 100_000,
-        maxOrders: 1_000_000,
-        maxStorageBytes: 250n * 1024n * 1024n * 1024n,
-    },
-};
+/** @deprecated Usar getPlanDefinition/planLimitsAsTenantFields. */
+export const PLAN_LIMITS = Object.fromEntries(
+    Object.values(TenantPlanCode).map((code) => [code, planLimitsAsTenantFields(code)]),
+) as Record<TenantPlanCode, ReturnType<typeof planLimitsAsTenantFields>>;
 
 export type LegalProfileInput = {
     ruc: string;
@@ -82,12 +57,49 @@ function assertOwnerOrAdmin(role: TenantMembershipRole): void {
     }
 }
 
+type QuotaResource = "users" | "products" | "stores";
+
+function limaDateParts(value: Date): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Lima",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(value);
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    return { year: get("year"), month: get("month"), day: get("day") };
+}
+
+function limaDayBounds(value: Date): { start: Date; end: Date } {
+    const { year, month, day } = limaDateParts(value);
+    // Perú usa UTC-05:00 y no aplica horario de verano.
+    const start = new Date(Date.UTC(year, month - 1, day, 5, 0, 0, 0));
+    return { start, end: new Date(start.getTime() + DAY_MS) };
+}
+
+function limaMonthBounds(value: Date): { start: Date; end: Date } {
+    const { year, month } = limaDateParts(value);
+    return {
+        start: new Date(Date.UTC(year, month - 1, 1, 5, 0, 0, 0)),
+        end: new Date(Date.UTC(year, month, 1, 5, 0, 0, 0)),
+    };
+}
+
 export class TenantQuotaService {
-    static async assertAvailable(
-        resource: "users" | "products" | "orders" | "storage",
-        requested = 1,
-    ): Promise<void> {
+    private static async lock(resource: string): Promise<void> {
         const tenantId = TenantDataContext.requireTenantId();
+        // $executeRaw evita que Prisma intente deserializar el retorno `void`
+        // de pg_advisory_xact_lock; el bloqueo vive hasta el commit/rollback.
+        await tenantPrisma.$executeRaw(Prisma.sql`
+            SELECT pg_advisory_xact_lock(
+                hashtextextended(${`quota:${tenantId}:${resource}`}, 0)
+            )
+        `);
+    }
+
+    static async assertAvailable(resource: QuotaResource, requested = 1): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        await this.lock(resource);
         if (!Number.isInteger(requested) || requested < 1) {
             throw CustomError.badRequest("La cantidad solicitada no es válida");
         }
@@ -95,10 +107,11 @@ export class TenantQuotaService {
             where: { id: tenantId },
             select: {
                 status: true,
+                planCode: true,
                 maxUsers: true,
                 maxProducts: true,
-                maxOrders: true,
-                maxStorageBytes: true,
+                maxStores: true,
+                welcomeStorePromotionEndsAt: true,
             },
         });
         if (tenant.status === TenantStatus.EXPIRED || tenant.status === TenantStatus.SUSPENDED) {
@@ -122,24 +135,130 @@ export class TenantQuotaService {
             used = memberships + invitations;
             limit = tenant.maxUsers;
         } else if (resource === "products") {
-            used = await tenantPrisma.product.count({ where: { tenantId } });
+            used = await tenantPrisma.product.count({ where: { tenantId, isActive: true } });
             limit = tenant.maxProducts;
-        } else if (resource === "orders") {
-            used = await tenantPrisma.order.count({ where: { tenantId } });
-            limit = tenant.maxOrders;
         } else {
-            const aggregate = await tenantPrisma.sunatArtifact.aggregate({
-                where: { tenantId, storageStatus: { not: "DELETED" } },
-                _sum: { sizeBytes: true },
-            });
-            used = aggregate._sum.sizeBytes ?? 0n;
-            limit = tenant.maxStorageBytes;
+            used = await tenantPrisma.store.count({ where: { tenantId, isActive: true } });
+            const promotionActive = tenant.planCode === TenantPlanCode.STARTER
+                && Boolean(
+                    tenant.welcomeStorePromotionEndsAt
+                    && tenant.welcomeStorePromotionEndsAt.getTime() > Date.now(),
+                );
+            limit = promotionActive ? Math.max(2, tenant.maxStores) : tenant.maxStores;
         }
 
-        const next = BigInt(used) + BigInt(requested);
-        if (next > BigInt(limit)) {
+        if (BigInt(used) + BigInt(requested) > BigInt(limit)) {
             throw new CustomError(`Se alcanzó la cuota del plan para ${resource}`, 409);
         }
+    }
+
+    static async assertVariantsAvailable(
+        productId: number,
+        requestedActive: number,
+        replacingExisting = false,
+    ): Promise<void> {
+        if (!Number.isInteger(requestedActive) || requestedActive < 0) {
+            throw CustomError.badRequest("La cantidad de variantes no es válida");
+        }
+        const tenantId = TenantDataContext.requireTenantId();
+        await this.lock(`variants:${productId}`);
+        const tenant = await tenantPrisma.tenant.findUniqueOrThrow({
+            where: { id: tenantId },
+            select: { maxVariantsPerProduct: true },
+        });
+        const current = replacingExisting ? 0 : await tenantPrisma.productVariant.count({
+            where: { tenantId, productId, isActive: true },
+        });
+        if (current + requestedActive > tenant.maxVariantsPerProduct) {
+            throw new CustomError("Se alcanzó la cuota de variantes activas para este producto", 409);
+        }
+    }
+
+    static async assertMainImagesAvailable(
+        productId: number,
+        requested: number,
+        replacingExisting = false,
+    ): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        await this.lock(`main-images:${productId}`);
+        const tenant = await tenantPrisma.tenant.findUniqueOrThrow({
+            where: { id: tenantId },
+            select: { maxMainImagesPerProduct: true },
+        });
+        const current = replacingExisting ? 0 : await tenantPrisma.productImage.count({
+            where: { tenantId, productId },
+        });
+        if (current + requested > tenant.maxMainImagesPerProduct) {
+            throw new CustomError("Se alcanzó la cuota de imágenes principales para este producto", 409);
+        }
+    }
+
+    static async assertVariantImagesAllowed(requested: number): Promise<void> {
+        if (requested <= 0) return;
+        const tenantId = TenantDataContext.requireTenantId();
+        await this.lock("variant-images");
+        const tenant = await tenantPrisma.tenant.findUniqueOrThrow({
+            where: { id: tenantId },
+            select: { maxImagesPerVariant: true },
+        });
+        if (tenant.maxImagesPerVariant < 1) {
+            throw new CustomError("El plan actual no permite imágenes por variante", 403);
+        }
+    }
+
+    static async getPosSalesUsage(now = new Date()) {
+        const tenantId = TenantDataContext.requireTenantId();
+        const tenant = await tenantPrisma.tenant.findUniqueOrThrow({
+            where: { id: tenantId },
+            select: {
+                planCode: true,
+                maxPosSalesPerMonth: true,
+                trialStartedAt: true,
+                trialEndsAt: true,
+                createdAt: true,
+            },
+        });
+        const period = tenant.planCode === TenantPlanCode.TRIAL
+            ? {
+                start: tenant.trialStartedAt ?? tenant.createdAt,
+                end: tenant.trialEndsAt ?? new Date(now.getTime() + DAY_MS),
+            }
+            : limaMonthBounds(now);
+        const day = limaDayBounds(now);
+        const [used, usedToday] = await Promise.all([
+            tenantPrisma.order.count({
+                where: {
+                    tenantId,
+                    salesChannel: "POS",
+                    createdAt: { gte: period.start, lt: period.end },
+                },
+            }),
+            tenantPrisma.order.count({
+                where: {
+                    tenantId,
+                    salesChannel: "POS",
+                    createdAt: { gte: day.start, lt: day.end },
+                },
+            }),
+        ]);
+        return {
+            used,
+            usedToday,
+            limit: tenant.maxPosSalesPerMonth,
+            periodStart: period.start,
+            periodEnd: period.end,
+            graceUntil: used >= tenant.maxPosSalesPerMonth && usedToday > 0 ? day.end : null,
+        };
+    }
+
+    static async assertPosSaleAllowed(now = new Date()): Promise<void> {
+        await this.lock("pos-sales");
+        const usage = await this.getPosSalesUsage(now);
+        if (usage.used < usage.limit || usage.usedToday > 0) return;
+        throw new CustomError(
+            "Se alcanzó la cuota de ventas POS. Actualiza el plan o espera la renovación del periodo",
+            409,
+        );
     }
 }
 
@@ -210,36 +329,268 @@ export class TenantLifecycleService {
         const tenantId = TenantDataContext.requireTenantId();
         const tenant = await tenantPrisma.tenant.findUniqueOrThrow({
             where: { id: tenantId },
-            include: { subscription: true },
+            include: {
+                subscription: true,
+                activePlanVersion: { include: { plan: true } },
+            },
         });
-        const [memberships, invitations, products, orders, storage] = await Promise.all([
+        const [
+            memberships,
+            invitations,
+            products,
+            stores,
+            activeVariants,
+            storage,
+            posSales,
+            variantsByProduct,
+            mainImagesByProduct,
+            variantsWithImages,
+        ] = await Promise.all([
             tenantPrisma.tenantMembership.count({
                 where: { tenantId, status: { in: ["ACTIVE", "INVITED"] } },
             }),
             tenantPrisma.tenantInvitation.count({
                 where: { tenantId, status: "PENDING", expiresAt: { gt: new Date() } },
             }),
-            tenantPrisma.product.count({ where: { tenantId } }),
-            tenantPrisma.order.count({ where: { tenantId } }),
-            tenantPrisma.sunatArtifact.aggregate({
-                where: { tenantId, storageStatus: { not: "DELETED" } },
+            tenantPrisma.product.count({ where: { tenantId, isActive: true } }),
+            tenantPrisma.store.count({ where: { tenantId, isActive: true } }),
+            tenantPrisma.productVariant.count({ where: { tenantId, isActive: true } }),
+            tenantPrisma.commercialAsset.aggregate({
+                where: { tenantId, status: "ACTIVE" },
                 _sum: { sizeBytes: true },
             }),
+            TenantQuotaService.getPosSalesUsage(),
+            tenantPrisma.productVariant.groupBy({
+                by: ["productId"],
+                where: { tenantId, isActive: true },
+                _count: { _all: true },
+            }),
+            tenantPrisma.productImage.groupBy({
+                by: ["productId"],
+                where: { tenantId },
+                _count: { _all: true },
+            }),
+            tenantPrisma.productVariant.count({
+                where: { tenantId, imageUrl: { not: null } },
+            }),
         ]);
+        const definition = getPlanDefinition(tenant.planCode);
+        const activePlanVersion = tenant.activePlanVersion;
+        const effectiveFeatures = Array.from(PlanAccessService.effectiveFeatures(tenant)).sort();
+        const promotionActive = tenant.planCode === TenantPlanCode.STARTER
+            && Boolean(
+                tenant.welcomeStorePromotionEndsAt
+                && tenant.welcomeStorePromotionEndsAt.getTime() > Date.now(),
+            );
+        const effectiveMaxStores = promotionActive ? Math.max(2, tenant.maxStores) : tenant.maxStores;
+        const quotaConflict = (used: number, limit: number) => ({
+            used,
+            limit,
+            excess: Math.max(0, used - limit),
+        });
+        const conflicts = {
+            users: quotaConflict(memberships + invitations, tenant.maxUsers),
+            products: quotaConflict(products, tenant.maxProducts),
+            stores: quotaConflict(stores, effectiveMaxStores),
+            productsOverVariantLimit: variantsByProduct.filter(
+                (row) => row._count._all > tenant.maxVariantsPerProduct,
+            ).length,
+            productsOverMainImageLimit: mainImagesByProduct.filter(
+                (row) => row._count._all > tenant.maxMainImagesPerProduct,
+            ).length,
+            variantsWithImagesNotAllowed: tenant.maxImagesPerVariant === 0 ? variantsWithImages : 0,
+        };
+        const hasConflicts = conflicts.users.excess > 0
+            || conflicts.products.excess > 0
+            || conflicts.stores.excess > 0
+            || conflicts.productsOverVariantLimit > 0
+            || conflicts.productsOverMainImageLimit > 0
+            || conflicts.variantsWithImagesNotAllowed > 0;
+        const { activePlanVersion: _activePlanVersion, ...tenantSnapshot } = tenant;
         return {
             tenant: {
-                ...tenant,
+                ...tenantSnapshot,
                 maxStorageBytes: tenant.maxStorageBytes.toString(),
+            },
+            plan: {
+                code: definition.code,
+                name: activePlanVersion?.plan.displayName ?? definition.publicName,
+                version: activePlanVersion?.version ?? null,
+                planVersionId: activePlanVersion?.id ?? null,
+                monthlyPricePen: activePlanVersion?.monthlyPrice
+                    ? Number(activePlanVersion.monthlyPrice.toString())
+                    : definition.monthlyPricePen,
+                features: effectiveFeatures,
+                effectiveMaxStores,
+                welcomeStorePromotion: {
+                    active: promotionActive,
+                    startedAt: tenant.welcomeStorePromotionStartedAt,
+                    endsAt: tenant.welcomeStorePromotionEndsAt,
+                    primaryStoreId: tenant.primaryStoreId,
+                    warning: promotionActive
+                        && tenant.welcomeStorePromotionEndsAt!.getTime() - Date.now() <= 5 * DAY_MS,
+                },
             },
             usage: {
                 users: memberships + invitations,
                 products,
-                orders,
+                stores,
+                activeVariants,
+                posSales: posSales.used,
+                posSalesToday: posSales.usedToday,
+                posSalesPeriodStart: posSales.periodStart,
+                posSalesPeriodEnd: posSales.periodEnd,
+                posSalesGraceUntil: posSales.graceUntil,
                 storageBytes: (storage._sum.sizeBytes ?? 0n).toString(),
+            },
+            conflicts: {
+                hasConflicts,
+                ...conflicts,
             },
             readOnly: tenant.status === TenantStatus.EXPIRED
                 || tenant.status === TenantStatus.SUSPENDED,
         };
+    }
+
+    static async setPrimaryStore(
+        storeId: number,
+        actor: { userId: number; role: TenantMembershipRole },
+    ) {
+        assertOwnerOrAdmin(actor.role);
+        if (!Number.isInteger(storeId) || storeId < 1) {
+            throw CustomError.badRequest("La tienda principal no es válida");
+        }
+        const tenantId = TenantDataContext.requireTenantId();
+        const store = await tenantPrisma.store.findFirst({
+            where: { id: storeId, tenantId, isActive: true },
+            select: { id: true, name: true },
+        });
+        if (!store) throw CustomError.notFound("La tienda principal no existe o está inactiva");
+        await tenantPrisma.tenant.update({
+            where: { id: tenantId },
+            data: { primaryStoreId: store.id },
+        });
+        await tenantPrisma.tenantLifecycleEvent.create({
+            data: {
+                tenantId,
+                type: "PRIMARY_STORE_SELECTED",
+                actorUserId: actor.userId,
+                source: "tenant-api",
+                metadata: lifecycleMetadata({ storeId: store.id }),
+            },
+        });
+        return store;
+    }
+
+    static async expireWelcomeStorePromotions(now = new Date()) {
+        const due = await platformPrisma.tenant.findMany({
+            where: {
+                status: TenantStatus.ACTIVE,
+                planCode: TenantPlanCode.STARTER,
+                welcomeStorePromotionEndsAt: { lte: now },
+                stores: { some: { isActive: true } },
+            },
+            select: { id: true },
+        });
+        let deactivatedStores = 0;
+        let processed = 0;
+        for (const { id } of due) {
+            const result = await platformPrisma.$transaction(async (tx) => {
+                const alreadyEnded = await tx.tenantLifecycleEvent.findFirst({
+                    where: { tenantId: id, type: "WELCOME_STORE_PROMOTION_ENDED" },
+                    select: { id: true },
+                });
+                if (alreadyEnded) return 0;
+                const tenant = await tx.tenant.findUniqueOrThrow({
+                    where: { id },
+                    select: { primaryStoreId: true },
+                });
+                const stores = await tx.store.findMany({
+                    where: { tenantId: id, isActive: true },
+                    select: { id: true },
+                    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                });
+                const primaryStoreId = stores.some((store) => store.id === tenant.primaryStoreId)
+                    ? tenant.primaryStoreId!
+                    : stores[0]?.id ?? null;
+                const changed = primaryStoreId
+                    ? await tx.store.updateMany({
+                        where: { tenantId: id, isActive: true, id: { not: primaryStoreId } },
+                        data: { isActive: false },
+                    })
+                    : { count: 0 };
+                await tx.tenant.update({
+                    where: { id },
+                    data: { primaryStoreId },
+                });
+                await tx.tenantLifecycleEvent.create({
+                    data: {
+                        tenantId: id,
+                        type: "WELCOME_STORE_PROMOTION_ENDED",
+                        source: "lifecycle-worker",
+                        metadata: lifecycleMetadata({
+                            primaryStoreId,
+                            deactivatedStores: changed.count,
+                            endedAt: now.toISOString(),
+                        }),
+                    },
+                });
+                return changed.count;
+            });
+            processed += 1;
+            deactivatedStores += result;
+        }
+        return { processed, deactivatedStores, checkedAt: now };
+    }
+
+    static async suspendSubscriptionsPastGrace(now = new Date()) {
+        const due = await platformPrisma.tenant.findMany({
+            where: {
+                status: TenantStatus.ACTIVE,
+                graceEndsAt: { lte: now },
+                subscription: {
+                    status: {
+                        in: [TenantSubscriptionStatus.PAST_DUE, TenantSubscriptionStatus.CANCELLED],
+                    },
+                },
+            },
+            select: { id: true },
+        });
+        let suspended = 0;
+        for (const { id } of due) {
+            await platformPrisma.$transaction(async (tx) => {
+                const changed = await tx.tenant.updateMany({
+                    where: { id, status: TenantStatus.ACTIVE, graceEndsAt: { lte: now } },
+                    data: { status: TenantStatus.SUSPENDED, readOnlyAt: now },
+                });
+                if (changed.count === 0) return;
+                const subscription = await tx.tenantSubscription.findUnique({
+                    where: { tenantId: id },
+                    select: { status: true },
+                });
+                if (subscription?.status === TenantSubscriptionStatus.PAST_DUE) {
+                    await tx.tenantSubscription.update({
+                        where: { tenantId: id },
+                        data: { status: TenantSubscriptionStatus.SUSPENDED, suspendedAt: now },
+                    });
+                } else if (subscription) {
+                    await tx.tenantSubscription.update({
+                        where: { tenantId: id },
+                        data: { suspendedAt: now },
+                    });
+                }
+                await tx.tenantLifecycleEvent.create({
+                    data: {
+                        tenantId: id,
+                        type: "SUBSCRIPTION_GRACE_EXPIRED",
+                        source: "lifecycle-worker",
+                        metadata: lifecycleMetadata({ suspendedAt: now.toISOString() }),
+                    },
+                });
+                suspended += 1;
+            });
+        }
+        return { suspended, checkedAt: now };
     }
 
     static async updateLegalProfile(

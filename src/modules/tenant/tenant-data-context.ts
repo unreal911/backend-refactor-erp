@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 type TenantDataStore = {
     tenantId: string;
     transactionClient?: Prisma.TransactionClient;
+    afterCommitTasks?: Array<() => void | Promise<void>>;
 };
 
 export const LEGACY_TENANT_ID = "00000000-0000-4000-8000-000000000001";
@@ -33,6 +34,7 @@ export class TenantDataContext {
         tenantId: string,
         transactionClient: Prisma.TransactionClient,
         callback: () => T | Promise<T>,
+        afterCommitTasks: Array<() => void | Promise<void>> = [],
     ): Promise<T> {
         const normalizedTenantId = String(tenantId || "").trim();
         if (!normalizedTenantId) {
@@ -42,6 +44,7 @@ export class TenantDataContext {
             {
                 tenantId: normalizedTenantId,
                 transactionClient,
+                afterCommitTasks,
             },
             async () => await callback(),
         );
@@ -49,6 +52,15 @@ export class TenantDataContext {
 
     static currentTransactionClient(): Prisma.TransactionClient | null {
         return tenantStorage.getStore()?.transactionClient ?? null;
+    }
+
+    static afterCommit(task: () => void | Promise<void>): void {
+        const store = tenantStorage.getStore();
+        if (store?.transactionClient && store.afterCommitTasks) {
+            store.afterCommitTasks.push(task);
+            return;
+        }
+        queueMicrotask(() => { void Promise.resolve(task()).catch(() => undefined); });
     }
 
     static requireTenantId(): string {

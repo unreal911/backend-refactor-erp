@@ -243,6 +243,95 @@ enum BillingWebhookStatus {
   REJECTED
 }
 
+enum PlanVersionStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  RETIRED
+  CANCELLED
+}
+
+enum PlanApplicationPolicy {
+  NEW_CUSTOMERS
+  RENEWAL
+  MANUAL
+  IMMEDIATE
+}
+
+enum TenantPlanAssignmentSource {
+  MIGRATION
+  TRIAL
+  MANUAL_PAYMENT
+  PLATFORM
+  AUTOMATED_PAYMENT
+}
+
+enum TenantPlanAssignmentStatus {
+  SCHEDULED
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum ManualPaymentMethodType {
+  BANK_TRANSFER
+  QR
+}
+
+enum ManualPaymentRequestStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum BillingCycle {
+  MONTHLY
+  ANNUAL
+}
+
+enum ImageProviderType {
+  CLOUDINARY
+  S3
+}
+
+enum ImageProviderEnvironment {
+  ANY
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum ImageProviderHealthStatus {
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+  UNAVAILABLE
+}
+
+enum CommercialAssetPurpose {
+  PRODUCT
+  VARIANT
+  COMPANY_LOGO
+  PLATFORM_QR
+  OTHER
+}
+
+enum CommercialAssetStatus {
+  UPLOADING
+  ACTIVE
+  FAILED
+  DELETED
+}
+
+enum PlatformMfaStatus {
+  DISABLED
+  PENDING
+  ENABLED
+  LOCKED
+}
+
 enum TenantMembershipRole {
   OWNER
   ADMIN
@@ -305,10 +394,10 @@ enum TenantMigrationStatus {
 model Tenant {
   id String @id @default(uuid()) @db.Uuid
 
-  slug      String  @unique
+  slug            String  @unique
   marketplaceSlug String? @unique
-  name      String
-  legalName String?
+  name            String
+  legalName       String?
 
   kind TenantKind @default(CUSTOMER)
 
@@ -328,6 +417,24 @@ model Tenant {
   maxOrders       Int            @default(250)
   maxStorageBytes BigInt         @default(524288000)
 
+  // Cuotas comerciales vigentes. maxOrders se conserva temporalmente por
+  // compatibilidad y refleja la misma cifra que maxPosSalesPerMonth.
+  maxVariantsPerProduct   Int @default(10)
+  maxStores               Int @default(5)
+  maxPosSalesPerMonth     Int @default(70)
+  maxMainImagesPerProduct Int @default(3)
+  maxImagesPerVariant     Int @default(1)
+
+  welcomeStorePromotionStartedAt DateTime?
+  welcomeStorePromotionEndsAt    DateTime?
+  primaryStoreId                 Int?
+
+  // Snapshot comercial aplicado. La versión publicada nunca se consulta como
+  // límite "en vivo": una asignación copia cuotas y capacidades al tenant.
+  activePlanVersionId String?      @db.Uuid
+  activePlanVersion   PlanVersion? @relation(fields: [activePlanVersionId], references: [id], onDelete: Restrict)
+  planFeatures        String[]     @default([])
+
   trialStartedAt   DateTime?
   trialEndsAt      DateTime?
   readOnlyAt       DateTime?
@@ -342,43 +449,46 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships          TenantMembership[]
-  invitations          TenantInvitation[]
-  trialRegistration    OwnerRegistration?          @relation("ProvisionedTrialTenant")
-  migrationCheckpoints TenantMigrationCheckpoint[]
-  migrationQuarantines TenantMigrationQuarantine[]
-  categories           Category[]
-  colors               Color[]
-  sizes                Size[]
-  products             Product[]
-  productImages        ProductImage[]
-  productVariants      ProductVariant[]
-  stores               Store[]
-  inventories          Inventory[]
-  inventoryMovements   InventoryMovement[]
-  stockTransfers       StockTransfer[]
-  stockTransferItems   StockTransferItem[]
-  reservations         Reservation[]
-  pickingSessions      PickingSession[]
-  pickingItems         PickingItem[]
-  customers            Customer[]
-  orders               Order[]
-  orderItems           OrderItem[]
-  orderReturns         OrderReturn[]
-  orderReturnItems     OrderReturnItem[]
-  paymentMethods       PaymentMethod[]
-  comprobanteSeries    ComprobanteSerie[]
-  comprobantes         Comprobante[]
-  comprobanteItems     ComprobanteItem[]
-  sunatDispatches      SunatDispatch[]
-  resumenesDiarios     ResumenDiario[]
-  comunicacionesBaja   ComunicacionBaja[]
-  sunatEmisorConfigs   SunatEmisorConfig[]
-  sunatArtifacts       SunatArtifact[]
-  sunatJobs            SunatJob[]
-  lifecycleEvents      TenantLifecycleEvent[]
-  subscription         TenantSubscription?
-  billingEvents        BillingWebhookEvent[]
+  memberships           TenantMembership[]
+  invitations           TenantInvitation[]
+  trialRegistration     OwnerRegistration?          @relation("ProvisionedTrialTenant")
+  migrationCheckpoints  TenantMigrationCheckpoint[]
+  migrationQuarantines  TenantMigrationQuarantine[]
+  categories            Category[]
+  colors                Color[]
+  sizes                 Size[]
+  products              Product[]
+  productImages         ProductImage[]
+  productVariants       ProductVariant[]
+  stores                Store[]
+  inventories           Inventory[]
+  inventoryMovements    InventoryMovement[]
+  stockTransfers        StockTransfer[]
+  stockTransferItems    StockTransferItem[]
+  reservations          Reservation[]
+  pickingSessions       PickingSession[]
+  pickingItems          PickingItem[]
+  customers             Customer[]
+  orders                Order[]
+  orderItems            OrderItem[]
+  orderReturns          OrderReturn[]
+  orderReturnItems      OrderReturnItem[]
+  paymentMethods        PaymentMethod[]
+  comprobanteSeries     ComprobanteSerie[]
+  comprobantes          Comprobante[]
+  comprobanteItems      ComprobanteItem[]
+  sunatDispatches       SunatDispatch[]
+  resumenesDiarios      ResumenDiario[]
+  comunicacionesBaja    ComunicacionBaja[]
+  sunatEmisorConfigs    SunatEmisorConfig[]
+  sunatArtifacts        SunatArtifact[]
+  sunatJobs             SunatJob[]
+  lifecycleEvents       TenantLifecycleEvent[]
+  subscription          TenantSubscription?
+  billingEvents         BillingWebhookEvent[]
+  planAssignments       TenantPlanAssignment[]
+  manualPaymentRequests ManualPaymentRequest[]
+  commercialAssets      CommercialAsset[]
 }
 
 model Customer {
@@ -432,6 +542,8 @@ model TenantSubscription {
   externalCustomerId     String?
   externalSubscriptionId String?
   planCode               TenantPlanCode
+  planVersionId          String?                  @db.Uuid
+  planVersion            PlanVersion?             @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
   status                 TenantSubscriptionStatus @default(INACTIVE)
   currentPeriodEndsAt    DateTime?
   suspendedAt            DateTime?
@@ -441,6 +553,215 @@ model TenantSubscription {
   @@unique([provider, externalSubscriptionId])
   @@unique([id, tenantId])
   @@index([tenantId, status])
+}
+
+model Plan {
+  id String @id @default(uuid()) @db.Uuid
+
+  code                           TenantPlanCode @unique
+  displayName                    String
+  description                    String?
+  isPublic                       Boolean        @default(true)
+  isAvailableForNewSubscriptions Boolean        @default(true)
+  createdAt                      DateTime       @default(now())
+  updatedAt                      DateTime       @updatedAt
+
+  versions PlanVersion[]
+}
+
+model PlanVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  planId  String            @db.Uuid
+  plan    Plan              @relation(fields: [planId], references: [id], onDelete: Restrict)
+  version Int
+  status  PlanVersionStatus @default(DRAFT)
+
+  currency          String                @default("PEN") @db.Char(3)
+  monthlyPrice      Decimal?              @db.Decimal(10, 2)
+  annualPrice       Decimal?              @db.Decimal(10, 2)
+  trialDays         Int?
+  applicationPolicy PlanApplicationPolicy @default(NEW_CUSTOMERS)
+
+  maxUsers                Int
+  maxProducts             Int
+  maxVariantsPerProduct   Int
+  maxStores               Int
+  maxPosSalesPerMonth     Int
+  maxStorageBytes         BigInt
+  maxMainImagesPerProduct Int
+  maxImagesPerVariant     Int
+  featureCodes            String[] @default([])
+
+  effectiveFrom            DateTime?
+  effectiveUntil           DateTime?
+  activatedAt              DateTime?
+  retiredAt                DateTime?
+  createdByPlatformAdminId String?   @db.Uuid
+  activationReason         String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  activeTenants         Tenant[]
+  subscriptions         TenantSubscription[]
+  assignments           TenantPlanAssignment[]
+  manualPaymentRequests ManualPaymentRequest[]
+
+  @@unique([planId, version])
+  @@index([planId, status, effectiveFrom])
+}
+
+model TenantPlanAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId      String      @db.Uuid
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  planVersionId String      @db.Uuid
+  planVersion   PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+
+  status                   TenantPlanAssignmentStatus @default(ACTIVE)
+  source                   TenantPlanAssignmentSource
+  price                    Decimal?                   @db.Decimal(10, 2)
+  currency                 String                     @default("PEN") @db.Char(3)
+  startsAt                 DateTime
+  endsAt                   DateTime?
+  reason                   String?
+  createdByPlatformAdminId String?                    @db.Uuid
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  manualPaymentRequest ManualPaymentRequest?
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status, startsAt])
+  @@index([planVersionId, status])
+}
+
+model ManualPaymentMethod {
+  id String @id @default(uuid()) @db.Uuid
+
+  type                     ManualPaymentMethodType
+  name                     String
+  bankName                 String?
+  accountHolder            String?
+  accountNumber            String?
+  cci                      String?
+  currency                 String                  @default("PEN") @db.Char(3)
+  qrImageUrl               String?
+  instructions             String?
+  displayOrder             Int                     @default(0)
+  isActive                 Boolean                 @default(true)
+  effectiveFrom            DateTime?
+  effectiveUntil           DateTime?
+  createdByPlatformAdminId String?                 @db.Uuid
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  requests ManualPaymentRequest[]
+
+  @@index([isActive, displayOrder])
+}
+
+model ManualPaymentRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  code            String                @unique
+  clientRequestId String
+  tenantId        String                @db.Uuid
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  planVersionId   String                @db.Uuid
+  planVersion     PlanVersion           @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  paymentMethodId String?               @db.Uuid
+  paymentMethod   ManualPaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  assignmentId    String?               @unique @db.Uuid
+  assignment      TenantPlanAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+
+  status                    ManualPaymentRequestStatus @default(PENDING_REVIEW)
+  billingCycle              BillingCycle               @default(MONTHLY)
+  periodMonths              Int                        @default(1)
+  offeredPrice              Decimal                    @db.Decimal(10, 2)
+  currency                  String                     @default("PEN") @db.Char(3)
+  amountReported            Decimal?                   @db.Decimal(10, 2)
+  operationReference        String?
+  paidAt                    DateTime?
+  proofUrl                  String?
+  applicantNote             String?
+  internalNote              String?
+  requestedByUserId         Int?
+  reviewedByPlatformAdminId String?                    @db.Uuid
+  reviewedAt                DateTime?
+  rejectionReason           String?
+  expiresAt                 DateTime
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, clientRequestId])
+  @@index([tenantId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([operationReference])
+}
+
+model ImageProviderProfile {
+  id String @id @default(uuid()) @db.Uuid
+
+  type        ImageProviderType
+  name        String @unique
+  environment ImageProviderEnvironment @default(ANY)
+  secretRef   String
+  config      Json @default("{}")
+
+  isEnabled         Boolean @default(true)
+  isActive          Boolean @default(false)
+  pauseNewUploads   Boolean @default(false)
+  maxUploadBytes    BigInt  @default(10485760)
+  warningPercent    Int     @default(80)
+  monthlyBudgetUsd  Decimal? @db.Decimal(10, 2)
+
+  healthStatus            ImageProviderHealthStatus @default(UNKNOWN)
+  lastHealthMessage       String?
+  lastHealthCheckedAt     DateTime?
+  createdByPlatformAdminId String? @db.Uuid
+  updatedByPlatformAdminId String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets CommercialAsset[]
+
+  @@index([isActive, isEnabled])
+  @@index([type, environment])
+}
+
+model CommercialAsset {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  providerProfileId String @db.Uuid
+  providerProfile ImageProviderProfile @relation(fields: [providerProfileId], references: [id], onDelete: Restrict)
+
+  purpose CommercialAssetPurpose
+  ownerType String
+  ownerId String
+  externalId String
+  url String
+  contentType String
+  sizeBytes BigInt
+  width Int?
+  height Int?
+  sha256 String @db.Char(64)
+  variants Json?
+  status CommercialAssetStatus @default(UPLOADING)
+  failureReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@unique([id, tenantId])
+  @@unique([providerProfileId, externalId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, ownerType, ownerId, status])
+  @@index([url])
 }
 
 model BillingWebhookEvent {
@@ -653,11 +974,77 @@ model PlatformAdmin {
   userId Int  @unique
   user   User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
+  roleId String @default(dbgenerated("'40000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  role   PlatformRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  mfaStatus              PlatformMfaStatus @default(DISABLED)
+  totpSecretEncrypted    String?
+  recoveryCodeHashes     String[] @default([])
+  mfaFailedAttempts      Int @default(0)
+  mfaLockedUntil         DateTime?
+  mfaEnrolledAt          DateTime?
+
   signupAbuseReviews SignupAbuseEvent[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([roleId, isActive])
+}
+
+model PlatformRole {
+  id String @id @default(uuid()) @db.Uuid
+  code String @unique
+  name String
+  description String?
+  version Int @default(1)
+  isSystem Boolean @default(true)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admins PlatformAdmin[]
+  permissions PlatformRolePermission[]
+}
+
+model PlatformPermission {
+  code String @id
+  name String
+  module String
+  description String?
+  createdAt DateTime @default(now())
+
+  roles PlatformRolePermission[]
+}
+
+model PlatformRolePermission {
+  roleId String @db.Uuid
+  role PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionCode String
+  permission PlatformPermission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([roleId, permissionCode])
+  @@index([permissionCode])
+}
+
+model PlatformAuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  actorPlatformAdminId String?  @db.Uuid
+  action               String
+  entityType           String
+  entityId             String?
+  reason               String?
+  correlationId        String?
+  before               Json?
+  after                Json?
+  occurredAt           DateTime @default(now())
+
+  @@index([occurredAt])
+  @@index([actorPlatformAdminId, occurredAt])
+  @@index([entityType, entityId, occurredAt])
 }
 
 model Role {
@@ -707,9 +1094,9 @@ model User {
   firstName String
   lastName  String
 
-  email    String @unique
-  password String
-  authVersion Int @default(0)
+  email       String @unique
+  password    String
+  authVersion Int    @default(0)
 
   isActive Boolean @default(true)
 
@@ -719,9 +1106,9 @@ model User {
   roleId Int
   role   Role @relation(fields: [roleId], references: [id])
 
-  tenantMemberships TenantMembership[]
-  platformAdmin     PlatformAdmin?
-  trialRegistration OwnerRegistration? @relation("ProvisionedTrialUser")
+  tenantMemberships   TenantMembership[]
+  platformAdmin       PlatformAdmin?
+  trialRegistration   OwnerRegistration?   @relation("ProvisionedTrialUser")
   passwordResetTokens PasswordResetToken[]
 
   inventoryMovements InventoryMovement[]
@@ -748,10 +1135,10 @@ model PasswordResetToken {
   userId Int
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  tokenHash String @unique @db.Char(64)
+  tokenHash String    @unique @db.Char(64)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([expiresAt, usedAt])
@@ -1025,8 +1412,8 @@ model Order {
   // Nullable + unique (Postgres permite multiples NULL). Sin clave => sin dedupe.
   idempotencyKey String?
 
-  status OrderStatus @default(PENDING)
-  salesChannel String @default("INTERNAL")
+  status       OrderStatus @default(PENDING)
+  salesChannel String      @default("INTERNAL")
 
   clientName  String?
   clientEmail String?

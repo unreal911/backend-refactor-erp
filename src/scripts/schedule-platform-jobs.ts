@@ -1,6 +1,8 @@
 import { platformPrisma } from "../data/platform-prisma";
 import { TenantLifecycleService } from "../modules/lifecycle/tenant-lifecycle.service";
 import { SunatJobQueue } from "../modules/platform/sunat-job-queue";
+import { PlanVersionService } from "../modules/platform-admin/plan-version.service";
+import { ManualPaymentService } from "../modules/platform-admin/manual-payment.service";
 
 function limaDate(now = new Date()): string {
     return new Intl.DateTimeFormat("en-CA", {
@@ -16,7 +18,11 @@ async function main(): Promise<void> {
     const date = limaDate();
     const summaryDate = limaDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
     const tenants = await platformPrisma.tenant.findMany({
-        where: { status: { in: ["TRIAL", "ACTIVE"] } },
+        where: {
+            status: { in: ["ACTIVE", "SUSPENDED"] },
+            planCode: { not: "TRIAL" },
+            sunatProductionEnabled: true,
+        },
         select: { id: true, trialEndsAt: true, sunatEmisorConfigs: { select: { certNotAfter: true }, take: 1 } },
         orderBy: { id: "asc" },
     });
@@ -37,7 +43,11 @@ async function main(): Promise<void> {
     const summaryEnd = new Date(summaryStart.getTime() + 24 * 60 * 60 * 1000);
     const pendingSummaryTenants = await platformPrisma.comprobante.findMany({
         where: {
-            tenant: { status: { in: ["TRIAL", "ACTIVE"] } },
+            tenant: {
+                status: { in: ["ACTIVE", "SUSPENDED"] },
+                planCode: { not: "TRIAL" },
+                sunatProductionEnabled: true,
+            },
             estado: "BORRADOR",
             resumenDiarioId: null,
             fechaEmision: { gte: summaryStart, lt: summaryEnd },
@@ -62,12 +72,21 @@ async function main(): Promise<void> {
         });
     }
     const trials = await TenantLifecycleService.expireDueTrials();
+    const storePromotions = await TenantLifecycleService.expireWelcomeStorePromotions();
+    const subscriptions = await TenantLifecycleService.suspendSubscriptionsPastGrace();
+    const planVersions = await PlanVersionService.activateDueVersions();
+    const manualPayments = await ManualPaymentService.expirePending();
     console.log(JSON.stringify({
         checkedTenants: tenants.length,
         certificateJobs,
         summaryJobs: pendingSummaryTenants.length,
         summaryDate,
         expiredTrials: trials.expired,
+        expiredStorePromotions: storePromotions.processed,
+        deactivatedPromotionalStores: storePromotions.deactivatedStores,
+        suspendedSubscriptions: subscriptions.suspended,
+        activatedPlanVersions: planVersions.activated,
+        expiredManualPayments: manualPayments.expired,
         date,
     }));
 }

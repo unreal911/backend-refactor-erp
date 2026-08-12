@@ -8,6 +8,10 @@ import {
     TenantContextService,
     TenantRequestContext,
 } from '../../modules/tenant/tenant-context.service';
+import { PlanAccessService } from '../../modules/plans/plan-access.service';
+import { PlatformMfaStatus, TenantPlanCode } from '@prisma/client';
+import { PlatformMfaService } from '../../modules/platform-admin/platform-mfa.service';
+import { PlatformAuditService } from '../../modules/platform-admin/platform-audit.service';
 
 type AuthUserPayload = {
     id: number;
@@ -41,6 +45,12 @@ export class AuthService {
         const permissions = await PermissionService.resolvePermissionsForTenantRole(
             tenantContext.rbacRole,
         );
+        const planSnapshot = {
+            planCode: tenantContext.tenant.planCode ?? TenantPlanCode.STARTER,
+            planFeatures: tenantContext.tenant.planFeatures ?? [],
+            welcomeStorePromotionEndsAt: tenantContext.tenant.welcomeStorePromotionEndsAt ?? null,
+        };
+        const planFeatures = Array.from(PlanAccessService.effectiveFeatures(planSnapshot)).sort();
 
         return {
             id: user.id,
@@ -51,6 +61,10 @@ export class AuthService {
             permissions,
             tenant: tenantContext.tenant,
             membership: tenantContext.membership,
+            plan: {
+                code: planSnapshot.planCode,
+                features: planFeatures,
+            },
         };
     }
 
@@ -174,6 +188,12 @@ export class AuthService {
         const permissions = await PermissionService.resolvePermissionsForTenantRole(
             tenantContext.rbacRole,
         );
+        const planSnapshot = {
+            planCode: tenantContext.tenant.planCode ?? TenantPlanCode.STARTER,
+            planFeatures: tenantContext.tenant.planFeatures ?? [],
+            welcomeStorePromotionEndsAt: tenantContext.tenant.welcomeStorePromotionEndsAt ?? null,
+        };
+        const planFeatures = Array.from(PlanAccessService.effectiveFeatures(planSnapshot)).sort();
 
         return {
             user: {
@@ -185,6 +205,10 @@ export class AuthService {
                 permissions: permissions.length > 0 ? permissions : tokenPermissions ?? [],
                 tenant: tenantContext.tenant,
                 membership: tenantContext.membership,
+                plan: {
+                    code: planSnapshot.planCode,
+                    features: planFeatures,
+                },
             },
         };
     }
@@ -204,18 +228,37 @@ export class AuthService {
                     select: {
                         id: true,
                         isActive: true,
+                        mfaStatus: true,
+                        role: {
+                            select: {
+                                code: true,
+                                isActive: true,
+                                permissions: { select: { permissionCode: true } },
+                            },
+                        },
                     },
                 },
             },
         });
 
-        if (!user || !user.isActive || !user.platformAdmin?.isActive) {
+        if (!user || !user.isActive || !user.platformAdmin?.isActive || !user.platformAdmin.role.isActive) {
             throw new Error('Credenciales de plataforma invalidas');
         }
         const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
         if (!isPasswordValid) {
             throw new Error('Credenciales de plataforma invalidas');
         }
+
+        const enrolled = user.platformAdmin.mfaStatus === PlatformMfaStatus.ENABLED
+            || user.platformAdmin.mfaStatus === PlatformMfaStatus.LOCKED;
+        if (enrolled && !loginDto.mfaCode && !loginDto.recoveryCode) {
+            await PlatformAuditService.record({ actorPlatformAdminId: user.platformAdmin.id, action: 'PLATFORM_LOGIN_MFA_REQUIRED', entityType: 'PlatformAdmin', entityId: user.platformAdmin.id });
+            return { mfaRequired: true };
+        }
+        const mfa = enrolled
+            ? await PlatformMfaService.verifyForLogin(user.platformAdmin.id, loginDto.mfaCode, loginDto.recoveryCode)
+            : { required: envs.PLATFORM_MFA_REQUIRED };
+        const permissions = user.platformAdmin.role.permissions.map((item) => item.permissionCode).sort();
 
         const token = jwt.sign(
             {
@@ -225,10 +268,15 @@ export class AuthService {
                 role: 'PLATFORM_ADMIN',
                 platformAdminId: user.platformAdmin.id,
                 authVersion: user.authVersion,
+                platformRole: user.platformAdmin.role.code,
+                permissions,
+                ...(mfa.verifiedAt ? { mfaAt: mfa.verifiedAt } : {}),
             },
             envs.JWT_SECRET,
             { expiresIn: '30m' },
         );
+
+        await PlatformAuditService.record({ actorPlatformAdminId: user.platformAdmin.id, action: 'PLATFORM_LOGIN_SUCCEEDED', entityType: 'PlatformAdmin', entityId: user.platformAdmin.id, after: { role: user.platformAdmin.role.code, mfa: Boolean(mfa.verifiedAt) } });
 
         return {
             token,
@@ -238,7 +286,10 @@ export class AuthService {
                 lastName: user.lastName,
                 email: user.email,
                 role: 'PLATFORM_ADMIN',
+                platformRole: user.platformAdmin.role.code,
+                permissions,
                 scope: 'platform',
+                mfaEnrollmentRequired: mfa.required && !enrolled,
             },
         };
     }

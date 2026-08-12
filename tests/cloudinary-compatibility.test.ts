@@ -1,17 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ImageProviderEnvironment, ImageProviderHealthStatus, ImageProviderType, type ImageProviderProfile } from "@prisma/client";
 import { cloudinary } from "../src/config/cloudinary";
-import { ProductService } from "../src/presentation/services/product.service";
+import { CloudinaryImageAdapter } from "../src/modules/commercial-assets/image-provider";
 
-type ProductServiceCloudinaryHooks = {
-    uploadBase64Image(data: string, publicId: string): Promise<string>;
-    deleteCloudinaryUrl(url: string): Promise<void>;
-};
+const profile = {
+    id: "30000000-0000-4000-8000-000000000001",
+    type: ImageProviderType.CLOUDINARY,
+    name: "Cloudinary test",
+    environment: ImageProviderEnvironment.ANY,
+    secretRef: "env:CLOUDINARY_API_KEY",
+    config: { folder: "product_images" },
+    isEnabled: true,
+    isActive: true,
+    pauseNewUploads: false,
+    maxUploadBytes: 10485760n,
+    warningPercent: 80,
+    monthlyBudgetUsd: null,
+    healthStatus: ImageProviderHealthStatus.HEALTHY,
+    lastHealthMessage: null,
+    lastHealthCheckedAt: null,
+    createdByPlatformAdminId: null,
+    updatedByPlatformAdminId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+} as ImageProviderProfile;
 
-function cloudinaryHooks(): ProductServiceCloudinaryHooks {
-    return new ProductService() as unknown as ProductServiceCloudinaryHooks;
-}
-
-describe("compatibilidad Cloudinary 2.x", () => {
+describe("adaptador Cloudinary 2.x", () => {
     afterEach(() => {
         vi.restoreAllMocks();
     });
@@ -37,24 +51,29 @@ describe("compatibilidad Cloudinary 2.x", () => {
         expect(url).toContain("product_images/demo");
     });
 
-    it("mantiene la carga Base64 mediante uploader.upload", async () => {
+    it("carga mediante el puerto de imágenes y solicita tamaños estables", async () => {
         const upload = vi.spyOn(cloudinary.uploader, "upload").mockResolvedValue({
             secure_url: "https://res.cloudinary.com/demo/image/upload/product_images/producto.jpg",
+            public_id: "product_images/producto-uuid",
+            bytes: 120,
+            width: 640,
+            height: 480,
+            eager: [],
         } as never);
 
-        await expect(
-            cloudinaryHooks().uploadBase64Image("YWJj", "producto&seguro"),
-        ).resolves.toBe(
-            "https://res.cloudinary.com/demo/image/upload/product_images/producto.jpg",
-        );
+        const result = await new CloudinaryImageAdapter(profile).upload({
+            buffer: Buffer.from("imagen"), contentType: "image/jpeg", key: "producto&seguro",
+        });
+        expect(result.url).toBe("https://res.cloudinary.com/demo/image/upload/product_images/producto.jpg");
+        expect(result.externalId).toBe("product_images/producto-uuid");
         expect(upload).toHaveBeenCalledWith(
-            "data:image/jpeg;base64,YWJj",
-            {
+            `data:image/jpeg;base64,${Buffer.from("imagen").toString("base64")}`,
+            expect.objectContaining({
                 folder: "product_images",
-                public_id: "producto&seguro",
-                overwrite: true,
+                overwrite: false,
                 resource_type: "image",
-            },
+                eager: expect.any(Array),
+            }),
         );
     });
 
@@ -63,13 +82,11 @@ describe("compatibilidad Cloudinary 2.x", () => {
             result: "ok",
         } as never);
 
-        await cloudinaryHooks().deleteCloudinaryUrl(
-            "https://res.cloudinary.com/demo/image/upload/v123/product_images/producto.jpg",
-        );
+        await new CloudinaryImageAdapter(profile).delete("product_images/producto");
 
         expect(destroy).toHaveBeenCalledWith(
             "product_images/producto",
-            { resource_type: "image" },
+            { resource_type: "image", invalidate: true },
         );
     });
 });
