@@ -7,6 +7,7 @@ import { AuditLogService } from './services/audit-log.service';
 import { envs } from '../config/envs';
 import { platformPrisma } from '../data/platform-prisma';
 import { observeRequest } from './observability/request-observability';
+import { setupExpressSentryErrorHandler } from './observability/sentry';
 
 interface Options {
     port: number;
@@ -19,7 +20,7 @@ type CreateAppOptions = Omit<Options, 'port'>;
 export function createExpressApp(options: CreateAppOptions) {
     const { routes, public_path = 'public' } = options;
     const app = express();
-    const requestBodyLimit = '100mb';
+    const requestBodyLimit = '2mb';
 
     // Detras de proxy (Netlify): confiar en X-Forwarded-* para IP correcta
     // (necesario para rate-limit por IP).
@@ -51,14 +52,24 @@ export function createExpressApp(options: CreateAppOptions) {
                 return callback(new Error('Origen no permitido por CORS'));
             },
     }));
-    app.use(express.json({
+    const defaultJsonParser = express.json({
         limit: requestBodyLimit,
         verify: (req, _res, buffer) => {
-            (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+            if (String(req.url || '').startsWith('/api/public/billing/webhook/')) {
+                (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+            }
         },
-    }));
+    });
+    app.use((req, res, next) => {
+        // Las cargas Base64 de productos se parsean dentro de su router, después
+        // de autenticar la sesión tenant, con un límite mayor y aislado.
+        if (req.path === '/api/products' || req.path.startsWith('/api/products/')) {
+            return next();
+        }
+        return defaultJsonParser(req, res, next);
+    });
     app.use(observeRequest);
-    app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
+    app.use(express.urlencoded({ extended: true, limit: '1mb' }));
     app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
         if (err?.type === 'entity.too.large' || err?.status === 413) {
             return res.status(413).json({
@@ -93,6 +104,9 @@ export function createExpressApp(options: CreateAppOptions) {
         const indexPath = path.join(publicDir, 'index.html');
         res.sendFile(indexPath);
     });
+
+    // Debe instalarse después de todas las rutas para capturar errores no manejados.
+    setupExpressSentryErrorHandler(app);
 
     return app;
 }

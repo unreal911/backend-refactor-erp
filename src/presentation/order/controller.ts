@@ -82,13 +82,13 @@ export class OrderController {
         });
     }
 
-    private publishOrderEvent(
+    private async publishOrderEvent(
         type: AdminEventType,
         orderLike: any,
         actorUserId?: number | null,
         targetUserId?: number | null,
     ) {
-        AdminEventBus.publish({
+        await AdminEventBus.publish({
             type,
             entity: 'ORDER',
             entityId: Number(orderLike?.id || orderLike?.orderId || 0) || null,
@@ -157,7 +157,7 @@ export class OrderController {
                     total: Number(order?.total || 0),
                 },
             });
-            this.publishOrderEvent('ORDER_CREATED', order, req.user?.id);
+            await this.publishOrderEvent('ORDER_CREATED', order, req.user?.id);
 
             const posUsage = resolvedSalesChannel === 'POS'
                 ? await TenantQuotaService.getPosSalesUsage()
@@ -272,7 +272,7 @@ export class OrderController {
                     note: dto?.note ?? null,
                 },
             });
-            this.publishOrderEvent('ORDER_STATUS_UPDATED', order, req.user?.id);
+            await this.publishOrderEvent('ORDER_STATUS_UPDATED', order, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -320,7 +320,7 @@ export class OrderController {
                     assignedUserId: Number(dto?.userId || 0) || null,
                 },
             });
-            this.publishOrderEvent('ORDER_RESPONSIBLE_ASSIGNED', order, req.user?.id, dto?.userId);
+            await this.publishOrderEvent('ORDER_RESPONSIBLE_ASSIGNED', order, req.user?.id, dto?.userId);
 
             res.status(200).json({
                 success: true,
@@ -367,7 +367,7 @@ export class OrderController {
                     note: dto?.note || null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -415,7 +415,7 @@ export class OrderController {
                     note: dto?.note || null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id, dto?.userId);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id, dto?.userId);
 
             res.status(200).json({
                 success: true,
@@ -478,7 +478,7 @@ export class OrderController {
                     note: dto?.note || null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -619,7 +619,7 @@ export class OrderController {
                     note: dto?.note ?? null,
                 },
             });
-            this.publishOrderEvent('ORDER_RETURN_UPDATED', order, req.user?.id, dto?.userId);
+            await this.publishOrderEvent('ORDER_RETURN_UPDATED', order, req.user?.id, dto?.userId);
 
             res.status(200).json({
                 success: true,
@@ -658,7 +658,7 @@ export class OrderController {
                 description: `Responsabilidad de devolucion aceptada en orden ${order?.code || id}`,
                 products: this.mapProductsFromOrderItems(order?.items || []),
             });
-            this.publishOrderEvent('ORDER_RETURN_UPDATED', order, req.user?.id);
+            await this.publishOrderEvent('ORDER_RETURN_UPDATED', order, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -726,7 +726,7 @@ export class OrderController {
                     pickingSessionId: Number(picking?.pickingSession?.id || 0) || null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -774,7 +774,7 @@ export class OrderController {
                     updatedItems: Array.isArray(dto?.items) ? dto.items.length : 0,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', order, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', order, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -835,7 +835,7 @@ export class OrderController {
                     pickedQuantity: Number(pickedQuantity),
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -906,7 +906,7 @@ export class OrderController {
                     pickingItemId: Number(pickedItem?.pickingItemId || 0) || null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -963,7 +963,7 @@ export class OrderController {
                     note: dto?.note ?? null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1024,7 +1024,7 @@ export class OrderController {
                     note: dto?.note ?? null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1066,7 +1066,7 @@ export class OrderController {
                     resultingStatus: order?.status || null,
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', order, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', order, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1112,7 +1112,7 @@ export class OrderController {
                     resultingProgress: Number(picking?.summary?.progress || 0),
                 },
             });
-            this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
+            await this.publishOrderEvent('ORDER_PICKING_UPDATED', picking, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1172,7 +1172,7 @@ export class OrderController {
                     orderItemId: orderItemId ? Number(orderItemId) : null,
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1213,7 +1213,7 @@ export class OrderController {
                     reservedLines: Number(result?.reservedLines || 0),
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1267,7 +1267,7 @@ export class OrderController {
                     releasedQuantity: result.releasedQuantity,
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1329,7 +1329,7 @@ export class OrderController {
                     total: result.total,
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(201).json({
                 success: true,
@@ -1379,7 +1379,7 @@ export class OrderController {
                     total: result.total,
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1426,7 +1426,7 @@ export class OrderController {
                     total: result.total,
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1476,7 +1476,7 @@ export class OrderController {
                     orderStatus: result.orderStatus,
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(200).json({
                 success: true,
@@ -1532,7 +1532,7 @@ export class OrderController {
                     totalQuantity: Number(latest?.totalQuantity || 0),
                 },
             });
-            this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
+            await this.publishOrderEvent('ORDER_UPDATED', { id: Number(id) }, req.user?.id);
 
             res.status(201).json({
                 success: true,

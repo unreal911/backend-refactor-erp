@@ -56,6 +56,7 @@ vi.mock("../src/data/prisma", () => ({
 vi.mock("../src/config/envs", () => ({
     envs: {
         JWT_SECRET: "test-secret",
+        PLATFORM_MFA_REQUIRED: true,
     },
 }));
 
@@ -202,6 +203,30 @@ describe("AuthMiddleware tenant-aware", () => {
         expect(next).toHaveBeenCalledOnce();
     });
 
+    it("reserva operaciones sensibles de empresa para OWNER", () => {
+        const ownerReq = requestDouble();
+        ownerReq.tenant = context as AuthRequest["tenant"];
+        const ownerRes = responseDouble();
+        const ownerNext = vi.fn();
+
+        AuthMiddleware.requireTenantOwner(ownerReq, ownerRes as never, ownerNext);
+
+        expect(ownerNext).toHaveBeenCalledOnce();
+
+        const adminReq = requestDouble();
+        adminReq.tenant = {
+            ...context,
+            membership: { ...context.membership, role: "ADMIN" },
+        } as AuthRequest["tenant"];
+        const adminRes = responseDouble();
+        const adminNext = vi.fn();
+
+        AuthMiddleware.requireTenantOwner(adminReq, adminRes as never, adminNext);
+
+        expect(adminRes.status).toHaveBeenCalledWith(403);
+        expect(adminNext).not.toHaveBeenCalled();
+    });
+
     it("un token tenant nunca se acepta como token de plataforma", async () => {
         const req = requestDouble({ Authorization: "Bearer token" });
         const res = responseDouble();
@@ -212,6 +237,61 @@ describe("AuthMiddleware tenant-aware", () => {
         expect(res.status).toHaveBeenCalledWith(401);
         expect(next).not.toHaveBeenCalled();
         expect(mocks.platformAdminFindFirst).not.toHaveBeenCalled();
+    });
+
+    it("restringe una sesion de plataforma sin MFA a las rutas de enrolamiento", async () => {
+        mocks.verify.mockReturnValue({
+            scope: "platform",
+            id: 9,
+            email: "admin@platform.test",
+            role: "PLATFORM_ADMIN",
+            platformAdminId: "platform-admin-1",
+            authVersion: 0,
+        });
+        mocks.platformAdminFindFirst.mockResolvedValue({
+            id: "platform-admin-1",
+            mfaStatus: "DISABLED",
+            role: { code: "SUPERADMIN", isActive: true, permissions: [] },
+            user: { authVersion: 0 },
+        });
+        const req = requestDouble({ Authorization: "Bearer token" });
+        req.originalUrl = "/api/platform/tenants";
+        const res = responseDouble();
+        const next = vi.fn();
+
+        await AuthMiddleware.validatePlatformJWT(req, res as never, next);
+
+        expect(res.status).toHaveBeenCalledWith(428);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            code: "PLATFORM_MFA_ENROLLMENT_REQUIRED",
+        }));
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it("permite configurar MFA durante una sesion de enrolamiento", async () => {
+        mocks.verify.mockReturnValue({
+            scope: "platform",
+            id: 9,
+            email: "admin@platform.test",
+            role: "PLATFORM_ADMIN",
+            platformAdminId: "platform-admin-1",
+            authVersion: 0,
+        });
+        mocks.platformAdminFindFirst.mockResolvedValue({
+            id: "platform-admin-1",
+            mfaStatus: "PENDING",
+            role: { code: "SUPERADMIN", isActive: true, permissions: [] },
+            user: { authVersion: 0 },
+        });
+        const req = requestDouble({ Authorization: "Bearer token" });
+        req.originalUrl = "/.netlify/functions/api/api/platform/security/mfa/confirm";
+        const res = responseDouble();
+        const next = vi.fn();
+
+        await AuthMiddleware.validatePlatformJWT(req, res as never, next);
+
+        expect(next).toHaveBeenCalledOnce();
+        expect(res.status).not.toHaveBeenCalled();
     });
 });
 

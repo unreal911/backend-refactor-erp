@@ -80,6 +80,21 @@ export class TenantInvitationService {
         }
     }
 
+    private assertCanAssignInvitationRole(
+        actorRole: TenantMembershipRole,
+        invitedRole: TenantMembershipRole,
+    ): void {
+        if (
+            invitedRole === TenantMembershipRole.ADMIN
+            && actorRole !== TenantMembershipRole.OWNER
+        ) {
+            throw new TenantInvitationError(
+                "Solo OWNER puede invitar a otro administrador",
+                403,
+            );
+        }
+    }
+
     private globalRoleName(role: TenantMembershipRole): string {
         if (role === TenantMembershipRole.ADMIN) return "ADMIN";
         if (role === TenantMembershipRole.MANAGER) return "MANAGER";
@@ -91,6 +106,7 @@ export class TenantInvitationService {
 
     async invite(dto: CreateTenantInvitationDto, actor: InvitationActor) {
         this.assertCanInvite(actor.tenant.membership.role);
+        this.assertCanAssignInvitationRole(actor.tenant.membership.role, dto.role);
         const tenantId = actor.tenant.tenant.id;
         const now = this.now();
         const expiresAt = this.expiration(now);

@@ -156,6 +156,7 @@ beforeAll(async () => {
         email: platformUser.email,
         role: "PLATFORM_ADMIN",
         platformAdminId: platformAdmin.id,
+        mfaAt: Math.floor(Date.now() / 1000),
     }, envs.JWT_SECRET, { expiresIn: "15m" });
 });
 

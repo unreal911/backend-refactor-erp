@@ -305,6 +305,44 @@ export class OwnerSignupAbuseService implements OwnerSignupAbuseGuard {
         });
     }
 
+    private async findPreviouslyConsumedTrial(
+        identity: OwnerSignupAbuseIdentity,
+        now: Date,
+    ): Promise<string | null> {
+        const activeOverride = await platformPrisma.signupAbuseEvent.findFirst({
+            where: {
+                emailFingerprint: identity.emailFingerprint,
+                deviceFingerprint: identity.deviceFingerprint,
+                reviewStatus: SignupAbuseReviewStatus.FALSE_POSITIVE,
+                overrideUntil: { gt: now },
+            },
+            select: { id: true },
+        });
+        if (activeOverride) return null;
+
+        const previous = await platformPrisma.trialBenefitClaim.findFirst({
+            where: { OR: [
+                { emailFingerprint: identity.emailFingerprint },
+                { deviceFingerprint: identity.deviceFingerprint },
+            ] },
+            select: { id: true },
+        }) ?? await platformPrisma.ownerRegistration.findFirst({
+            where: { consumedAt: { not: null }, OR: [
+                { signupEmailFingerprint: identity.emailFingerprint },
+                { signupDeviceFingerprint: identity.deviceFingerprint },
+            ] },
+            select: { id: true },
+        });
+        if (!previous) return null;
+
+        return this.recordRejection(platformPrisma, {
+            reason: SignupAbuseReason.ACTIVE_TRIAL_LIMIT,
+            identity,
+            captchaVerified: true,
+            now,
+        });
+    }
+
     async assess(input: {
         email: string;
         ipAddress: string;
@@ -333,7 +371,18 @@ export class OwnerSignupAbuseService implements OwnerSignupAbuseGuard {
             token: input.captchaToken,
             ipAddress: input.ipAddress,
         });
-        if (captcha.status === "VALID") return { allowed: true, identity };
+        if (captcha.status === "VALID") {
+            const referenceId = await this.findPreviouslyConsumedTrial(identity, now);
+            if (referenceId) {
+                return {
+                    allowed: false,
+                    statusCode: 429,
+                    message: RATE_LIMIT_MESSAGE,
+                    referenceId,
+                };
+            }
+            return { allowed: true, identity };
+        }
 
         const unavailable = captcha.status === "UNAVAILABLE";
         const referenceId = await this.recordRejection(platformPrisma, {
@@ -405,9 +454,12 @@ export class SignupAbuseReviewService {
         now?: Date;
     }) {
         const now = input.now ?? new Date();
-        const updated = await platformPrisma.signupAbuseEvent.updateMany({
-            where: { id: input.eventId },
-            data: {
+        const updated = await platformPrisma.$transaction(async (tx) => {
+            const event = await tx.signupAbuseEvent.findUnique({ where: { id: input.eventId } });
+            if (!event) return null;
+            const reviewed = await tx.signupAbuseEvent.update({
+                where: { id: input.eventId },
+                data: {
                 reviewStatus: input.outcome,
                 reviewNote: input.note,
                 reviewedAt: now,
@@ -415,11 +467,44 @@ export class SignupAbuseReviewService {
                 overrideUntil: input.outcome === SignupAbuseReviewStatus.FALSE_POSITIVE
                     ? new Date(now.getTime() + (input.overrideHours ?? 24) * 3_600_000)
                     : null,
-            },
+                },
+            });
+            if (input.outcome === SignupAbuseReviewStatus.FALSE_POSITIVE && event.rucFingerprint) {
+                await tx.trialBenefitClaim.updateMany({
+                    where: { rucFingerprint: event.rucFingerprint },
+                    data: { rucFingerprint: null, rucConfirmedAt: null },
+                });
+            }
+            return reviewed;
         });
-        if (updated.count !== 1) return null;
-        return platformPrisma.signupAbuseEvent.findUnique({
-            where: { id: input.eventId },
-        });
+        return updated;
     }
+}
+
+export async function recordTrialRucConflict(tenantId: string, rucFingerprint: string, now = new Date()): Promise<string> {
+    const identity = await platformPrisma.trialBenefitClaim.findUnique({ where: { tenantId } });
+    const fallback = rucFingerprint;
+    const bucketStartedAt = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000);
+    const event = await platformPrisma.signupAbuseEvent.upsert({
+        where: { reason_aggregationKey_bucketStartedAt: {
+            reason: SignupAbuseReason.RUC_TRIAL_LIMIT,
+            aggregationKey: rucFingerprint,
+            bucketStartedAt,
+        } },
+        create: {
+            reason: SignupAbuseReason.RUC_TRIAL_LIMIT,
+            aggregationKey: rucFingerprint,
+            emailFingerprint: identity?.emailFingerprint ?? fallback,
+            ipFingerprint: identity?.ipFingerprint ?? fallback,
+            deviceFingerprint: identity?.deviceFingerprint ?? fallback,
+            rucFingerprint,
+            captchaVerified: true,
+            bucketStartedAt,
+            firstOccurredAt: now,
+            lastOccurredAt: now,
+        },
+        update: { occurrences: { increment: 1 }, lastOccurredAt: now, reviewStatus: SignupAbuseReviewStatus.UNREVIEWED },
+        select: { id: true },
+    });
+    return event.id;
 }

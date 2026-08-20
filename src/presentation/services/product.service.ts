@@ -662,13 +662,16 @@ export class ProductService {
         return urls;
     }
 
-    private async uploadVariantImage(productId: number, variant: { colorId: number | null; sizeId: number | null; imageUrl?: string; imageFile?: { filename: string; data: string } }): Promise<string | null> {
+    private async uploadVariantImage(productId: number, variant: VariantWriteInput): Promise<string | null> {
         if (variant.imageFile) {
-            const publicId = `product_${productId}_variant_${variant.colorId ?? 0}_${variant.sizeId ?? 0}_${variant.imageFile.filename.replace(/\.[^/.]+$/, '')}`;
-            return await this.uploadBase64Image(variant.imageFile.data, publicId);
+            const filename = variant.imageFile.filename.replace(/\.[^/.]+$/, '');
+            return this.uploadBase64Image(
+                variant.imageFile.data,
+                `product_${productId}_variant_${variant.colorId ?? 0}_${variant.sizeId ?? 0}_${filename}`,
+            );
         }
-
-        return variant.imageUrl ? variant.imageUrl : null;
+        const imageUrl = String(variant.imageUrl || '').trim();
+        return imageUrl || null;
     }
 
     private async resolveMarketplaceColorImages(
@@ -840,14 +843,13 @@ export class ProductService {
 
             const activeVariantCount = variantsToCreate.filter((variant) => variant.isActive !== false).length;
             const requestedMainImages = new Set(imageUrls || []).size + (imageFiles || []).length;
-            const requestedVariantImages = variantsToCreate.filter(
-                (variant) => Boolean(variant.imageFile || variant.imageUrl),
-            ).length + (marketplaceColorImages || []).filter(
-                (image) => Boolean(image.imageFile || image.imageUrl),
-            ).length;
+            const requestedVariantImages = variantsToCreate.filter((variant) => Boolean(variant.imageFile || variant.imageUrl)).length;
             await TenantQuotaService.assertVariantsAvailable(0, activeVariantCount, true);
             await TenantQuotaService.assertMainImagesAvailable(0, requestedMainImages, true);
             await TenantQuotaService.assertVariantImagesAllowed(requestedVariantImages);
+            await TenantQuotaService.assertVariantImagesAllowed(
+                (marketplaceColorImages || []).some((image) => Boolean(image.imageFile || image.imageUrl)) ? 1 : 0,
+            );
 
             const now = new Date();
 
@@ -893,7 +895,7 @@ export class ProductService {
 
             const createdVariants = await Promise.all(
                 variantsToCreate.map(async (variant) => {
-                    const imageUrl = await this.uploadVariantImage(product.id, variant);
+                    const variantImageUrl = await this.uploadVariantImage(product.id, variant);
                     const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
                     const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                     return prisma.productVariant.create({
@@ -903,7 +905,7 @@ export class ProductService {
                             colorId: variant.colorId,
                             sizeId: variant.sizeId,
                             variantKey: this.variantKeyOf(variant.colorId, variant.sizeId),
-                            imageUrl: imageUrl || null,
+                            imageUrl: variantImageUrl,
                             productId: product.id,
                             isActive: variant.isActive !== false,
                             updatedAt: now,
@@ -922,7 +924,7 @@ export class ProductService {
                     marketplaceVariantSizeIds: simpleMarketplaceConfig?.sizeIds || [],
                     marketplaceColorImages: marketplaceColorImageConfig,
                 },
-                variants: createdVariants.map(v => ProductVariantEntity.fromObject(v)),
+                variants: createdVariants.map((variant) => this.mapVariantForResponse(variant)),
                 images: allImageUrls,
                 message: isSimpleMode
                     ? `Producto "${normalizedName}" creado exitosamente como producto unico`
@@ -1543,11 +1545,13 @@ export class ProductService {
             true,
         );
         await TenantQuotaService.assertVariantImagesAllowed(
-            variants.filter((variant) => Boolean(variant.imageFile || variant.imageUrl)).length,
+            variants.filter((variant) => Boolean(variant.imageFile || String(variant.imageUrl || '').trim())).length,
         );
         const existingVariants = await prisma.productVariant.findMany({
             where: { productId },
-            select: { id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true },
+            select: {
+                id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true,
+            },
         });
 
         const incomingMap = new Map<string, VariantWriteInput>();
@@ -1575,26 +1579,15 @@ export class ProductService {
             variants.map(async variant => {
                 const key = this.variantKeyOf(variant.colorId, variant.sizeId);
                 const existing = existingByKey.get(key);
-                const uploadedImage = await this.uploadVariantImage(productId, variant);
+                const hasImageChanges = variant.imageUrl !== undefined || variant.imageFile !== undefined;
+                const imageUrlToPersist = hasImageChanges
+                    ? await this.uploadVariantImage(productId, variant)
+                    : existing?.imageUrl ?? null;
                 const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
                 const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                 const shouldBeActive = variant.isActive !== false;
 
-                let imageUrlToPersist: string | null = null;
-                if (variant.imageFile) {
-                    imageUrlToPersist = uploadedImage;
-                } else if (variant.imageUrl !== undefined) {
-                    imageUrlToPersist = variant.imageUrl || null;
-                } else if (existing?.imageUrl) {
-                    imageUrlToPersist = existing.imageUrl;
-                }
-
-                if (
-                    existing?.imageUrl &&
-                    imageUrlToPersist &&
-                    existing.imageUrl !== imageUrlToPersist &&
-                    (variant.imageFile !== undefined || variant.imageUrl !== undefined)
-                ) {
+                if (hasImageChanges && existing?.imageUrl && existing.imageUrl !== imageUrlToPersist) {
                     removedVariantImages.push(existing.imageUrl);
                 }
 
@@ -1615,7 +1608,6 @@ export class ProductService {
                         data: variantData,
                     });
                 }
-
                 return prisma.productVariant.create({
                     data: {
                         ...variantData,

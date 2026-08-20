@@ -263,6 +263,21 @@ describe("EMP-005 invitaciones y autenticaci\u00f3n multiempresa", () => {
                 },
             )).rejects.toMatchObject({ statusCode: 403 });
         });
+
+        await expect(service.invite(
+            inviteDto(`${prefix}-admin-denied@example.test`, TenantMembershipRole.ADMIN),
+            {
+                userId: ownerAId,
+                email: `${prefix}-owner-a@example.test`,
+                tenant: context(
+                    tenantAId,
+                    `${prefix}-a`,
+                    `EMP005 Empresa A ${tag}`,
+                    ownerAMembershipId,
+                    TenantMembershipRole.ADMIN,
+                ),
+            },
+        )).rejects.toMatchObject({ statusCode: 403 });
     });
 
     it("crea una cuenta nueva solo tras probar correo y contrase\u00f1a fuerte", async () => {

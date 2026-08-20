@@ -13,6 +13,7 @@ import { CustomError } from "../../domain/errors/custom.error";
 import { TenantDataContext } from "../tenant/tenant-data-context";
 import { PlanAssignmentService } from "./plan-assignment.service";
 import { PlatformAuditService } from "./platform-audit.service";
+import { openPaymentProof, protectPaymentProof } from "./payment-proof-crypto";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -20,6 +21,16 @@ type Actor = {
     platformAdminId: string;
     correlationId: string | null;
 };
+
+type DowngradeSelection = { userIds: string[]; productIds: number[]; storeIds: number[] };
+
+function uniqueStrings(value: unknown): string[] {
+    return Array.isArray(value) ? [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))] : [];
+}
+
+function uniquePositiveInts(value: unknown): number[] {
+    return Array.isArray(value) ? [...new Set(value.map(Number).filter((item) => Number.isInteger(item) && item > 0))] : [];
+}
 
 function cleanText(value: unknown, maxLength: number): string | null {
     const normalized = String(value || "").trim().replace(/\s+/g, " ");
@@ -52,8 +63,12 @@ function addMonthsClamped(value: Date, months: number): Date {
 }
 
 function serializeRequest(request: any) {
+    const { proof: _proof, ...safeRequest } = request;
     return {
-        ...request,
+        ...safeRequest,
+        proofUrl: undefined,
+        hasProof: Boolean(request.proof),
+        proofDownloadUrl: request.proof ? `/api/platform/payment-requests/${request.id}/proof` : null,
         offeredPrice: request.offeredPrice?.toFixed(2) ?? null,
         amountReported: request.amountReported?.toFixed(2) ?? null,
         planVersion: request.planVersion ? {
@@ -66,6 +81,114 @@ function serializeRequest(request: any) {
 }
 
 export class ManualPaymentService {
+    private static async downgradePreviewWith(client: any, tenantId: string, planVersionId: string) {
+        const [tenant, version, memberships, invitations, products, stores] = await Promise.all([
+            client.tenant.findUnique({ where: { id: tenantId } }),
+            client.planVersion.findUnique({ where: { id: planVersionId }, include: { plan: true } }),
+            client.tenantMembership.findMany({ where: { tenantId, status: { in: ["ACTIVE", "INVITED"] } }, include: { user: true }, orderBy: [{ role: "asc" }, { createdAt: "asc" }] }),
+            client.tenantInvitation.findMany({ where: { tenantId, status: "PENDING", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "asc" } }),
+            client.product.findMany({ where: { tenantId, isActive: true }, select: { id: true, name: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
+            client.store.findMany({ where: { tenantId, isActive: true }, select: { id: true, name: true, code: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
+        ]);
+        if (!tenant) throw CustomError.notFound("La empresa no existe");
+        if (!version || version.status !== "ACTIVE") throw CustomError.badRequest("La versión del plan no está disponible");
+        const users = [
+            ...memberships.map((membership: any) => ({
+                id: `membership:${membership.id}`,
+                kind: "MEMBERSHIP",
+                label: `${membership.user.firstName || ""} ${membership.user.lastName || ""}`.trim() || membership.user.email,
+                detail: `${membership.user.email} · ${membership.role}`,
+                required: membership.role === "OWNER",
+            })),
+            ...invitations.map((invitation: any) => ({
+                id: `invitation:${invitation.id}`,
+                kind: "INVITATION",
+                label: invitation.email,
+                detail: `Invitación pendiente · ${invitation.role}`,
+                required: false,
+            })),
+        ];
+        const limits = { users: version.maxUsers, products: version.maxProducts, stores: version.maxStores, maxVariantsPerProduct: version.maxVariantsPerProduct };
+        const isDowngrade = version.maxUsers < tenant.maxUsers || version.maxProducts < tenant.maxProducts || version.maxStores < tenant.maxStores
+            || version.maxVariantsPerProduct < tenant.maxVariantsPerProduct || version.maxMainImagesPerProduct < tenant.maxMainImagesPerProduct
+            || version.maxImagesPerVariant < tenant.maxImagesPerVariant || version.maxStorageBytes < tenant.maxStorageBytes;
+        const conflicts = {
+            users: Math.max(0, users.length - limits.users),
+            products: Math.max(0, products.length - limits.products),
+            stores: Math.max(0, stores.length - limits.stores),
+        };
+        return {
+            isDowngrade,
+            requiresSelection: Object.values(conflicts).some((value) => value > 0),
+            targetPlan: { code: version.plan.code, name: version.plan.displayName, planVersionId: version.id },
+            limits,
+            conflicts,
+            users,
+            products: products.map((product: any) => ({ id: product.id, label: product.name })),
+            stores: stores.map((store: any) => ({ id: store.id, label: store.name, detail: store.code, required: store.id === tenant.primaryStoreId })),
+            suggested: {
+                userIds: users.filter((item) => item.required).concat(users.filter((item) => !item.required)).slice(0, limits.users).map((item) => item.id),
+                productIds: products.slice(0, limits.products).map((product: any) => product.id),
+                storeIds: stores.slice().sort((a: any, b: any) => Number(b.id === tenant.primaryStoreId) - Number(a.id === tenant.primaryStoreId)).slice(0, limits.stores).map((store: any) => store.id),
+            },
+        };
+    }
+
+    static async previewDowngrade(planVersionId: string) {
+        return this.downgradePreviewWith(tenantPrisma, TenantDataContext.requireTenantId(), planVersionId);
+    }
+
+    private static validateDowngradeSelection(preview: any, raw: unknown): DowngradeSelection | null {
+        if (!preview.isDowngrade) return null;
+        if (!preview.requiresSelection && !raw) return null;
+        const input = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+        const selection: DowngradeSelection = {
+            userIds: uniqueStrings(input.userIds),
+            productIds: uniquePositiveInts(input.productIds),
+            storeIds: uniquePositiveInts(input.storeIds),
+        };
+        if (preview.requiresSelection && !raw) throw CustomError.conflict("El downgrade requiere elegir los recursos que seguirán activos");
+        if (selection.userIds.length > preview.limits.users || selection.productIds.length > preview.limits.products || selection.storeIds.length > preview.limits.stores) {
+            throw CustomError.badRequest("La selección supera las cuotas del plan elegido");
+        }
+        const validUsers = new Set(preview.users.map((item: any) => item.id));
+        const validProducts = new Set(preview.products.map((item: any) => item.id));
+        const validStores = new Set(preview.stores.map((item: any) => item.id));
+        if (selection.userIds.some((id) => !validUsers.has(id)) || selection.productIds.some((id) => !validProducts.has(id)) || selection.storeIds.some((id) => !validStores.has(id))) {
+            throw CustomError.badRequest("La selección contiene recursos que ya no están activos");
+        }
+        const owner = preview.users.find((item: any) => item.required)?.id;
+        if (owner && !selection.userIds.includes(owner)) throw CustomError.badRequest("El propietario debe permanecer activo");
+        const primaryStore = preview.stores.find((item: any) => item.required)?.id;
+        if (primaryStore && preview.limits.stores > 0 && !selection.storeIds.includes(primaryStore)) throw CustomError.badRequest("La tienda principal debe permanecer activa");
+        return selection;
+    }
+
+    private static async applyDowngradeSelection(tx: Prisma.TransactionClient, tenantId: string, planVersionId: string, raw: unknown) {
+        const preview = await this.downgradePreviewWith(tx, tenantId, planVersionId);
+        const selection = this.validateDowngradeSelection(preview, raw);
+        if (!selection) return;
+        const membershipIds = selection.userIds.filter((id) => id.startsWith("membership:")).map((id) => id.slice(11));
+        const invitationIds = selection.userIds.filter((id) => id.startsWith("invitation:")).map((id) => id.slice(11));
+        const storesToDisable = preview.stores.map((item: any) => item.id).filter((id: number) => !selection.storeIds.includes(id));
+        if (storesToDisable.length > 0) {
+            const operations = await tx.stockTransfer.count({
+                where: { tenantId, status: { in: ["PENDING", "IN_TRANSIT"] }, OR: [{ fromStoreId: { in: storesToDisable } }, { toStoreId: { in: storesToDisable } }] },
+            });
+            if (operations > 0) throw CustomError.conflict("Hay transferencias en curso en una tienda que se desactivará; complétalas o cancélalas antes de aprobar");
+        }
+        await tx.tenantMembership.updateMany({ where: { tenantId, status: { in: ["ACTIVE", "INVITED"] }, id: { notIn: membershipIds }, role: { not: "OWNER" } }, data: { status: "INACTIVE", deactivatedAt: new Date() } });
+        await tx.tenantInvitation.updateMany({ where: { tenantId, status: "PENDING", id: { notIn: invitationIds } }, data: { status: "REVOKED", revokedAt: new Date() } });
+        await tx.product.updateMany({ where: { tenantId, isActive: true, id: { notIn: selection.productIds } }, data: { isActive: false } });
+        await tx.store.updateMany({ where: { tenantId, isActive: true, id: { notIn: selection.storeIds } }, data: { isActive: false } });
+        const activeProducts = await tx.product.findMany({ where: { tenantId, isActive: true }, select: { id: true } });
+        for (const product of activeProducts) {
+            const variants = await tx.productVariant.findMany({ where: { tenantId, productId: product.id, isActive: true }, select: { id: true }, orderBy: { createdAt: "asc" } });
+            const excess = variants.slice(preview.limits.maxVariantsPerProduct);
+            if (excess.length) await tx.productVariant.updateMany({ where: { tenantId, id: { in: excess.map((item: any) => item.id) } }, data: { isActive: false } });
+        }
+        await tx.tenantLifecycleEvent.create({ data: { tenantId, type: "DOWNGRADE_SELECTION_APPLIED", source: "manual-payment", metadata: selection } });
+    }
     static async listPublicMethods(now = new Date()) {
         return platformPrisma.manualPaymentMethod.findMany({
             where: {
@@ -193,6 +316,8 @@ export class ManualPaymentService {
         if (version.plan.code === TenantPlanCode.TRIAL) {
             throw CustomError.badRequest("El trial no se contrata mediante pago");
         }
+        const downgradePreview = await this.downgradePreviewWith(tenantPrisma, tenantId, version.id);
+        const downgradeSelection = this.validateDowngradeSelection(downgradePreview, input.downgradeSelection);
         const now = new Date();
         if (!method?.isActive
             || (method.effectiveFrom && method.effectiveFrom > now)
@@ -211,8 +336,11 @@ export class ManualPaymentService {
         if (paidAt && (Number.isNaN(paidAt.getTime()) || paidAt.getTime() > Date.now() + 5 * 60 * 1000)) {
             throw CustomError.badRequest("La fecha del pago no es válida");
         }
-        const proofUrl = cleanText(input.proofUrl, 1000);
-        if (proofUrl && !/^https:\/\//i.test(proofUrl)) throw CustomError.badRequest("proofUrl debe usar HTTPS");
+        if (input.proofUrl) throw CustomError.badRequest("Las constancias por URL ya no se aceptan; adjunta un archivo privado");
+        if (!input.proofFile) {
+            throw CustomError.badRequest("Adjunta la constancia de pago");
+        }
+        const proof = protectPaymentProof(input.proofFile);
 
         const created = await tenantPrisma.manualPaymentRequest.create({
             data: {
@@ -229,12 +357,14 @@ export class ManualPaymentService {
                 amountReported,
                 operationReference: cleanText(input.operationReference, 100),
                 paidAt,
-                proofUrl,
+                proofUrl: null,
                 applicantNote: cleanText(input.applicantNote, 500),
+                ...(downgradeSelection ? { downgradeSelection: downgradeSelection as Prisma.InputJsonObject } : {}),
                 requestedByUserId: userId ?? null,
                 expiresAt: new Date(now.getTime() + 7 * DAY_MS),
+                proof: { create: { tenantId, ...proof } },
             },
-            include: { planVersion: { include: { plan: true } }, paymentMethod: true, assignment: true },
+            include: { planVersion: { include: { plan: true } }, paymentMethod: true, assignment: true, proof: { select: { id: true } } },
         });
         return serializeRequest(created);
     }
@@ -243,7 +373,7 @@ export class ManualPaymentService {
         const tenantId = TenantDataContext.requireTenantId();
         const requests = await tenantPrisma.manualPaymentRequest.findMany({
             where: { tenantId },
-            include: { planVersion: { include: { plan: true } }, paymentMethod: true, assignment: true },
+            include: { planVersion: { include: { plan: true } }, paymentMethod: true, assignment: true, proof: { select: { id: true } } },
             orderBy: { createdAt: "desc" },
         });
         return requests.map(serializeRequest);
@@ -261,11 +391,31 @@ export class ManualPaymentService {
                 planVersion: { include: { plan: true } },
                 paymentMethod: true,
                 assignment: true,
+                proof: { select: { id: true } },
             },
             orderBy: { createdAt: "desc" },
             take: 200,
         });
         return requests.map(serializeRequest);
+    }
+
+    static async openProof(id: string, actor: Actor) {
+        const proof = await platformPrisma.manualPaymentProof.findUnique({
+            where: { paymentRequestId: id },
+            include: { paymentRequest: { select: { code: true, tenantId: true } } },
+        });
+        if (!proof) throw CustomError.notFound("La solicitud no tiene una constancia privada");
+        const buffer = openPaymentProof(proof);
+        await PlatformAuditService.record({
+            actorPlatformAdminId: actor.platformAdminId,
+            action: "MANUAL_PAYMENT_PROOF_VIEWED",
+            entityType: "ManualPaymentRequest",
+            entityId: id,
+            reason: "Revisión de constancia privada",
+            correlationId: actor.correlationId,
+            after: { code: proof.paymentRequest.code, tenantId: proof.paymentRequest.tenantId, sha256: proof.sha256 },
+        });
+        return { buffer, filename: proof.filename, contentType: proof.contentType, sizeBytes: proof.sizeBytes };
     }
 
     static async approveRequest(
@@ -282,6 +432,7 @@ export class ManualPaymentService {
                 include: {
                     tenant: { include: { subscription: true } },
                     planVersion: { include: { plan: true } },
+                    proof: { select: { id: true } },
                 },
             });
             if (!request) throw CustomError.notFound("La solicitud no existe");
@@ -290,6 +441,7 @@ export class ManualPaymentService {
                 throw CustomError.conflict("La solicitud ya fue resuelta");
             }
             if (request.expiresAt <= new Date()) throw CustomError.conflict("La solicitud venció");
+            if (!request.proof) throw CustomError.conflict("La solicitud no tiene constancia de pago adjunta");
             const verifiedAmount = money(input.verifiedAmount, "verifiedAmount");
             if (!verifiedAmount || !verifiedAmount.equals(request.offeredPrice)) {
                 throw CustomError.badRequest("El monto verificado debe coincidir con el precio ofrecido");
@@ -307,21 +459,29 @@ export class ManualPaymentService {
             });
             if (duplicate) throw CustomError.conflict(`La referencia ya fue aprobada en ${duplicate.code}`);
 
-            const baseDate = request.tenant.subscription?.currentPeriodEndsAt
-                && request.tenant.subscription.currentPeriodEndsAt > new Date()
-                && request.tenant.planCode === request.planVersion.plan.code
-                ? request.tenant.subscription.currentPeriodEndsAt
-                : new Date();
-            const periodEndsAt = addMonthsClamped(baseDate, request.periodMonths);
-            const assignment = await PlanAssignmentService.apply(tx, request.tenantId, request.planVersionId, {
+            const now = new Date();
+            const preview = await this.downgradePreviewWith(tx, request.tenantId, request.planVersionId);
+            const paidUntil = request.tenant.subscription?.currentPeriodEndsAt;
+            const scheduleDowngrade = preview.isDowngrade && Boolean(paidUntil && paidUntil > now);
+            const effectiveAt = scheduleDowngrade ? paidUntil! : (
+                paidUntil && paidUntil > now && request.tenant.planCode === request.planVersion.plan.code ? paidUntil : now
+            );
+            const periodEndsAt = addMonthsClamped(effectiveAt, request.periodMonths);
+            if (!scheduleDowngrade) {
+                await this.applyDowngradeSelection(tx, request.tenantId, request.planVersionId, request.downgradeSelection);
+            }
+            const assignmentOptions = {
                 source: TenantPlanAssignmentSource.MANUAL_PAYMENT,
                 actorPlatformAdminId: actor.platformAdminId,
-                startsAt: new Date(),
+                startsAt: effectiveAt,
                 endsAt: periodEndsAt,
                 currentPeriodEndsAt: periodEndsAt,
                 price: request.offeredPrice,
                 reason: `Pago manual aprobado: ${request.code}`,
-            });
+            };
+            const assignment = scheduleDowngrade
+                ? await PlanAssignmentService.schedule(tx, request.tenantId, request.planVersionId, assignmentOptions)
+                : await PlanAssignmentService.apply(tx, request.tenantId, request.planVersionId, assignmentOptions);
             const updated = await tx.manualPaymentRequest.update({
                 where: { id: request.id },
                 data: {
@@ -352,6 +512,36 @@ export class ManualPaymentService {
             }, tx);
             return serializeRequest(updated);
         });
+    }
+
+    static async activateDueDowngrades(now = new Date()) {
+        const due = await platformPrisma.tenantPlanAssignment.findMany({
+            where: { status: "SCHEDULED", source: TenantPlanAssignmentSource.MANUAL_PAYMENT, startsAt: { lte: now } },
+            include: { manualPaymentRequest: true },
+            orderBy: { startsAt: "asc" },
+            take: 100,
+        });
+        let activated = 0;
+        for (const scheduled of due) {
+            await platformPrisma.$transaction(async (tx) => {
+                await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`scheduled-downgrade:${scheduled.tenantId}`}, 0))`);
+                const current = await tx.tenantPlanAssignment.findFirst({ where: { id: scheduled.id, status: "SCHEDULED", startsAt: { lte: now } } });
+                if (!current) return;
+                await this.applyDowngradeSelection(tx, current.tenantId, current.planVersionId, scheduled.manualPaymentRequest?.downgradeSelection);
+                await PlanAssignmentService.apply(tx, current.tenantId, current.planVersionId, {
+                    source: current.source,
+                    actorPlatformAdminId: current.createdByPlatformAdminId,
+                    startsAt: current.startsAt,
+                    endsAt: current.endsAt,
+                    currentPeriodEndsAt: current.endsAt,
+                    price: current.price,
+                    reason: current.reason || "Downgrade programado aplicado",
+                    existingAssignmentId: current.id,
+                });
+                activated += 1;
+            });
+        }
+        return { activated };
     }
 
     static async rejectRequest(id: string, reasonValue: unknown, actor: Actor) {

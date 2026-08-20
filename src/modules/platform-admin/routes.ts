@@ -30,6 +30,12 @@ export function registerPlatformAdminRoutes(router: Router): void {
         AuthMiddleware.requirePermission("subscription.request"),
         payments.createTenantRequest,
     );
+    router.get(
+        "/api/tenant/subscription/downgrade-preview/:planVersionId",
+        AuthMiddleware.validateJWT,
+        AuthMiddleware.requirePermission("subscription.view"),
+        payments.previewDowngrade,
+    );
 
     const platform = Router();
     platform.use(AuthMiddleware.validatePlatformJWT);
@@ -46,7 +52,9 @@ export function registerPlatformAdminRoutes(router: Router): void {
     platform.post("/image-providers", AuthMiddleware.requirePlatformPermission("platform.providers.manage"), imageProviders.create);
     platform.patch("/image-providers/:id", AuthMiddleware.requirePlatformPermission("platform.providers.manage"), imageProviders.update);
     platform.post("/image-providers/:id/test", AuthMiddleware.requirePlatformPermission("platform.providers.manage"), imageProviders.test);
+    platform.post("/image-providers/:id/sync-usage", AuthMiddleware.requirePlatformPermission("platform.providers.manage"), imageProviders.syncUsage);
     platform.post("/image-providers/:id/activate", AuthMiddleware.requirePlatformPermission("platform.providers.switch"), AuthMiddleware.requireRecentPlatformMfa, imageProviders.activate);
+    platform.post("/image-providers/reconcile", AuthMiddleware.requirePlatformPermission("platform.providers.manage"), AuthMiddleware.requireRecentPlatformMfa, imageProviders.reconcile);
     platform.get("/plans", AuthMiddleware.requirePlatformPermission("platform.plans.view"), controller.listPlatform);
     platform.patch("/plans/:code", AuthMiddleware.requirePlatformPermission("platform.plans.manage"), controller.updatePlan);
     platform.post("/plans/:code/versions", AuthMiddleware.requirePlatformPermission("platform.plans.manage"), controller.createDraft);
@@ -59,6 +67,7 @@ export function registerPlatformAdminRoutes(router: Router): void {
     platform.post("/payment-methods", AuthMiddleware.requirePlatformPermission("platform.payments.manage"), payments.createMethod);
     platform.patch("/payment-methods/:id", AuthMiddleware.requirePlatformPermission("platform.payments.manage"), payments.updateMethod);
     platform.get("/payment-requests", AuthMiddleware.requirePlatformPermission("platform.payments.view"), payments.listPlatformRequests);
+    platform.get("/payment-requests/:id/proof", AuthMiddleware.requirePlatformPermission("platform.payments.view"), payments.openProof);
     platform.post("/payment-requests/:id/approve", AuthMiddleware.requirePlatformPermission("platform.payments.approve"), AuthMiddleware.requireRecentPlatformMfa, payments.approve);
     platform.post("/payment-requests/:id/reject", AuthMiddleware.requirePlatformPermission("platform.payments.approve"), AuthMiddleware.requireRecentPlatformMfa, payments.reject);
 

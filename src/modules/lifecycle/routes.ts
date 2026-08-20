@@ -23,6 +23,12 @@ export function registerTenantLifecycleRoutes(router: Router): void {
         AuthMiddleware.requireTenantContext,
         lifecycle.updateLegalProfile,
     );
+    router.post(
+        "/api/tenant/alerts/:alertId/dismiss",
+        AuthMiddleware.validateJWT,
+        AuthMiddleware.requireTenantContext,
+        lifecycle.dismissAlert,
+    );
     router.put(
         "/api/tenant/primary-store",
         AuthMiddleware.validateJWT,
@@ -33,22 +39,29 @@ export function registerTenantLifecycleRoutes(router: Router): void {
         "/api/tenant/export",
         AuthMiddleware.validateJWT,
         AuthMiddleware.requireTenantContext,
+        AuthMiddleware.requireTenantOwner,
         AuthMiddleware.requirePermission("tenant.data.export"),
         lifecycle.exportData,
     );
     router.post(
         "/api/platform/tenants/lifecycle/expire",
         AuthMiddleware.validatePlatformJWT,
+        AuthMiddleware.requirePlatformPermission("platform.tenants.manage"),
+        AuthMiddleware.requireRecentPlatformMfa,
         lifecycle.expireTrials,
     );
     router.post(
         "/api/platform/tenants/lifecycle/purge",
         AuthMiddleware.validatePlatformJWT,
+        AuthMiddleware.requirePlatformPermission("platform.tenants.manage"),
+        AuthMiddleware.requireRecentPlatformMfa,
         lifecycle.purgeTrials,
     );
     router.post(
         "/api/platform/tenants/:tenantId/approve-production",
         AuthMiddleware.validatePlatformJWT,
+        AuthMiddleware.requirePlatformPermission("platform.tenants.manage"),
+        AuthMiddleware.requireRecentPlatformMfa,
         lifecycle.approveProduction,
     );
     router.post("/api/public/billing/webhook/:provider", billing.process);

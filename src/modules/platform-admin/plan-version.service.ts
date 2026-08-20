@@ -113,6 +113,9 @@ export class PlanVersionService {
                 );
             }
         }
+        if (Number(data.maxImagesPerVariant ?? 0) > 1) {
+            throw CustomError.badRequest("Cada variante admite como máximo una imagen");
+        }
         if (input.maxStorageBytes !== undefined) {
             const storage = BigInt(input.maxStorageBytes);
             if (storage < 1n) throw CustomError.badRequest("maxStorageBytes no es válido");

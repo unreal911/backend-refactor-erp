@@ -8,7 +8,46 @@ import {
     TenantMembershipStatus,
 } from '@prisma/client';
 
+export type TenantUserMutationActor = {
+    userId: number;
+    role: TenantMembershipRole;
+};
+
 export class UserService {
+    private static readonly membershipRoleRank: Record<TenantMembershipRole, number> = {
+        [TenantMembershipRole.OWNER]: 50,
+        [TenantMembershipRole.ADMIN]: 40,
+        [TenantMembershipRole.MANAGER]: 30,
+        [TenantMembershipRole.SELLER]: 20,
+        [TenantMembershipRole.WAREHOUSE]: 20,
+        [TenantMembershipRole.PICKER]: 20,
+        [TenantMembershipRole.VIEWER]: 10,
+    };
+
+    private static assertTenantMembershipMutationAllowed(input: {
+        actor: TenantUserMutationActor | undefined;
+        targetUserId: number;
+        targetRole: TenantMembershipRole;
+        nextRole?: TenantMembershipRole;
+    }): void {
+        const { actor, targetUserId, targetRole, nextRole } = input;
+        if (!actor) throw new Error('Contexto del actor requerido para administrar usuarios');
+        if (targetRole === TenantMembershipRole.OWNER) {
+            throw new Error('La membresía OWNER no se modifica desde la administración de usuarios');
+        }
+        if (actor.userId === targetUserId) {
+            throw new Error('No puedes cambiar tu propio rol o estado');
+        }
+        const actorRank = this.membershipRoleRank[actor.role];
+        const targetRank = this.membershipRoleRank[targetRole];
+        if (actorRank <= targetRank) {
+            throw new Error('No puedes modificar una membresía de igual o mayor nivel');
+        }
+        if (nextRole && actorRank <= this.membershipRoleRank[nextRole]) {
+            throw new Error('No puedes asignar un rol igual o superior al tuyo');
+        }
+    }
+
     private static database(tenantId?: string): PrismaClient {
         return tenantId ? tenantPrisma : platformPrisma;
     }
@@ -288,7 +327,12 @@ export class UserService {
         return userWithoutPassword;
     }
 
-    static async update(id: number, updateUserDto: UpdateUserDto, tenantId?: string) {
+    static async update(
+        id: number,
+        updateUserDto: UpdateUserDto,
+        tenantId?: string,
+        actor?: TenantUserMutationActor,
+    ) {
         const prisma = this.database(tenantId);
         const updateData: {
             firstName?: string;
@@ -320,6 +364,15 @@ export class UserService {
             });
             if (!membership) {
                 throw new Error('Usuario no encontrado en esta empresa');
+            }
+
+            if (tenantRole !== undefined || updateUserDto.isActive !== undefined) {
+                this.assertTenantMembershipMutationAllowed({
+                    actor,
+                    targetUserId: id,
+                    targetRole: membership.role,
+                    ...(tenantRole !== undefined ? { nextRole: tenantRole } : {}),
+                });
             }
 
             await prisma.$transaction(async (tx) => {
@@ -363,7 +416,7 @@ export class UserService {
         return userWithoutPassword;
     }
 
-    static async delete(id: number, tenantId?: string) {
+    static async delete(id: number, tenantId?: string, actor?: TenantUserMutationActor) {
         const prisma = this.database(tenantId);
         if (tenantId) {
             const membership = await prisma.tenantMembership.findUnique({
@@ -372,6 +425,11 @@ export class UserService {
             if (!membership) {
                 throw new Error('Usuario no encontrado en esta empresa');
             }
+            this.assertTenantMembershipMutationAllowed({
+                actor,
+                targetUserId: id,
+                targetRole: membership.role,
+            });
             await prisma.tenantMembership.update({
                 where: { id: membership.id },
                 data: {

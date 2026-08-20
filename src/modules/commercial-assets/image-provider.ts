@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import sharp from "sharp";
 import { ImageProviderProfile, ImageProviderType, Prisma } from "@prisma/client";
 import { cloudinary } from "../../config/cloudinary";
 
@@ -37,12 +38,6 @@ function safeKey(value: string): string {
         .slice(0, 180) || `image-${randomUUID()}`;
 }
 
-function extension(contentType: string): string {
-    if (contentType === "image/png") return "png";
-    if (contentType === "image/webp") return "webp";
-    return "jpg";
-}
-
 export class CloudinaryImageAdapter implements ImageProviderAdapter {
     private readonly config: ProviderConfig;
     constructor(profile: ImageProviderProfile) { this.config = profileConfig(profile); }
@@ -68,7 +63,9 @@ export class CloudinaryImageAdapter implements ImageProviderAdapter {
             provider: ImageProviderType.CLOUDINARY,
             externalId: result.public_id,
             url: result.secure_url,
-            bytes: Number(result.bytes || input.buffer.byteLength),
+            bytes: Number(result.bytes || input.buffer.byteLength) + (Array.isArray(result.eager)
+                ? result.eager.reduce((sum: number, item: any) => sum + Number(item.bytes || 0), 0)
+                : 0),
             width: Number(result.width) || null,
             height: Number(result.height) || null,
             variants: Array.isArray(result.eager) ? result.eager.map((item: any, index: number) => ({
@@ -113,23 +110,55 @@ export class S3ImageAdapter implements ImageProviderAdapter {
     }
 
     async upload(input: ImageUploadInput): Promise<StoredImage> {
-        const externalId = `${this.folder}/${safeKey(input.key)}-${randomUUID()}.${extension(input.contentType)}`;
-        await this.client.send(new PutObjectCommand({
-            Bucket: this.bucket,
-            Key: externalId,
-            Body: input.buffer,
-            ContentType: input.contentType,
-            CacheControl: "public,max-age=31536000,immutable",
-            Metadata: { sha256: createHash("sha256").update(input.buffer).digest("hex") },
+        const externalId = `${this.folder}/${safeKey(input.key)}-${randomUUID()}`;
+        const sizes = [
+            { name: "thumbnail", width: 320 },
+            { name: "catalog", width: 800 },
+            { name: "detail", width: 1600 },
+        ] as const;
+        const rendered = await Promise.all(sizes.map(async (size) => {
+            const buffer = await sharp(input.buffer)
+                .rotate()
+                .resize({ width: size.width, height: size.width, fit: "inside", withoutEnlargement: true })
+                .webp({ quality: size.name === "thumbnail" ? 72 : 82 })
+                .toBuffer();
+            const key = `${externalId}-${size.name}.webp`;
+            await this.client.send(new PutObjectCommand({
+                Bucket: this.bucket,
+                Key: key,
+                Body: buffer,
+                ContentType: "image/webp",
+                CacheControl: "public,max-age=31536000,immutable",
+                Metadata: { sha256: createHash("sha256").update(buffer).digest("hex") },
+            }));
+            const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+            const url = this.publicBaseUrl
+                ? `${this.publicBaseUrl}/${encodedKey}`
+                : `https://${this.bucket}.s3.${process.env.AWS_REGION || "us-east-1"}.amazonaws.com/${encodedKey}`;
+            return { name: size.name, url, bytes: buffer.byteLength };
         }));
-        const encodedKey = externalId.split("/").map(encodeURIComponent).join("/");
-        const url = this.publicBaseUrl
-            ? `${this.publicBaseUrl}/${encodedKey}`
-            : `https://${this.bucket}.s3.${process.env.AWS_REGION || "us-east-1"}.amazonaws.com/${encodedKey}`;
-        return { provider: ImageProviderType.S3, externalId, url, bytes: input.buffer.byteLength, width: null, height: null, variants: [] };
+        const detail = rendered.find((item) => item.name === "detail")!;
+        return {
+            provider: ImageProviderType.S3,
+            externalId,
+            url: detail.url,
+            bytes: rendered.reduce((sum, item) => sum + item.bytes, 0),
+            width: null,
+            height: null,
+            variants: rendered.map(({ name, url }) => ({ name, url })),
+        };
     }
 
     async head(externalId: string): Promise<ObjectInfo> {
+        if (!/\.[a-z0-9]+$/i.test(externalId)) {
+            const results = await Promise.all(["thumbnail", "catalog", "detail"].map(async (name) => {
+                try {
+                    return await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: `${externalId}-${name}.webp` }));
+                } catch { return null; }
+            }));
+            if (results.some((result) => !result)) return { exists: false };
+            return { exists: true, bytes: results.reduce((sum, result) => sum + Number(result?.ContentLength || 0), 0), contentType: "image/webp" };
+        }
         try {
             const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: externalId }));
             return { exists: true, bytes: Number(result.ContentLength || 0), ...(result.ContentType ? { contentType: result.ContentType } : {}) };
@@ -137,7 +166,10 @@ export class S3ImageAdapter implements ImageProviderAdapter {
     }
 
     async delete(externalId: string): Promise<void> {
-        await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: externalId }));
+        const keys = /\.[a-z0-9]+$/i.test(externalId)
+            ? [externalId]
+            : ["thumbnail", "catalog", "detail"].map((name) => `${externalId}-${name}.webp`);
+        await Promise.all(keys.map((key) => this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))));
     }
 }
 

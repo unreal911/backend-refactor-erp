@@ -66,7 +66,7 @@ export const PLAN_CATALOG: Readonly<Record<TenantPlanCode, PlanDefinition>> = {
         limits: {
             maxUsers: 2,
             maxProducts: 10,
-            maxVariantsPerProduct: 10,
+            maxVariantsPerProduct: 20,
             maxStores: 5,
             maxPosSalesPerMonth: 70,
             maxStorageBytes: 5n * GB,
@@ -140,7 +140,7 @@ export const PLAN_CATALOG: Readonly<Record<TenantPlanCode, PlanDefinition>> = {
             maxPosSalesPerMonth: 1_500,
             maxStorageBytes: 50n * GB,
             maxMainImagesPerProduct: 8,
-            maxImagesPerVariant: 3,
+            maxImagesPerVariant: 1,
         },
         features: features(
             "marketplace",

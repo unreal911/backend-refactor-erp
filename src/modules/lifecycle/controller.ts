@@ -4,6 +4,7 @@ import { AuthRequest } from "../../presentation/auth/middleware";
 import { BillingWebhookService } from "./billing-webhook.service";
 import { TenantExportService } from "./tenant-export.service";
 import { TenantLifecycleService } from "./tenant-lifecycle.service";
+import { CommercialAlertService } from "./commercial-alert.service";
 
 function handle(caught: unknown, res: Response): Response {
     if (caught instanceof CustomError) {
@@ -16,7 +17,19 @@ function handle(caught: unknown, res: Response): Response {
 export class TenantLifecycleController {
     current = async (_req: AuthRequest, res: Response) => {
         try {
-            return res.json(await TenantLifecycleService.getCurrent());
+            const [current, alerts] = await Promise.all([
+                TenantLifecycleService.getCurrent(),
+                CommercialAlertService.evaluateCurrent(),
+            ]);
+            return res.json({ ...current, alerts });
+        } catch (caught) {
+            return handle(caught, res);
+        }
+    };
+
+    dismissAlert = async (req: AuthRequest, res: Response) => {
+        try {
+            return res.json(await CommercialAlertService.dismiss(String(req.params.alertId || "")));
         } catch (caught) {
             return handle(caught, res);
         }

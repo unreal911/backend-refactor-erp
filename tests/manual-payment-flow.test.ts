@@ -13,6 +13,11 @@ const actor = {
     correlationId: "test-manual-payment",
 };
 
+const proofFile = {
+    filename: "comprobante.png",
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+};
+
 beforeAll(async () => {
     const starter = await platformPrisma.planVersion.findFirstOrThrow({
         where: { status: "ACTIVE", plan: { code: "STARTER" } },
@@ -70,6 +75,7 @@ describe("pagos manuales", () => {
             amountReported: "70.00",
             operationReference: `OP-${suffix}`,
             paidAt: new Date().toISOString(),
+            proofFile,
         };
         const first = await runTenantDatabaseTransaction(tenantId, () => (
             ManualPaymentService.createRequest(input, null)
@@ -105,5 +111,35 @@ describe("pagos manuales", () => {
         }, actor);
         expect(again.status).toBe("APPROVED");
         expect(await platformPrisma.tenantPlanAssignment.count({ where: { tenantId } })).toBe(1);
+    });
+
+    it("programa el downgrade al final del periodo pagado y lo aplica atómicamente", async () => {
+        const starter = await platformPrisma.planVersion.findFirstOrThrow({
+            where: { status: "ACTIVE", plan: { code: "STARTER" } },
+            orderBy: { version: "desc" },
+        });
+        const request = await runTenantDatabaseTransaction(tenantId, () => (
+            ManualPaymentService.createRequest({
+                clientRequestId: `downgrade-${suffix}`,
+                planVersionId: starter.id,
+                paymentMethodId: methodId,
+                billingCycle: "MONTHLY",
+                amountReported: "30.00",
+                operationReference: `DOWN-${suffix}`,
+                paidAt: new Date().toISOString(),
+                proofFile,
+            }, null)
+        ));
+        const approved = await ManualPaymentService.approveRequest(request.id, {
+            verifiedAmount: "30.00",
+            operationReference: `DOWN-${suffix}`,
+            internalNote: "Downgrade solicitado por el propietario",
+        }, actor);
+        expect(approved.assignment.status).toBe("SCHEDULED");
+        expect((await platformPrisma.tenant.findUniqueOrThrow({ where: { id: tenantId } })).planCode).toBe("GROWTH");
+
+        const startsAt = new Date(approved.assignment.startsAt);
+        expect((await ManualPaymentService.activateDueDowngrades(new Date(startsAt.getTime() + 1))).activated).toBe(1);
+        expect((await platformPrisma.tenant.findUniqueOrThrow({ where: { id: tenantId } })).planCode).toBe("STARTER");
     });
 });

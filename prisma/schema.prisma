@@ -325,6 +325,12 @@ enum CommercialAssetStatus {
   DELETED
 }
 
+enum AdminEventOutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+}
+
 enum PlatformMfaStatus {
   DISABLED
   PENDING
@@ -375,6 +381,7 @@ enum SignupAbuseReason {
   EMAIL_RATE_LIMIT
   DEVICE_RATE_LIMIT
   ACTIVE_TRIAL_LIMIT
+  RUC_TRIAL_LIMIT
 }
 
 enum SignupAbuseReviewStatus {
@@ -489,6 +496,27 @@ model Tenant {
   planAssignments       TenantPlanAssignment[]
   manualPaymentRequests ManualPaymentRequest[]
   commercialAssets      CommercialAsset[]
+  commercialAlerts      CommercialAlert[]
+  adminEventOutbox      AdminEventOutbox[]
+}
+
+model AdminEventOutbox {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sequence BigInt @unique @default(autoincrement())
+  eventType String @db.VarChar(80)
+  payload Json
+  status AdminEventOutboxStatus @default(PENDING)
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, availableAt, createdAt])
+  @@index([tenantId, sequence])
 }
 
 model Customer {
@@ -675,6 +703,7 @@ model ManualPaymentRequest {
   paymentMethod   ManualPaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
   assignmentId    String?               @unique @db.Uuid
   assignment      TenantPlanAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  proof           ManualPaymentProof?
 
   status                    ManualPaymentRequestStatus @default(PENDING_REVIEW)
   billingCycle              BillingCycle               @default(MONTHLY)
@@ -686,6 +715,7 @@ model ManualPaymentRequest {
   paidAt                    DateTime?
   proofUrl                  String?
   applicantNote             String?
+  downgradeSelection        Json?
   internalNote              String?
   requestedByUserId         Int?
   reviewedByPlatformAdminId String?                    @db.Uuid
@@ -702,6 +732,25 @@ model ManualPaymentRequest {
   @@index([operationReference])
 }
 
+model ManualPaymentProof {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId        String @db.Uuid
+  paymentRequestId String @unique @db.Uuid
+  paymentRequest  ManualPaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+
+  filename    String @db.VarChar(180)
+  contentType String @db.VarChar(80)
+  sizeBytes   Int
+  sha256      String @db.Char(64)
+  ciphertext Bytes
+  iv         Bytes
+  authTag    Bytes
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
 model ImageProviderProfile {
   id String @id @default(uuid()) @db.Uuid
 
@@ -715,8 +764,13 @@ model ImageProviderProfile {
   isActive          Boolean @default(false)
   pauseNewUploads   Boolean @default(false)
   maxUploadBytes    BigInt  @default(10485760)
+  capacityBytes     BigInt?
   warningPercent    Int     @default(80)
   monthlyBudgetUsd  Decimal? @db.Decimal(10, 2)
+
+  providerUsage          Json?
+  providerUsageCheckedAt DateTime?
+  providerUsageError     String?
 
   healthStatus            ImageProviderHealthStatus @default(UNKNOWN)
   lastHealthMessage       String?
@@ -762,6 +816,30 @@ model CommercialAsset {
   @@index([tenantId, status, createdAt])
   @@index([tenantId, ownerType, ownerId, status])
   @@index([url])
+}
+
+model CommercialAlert {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  key       String
+  type      String
+  severity  String
+  title     String
+  message   String
+  percent   Int?
+  metadata  Json?
+  isActive  Boolean @default(true)
+  firstTriggeredAt DateTime @default(now())
+  lastTriggeredAt  DateTime @default(now())
+  resolvedAt DateTime?
+  dismissedAt DateTime?
+
+  @@unique([tenantId, key])
+  @@unique([id, tenantId])
+  @@index([tenantId, isActive, lastTriggeredAt])
 }
 
 model BillingWebhookEvent {
@@ -905,6 +983,7 @@ model SignupAbuseEvent {
   emailFingerprint  String            @db.Char(64)
   ipFingerprint     String            @db.Char(64)
   deviceFingerprint String            @db.Char(64)
+  rucFingerprint    String?           @db.Char(64)
   captchaVerified   Boolean           @default(false)
   bucketStartedAt   DateTime
   firstOccurredAt   DateTime          @default(now())
@@ -925,6 +1004,24 @@ model SignupAbuseEvent {
   @@unique([reason, aggregationKey, bucketStartedAt])
   @@index([reviewStatus, lastOccurredAt])
   @@index([emailFingerprint, deviceFingerprint, overrideUntil])
+}
+
+model TrialBenefitClaim {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId         String  @unique @db.Uuid
+  emailFingerprint String? @db.Char(64)
+  ipFingerprint    String? @db.Char(64)
+  deviceFingerprint String? @db.Char(64)
+  rucFingerprint   String? @unique @db.Char(64)
+
+  claimedAt     DateTime  @default(now())
+  rucConfirmedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([emailFingerprint])
+  @@index([deviceFingerprint])
 }
 
 model TenantMigrationCheckpoint {

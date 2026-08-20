@@ -18,6 +18,7 @@ type AssignmentOptions = {
     price?: Prisma.Decimal | number | string | null;
     reason: string;
     currentPeriodEndsAt?: Date | null;
+    existingAssignmentId?: string;
 };
 
 export class PlanAssignmentService {
@@ -45,7 +46,7 @@ export class PlanAssignmentService {
             }),
         ]);
         if (!tenant) throw CustomError.notFound("La empresa no existe");
-        if (!version || version.status !== "ACTIVE") {
+        if (!version || (version.status !== "ACTIVE" && !options.existingAssignmentId)) {
             throw CustomError.badRequest("La versión del plan no está activa");
         }
         if (version.plan.code === TenantPlanCode.TRIAL && options.source !== TenantPlanAssignmentSource.TRIAL) {
@@ -58,12 +59,11 @@ export class PlanAssignmentService {
             && !tenant.welcomeStorePromotionStartedAt;
 
         await tx.tenantPlanAssignment.updateMany({
-            where: { tenantId, status: "ACTIVE" },
+            where: { tenantId, status: "ACTIVE", ...(options.existingAssignmentId ? { id: { not: options.existingAssignmentId } } : {}) },
             data: { status: "ENDED", endsAt: now },
         });
 
-        const assignment = await tx.tenantPlanAssignment.create({
-            data: {
+        const assignmentData = {
                 tenantId,
                 planVersionId: version.id,
                 status: "ACTIVE",
@@ -78,8 +78,13 @@ export class PlanAssignmentService {
                 endsAt: options.endsAt ?? null,
                 reason: options.reason,
                 createdByPlatformAdminId: options.actorPlatformAdminId ?? null,
-            },
-        });
+        } as const;
+        const assignment = options.existingAssignmentId
+            ? await tx.tenantPlanAssignment.update({
+                where: { id: options.existingAssignmentId },
+                data: { status: "ACTIVE", startsAt: now, endsAt: options.endsAt ?? null, reason: options.reason },
+            })
+            : await tx.tenantPlanAssignment.create({ data: assignmentData });
 
         await tx.tenant.update({
             where: { id: tenantId },
@@ -146,5 +151,33 @@ export class PlanAssignmentService {
             },
         });
         return assignment;
+    }
+
+    static async schedule(
+        tx: Prisma.TransactionClient,
+        tenantId: string,
+        planVersionId: string,
+        options: AssignmentOptions & { startsAt: Date },
+    ) {
+        const version = await tx.planVersion.findUnique({ where: { id: planVersionId } });
+        if (!version || version.status !== "ACTIVE") throw CustomError.badRequest("La versión del plan no está activa");
+        await tx.tenantPlanAssignment.updateMany({
+            where: { tenantId, status: "SCHEDULED" },
+            data: { status: "CANCELLED" },
+        });
+        return tx.tenantPlanAssignment.create({
+            data: {
+                tenantId,
+                planVersionId,
+                status: "SCHEDULED",
+                source: options.source,
+                price: options.price === undefined ? version.monthlyPrice : options.price === null ? null : new Prisma.Decimal(String(options.price)),
+                currency: version.currency,
+                startsAt: options.startsAt,
+                endsAt: options.endsAt ?? null,
+                reason: options.reason,
+                createdByPlatformAdminId: options.actorPlatformAdminId ?? null,
+            },
+        });
     }
 }

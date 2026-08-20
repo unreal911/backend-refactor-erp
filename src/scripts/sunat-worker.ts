@@ -1,3 +1,4 @@
+import "../instrumentation/sentry-worker";
 import { randomUUID } from "node:crypto";
 import { SunatJobType } from "@prisma/client";
 import { platformPrisma } from "../data/platform-prisma";
@@ -9,6 +10,7 @@ import { ComprobanteService } from "../modules/sunat/services/comprobante.servic
 import { SunatPdfService } from "../modules/sunat/services/sunat-pdf.service";
 import { getSunatArtifactServiceFromEnvironment } from "../modules/sunat/services/sunat-artifact.service";
 import { operationalLog } from "../presentation/observability/operational-logger";
+import { captureOperationalException, flushSentry } from "../presentation/observability/sentry";
 
 type WorkerPayload = {
     tenantId: string;
@@ -155,6 +157,17 @@ async function runOne(): Promise<boolean> {
                 "SUNAT_TICKET_PENDING",
             );
         } else {
+            captureOperationalException(caught, {
+                operation: "worker.job",
+                tenantId: job.tenantId,
+                correlationId: job.correlationId,
+                tags: { job_type: job.type },
+                context: {
+                    jobId: job.id,
+                    idempotencyKey: job.idempotencyKey,
+                    attempt: job.attempts,
+                },
+            });
             await queue.fail(job.id, workerId, caught);
         }
     }
@@ -178,6 +191,10 @@ void main()
         operationalLog("error", "worker.crashed", {
             error: caught instanceof Error ? caught.message : "worker error",
         });
+        captureOperationalException(caught, { operation: "worker.main", level: "fatal" });
         process.exitCode = 1;
     })
-    .finally(() => platformPrisma.$disconnect());
+    .finally(async () => {
+        await flushSentry();
+        await platformPrisma.$disconnect();
+    });

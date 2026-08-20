@@ -72,12 +72,34 @@ export class ManualPaymentController {
         }
     };
 
+    previewDowngrade = async (req: AuthRequest, res: Response) => {
+        try {
+            return res.json(await ManualPaymentService.previewDowngrade(value(req, "planVersionId")));
+        } catch (caught) {
+            return errorResponse(caught, res);
+        }
+    };
+
     listPlatformRequests = async (req: AuthRequest, res: Response) => {
         try {
             const status = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status;
             return res.json(await ManualPaymentService.listPlatformRequests(
                 typeof status === "string" ? status : undefined,
             ));
+        } catch (caught) {
+            return errorResponse(caught, res);
+        }
+    };
+
+    openProof = async (req: AuthRequest, res: Response) => {
+        try {
+            const proof = await ManualPaymentService.openProof(value(req, "id"), platformActor(req));
+            const filename = proof.filename.replace(/["\\\r\n]/g, "-");
+            res.setHeader("Cache-Control", "private, no-store");
+            res.setHeader("Content-Type", proof.contentType);
+            res.setHeader("Content-Length", String(proof.sizeBytes));
+            res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+            return res.send(proof.buffer);
         } catch (caught) {
             return errorResponse(caught, res);
         }

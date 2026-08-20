@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import {
     Prisma,
     TenantKind,
@@ -14,6 +15,8 @@ import { TenantDataContext } from "../tenant/tenant-data-context";
 import { TenantPurgeService } from "./tenant-purge.service";
 import { getPlanDefinition, planLimitsAsTenantFields } from "../plans/plan-catalog";
 import { PlanAccessService } from "../plans/plan-access.service";
+import { envs } from "../../config/envs";
+import { recordTrialRucConflict } from "../registration/owner-signup-abuse.service";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_GRACE_DAYS = 90;
@@ -195,6 +198,9 @@ export class TenantQuotaService {
 
     static async assertVariantImagesAllowed(requested: number): Promise<void> {
         if (requested <= 0) return;
+        if (!Number.isInteger(requested)) {
+            throw CustomError.badRequest("La cantidad de imagenes de variante no es valida");
+        }
         const tenantId = TenantDataContext.requireTenantId();
         await this.lock("variant-images");
         const tenant = await tenantPrisma.tenant.findUniqueOrThrow({
@@ -617,7 +623,7 @@ export class TenantLifecycleService {
 
         const current = await tenantPrisma.tenant.findUniqueOrThrow({
             where: { id: tenantId },
-            select: { ruc: true, rucConfirmedAt: true },
+            select: { ruc: true, rucConfirmedAt: true, trialStartedAt: true },
         });
         if (current.rucConfirmedAt && current.ruc !== ruc) {
             throw new CustomError(
@@ -626,6 +632,36 @@ export class TenantLifecycleService {
             );
         }
         const rucConfirmedAt = current.rucConfirmedAt ?? (input.confirmRuc ? now : null);
+
+        if (!current.rucConfirmedAt && rucConfirmedAt && current.trialStartedAt) {
+            const pepper = envs.OWNER_SIGNUP_ABUSE_PEPPER.trim();
+            if (pepper.length < 32) {
+                throw CustomError.internal("La verificación de beneficios no está configurada");
+            }
+            const rucFingerprint = createHmac("sha256", pepper)
+                .update(`ruc:${ruc}`, "utf8")
+                .digest("hex");
+            const previousClaim = await platformPrisma.trialBenefitClaim.findFirst({
+                where: { rucFingerprint, tenantId: { not: tenantId } },
+                select: { tenantId: true },
+            });
+            if (previousClaim) {
+                const referenceId = await recordTrialRucConflict(tenantId, rucFingerprint, now);
+                throw new CustomError(`Este RUC ya utilizó el beneficio de prueba. Referencia de revisión: ${referenceId}`, 409);
+            }
+            try {
+                await tenantPrisma.trialBenefitClaim.upsert({
+                    where: { tenantId },
+                    create: { tenantId, rucFingerprint, rucConfirmedAt: now, claimedAt: now },
+                    update: { rucFingerprint, rucConfirmedAt: now },
+                });
+            } catch (error) {
+                if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+                    throw new CustomError("Este RUC ya utilizó el beneficio de prueba; solicita revisión a soporte", 409);
+                }
+                throw error;
+            }
+        }
 
         try {
             const tenant = await tenantPrisma.tenant.update({

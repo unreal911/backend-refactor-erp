@@ -22,10 +22,10 @@ export function registerSunatModuleRoutes(router: Router): void {
     const requireView = AuthMiddleware.requirePermission("sunat.documents.view");
     const requireIssue = AuthMiddleware.requirePermission("sunat.documents.issue");
     const requireCancel = AuthMiddleware.requirePermission("sunat.documents.cancel");
-    sunat.get("/config", requireConfig, configController.obtener);
-    sunat.put("/config", requireConfig, configController.actualizar);
-    sunat.post("/config/certificado", requireConfig, configController.subirCertificado);
-    sunat.post("/config/probar", requireConfig, configController.probar);
+    sunat.get("/config", AuthMiddleware.requireTenantOwner, requireConfig, configController.obtener);
+    sunat.put("/config", AuthMiddleware.requireTenantOwner, requireConfig, configController.actualizar);
+    sunat.post("/config/certificado", AuthMiddleware.requireTenantOwner, requireConfig, configController.subirCertificado);
+    sunat.post("/config/probar", AuthMiddleware.requireTenantOwner, requireConfig, configController.probar);
 
     // Emision desde una orden (proforma)
     sunat.post("/orders/:orderId/factura", requireIssue, controller.emitirFactura);
