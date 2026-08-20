@@ -93,4 +93,28 @@ describe('resolucion publica por marketplaceSlug', () => {
     expect(res.json).toHaveBeenCalledWith({ message: 'Empresa no disponible' });
     expect(mocks.runTenantDatabaseTransaction).not.toHaveBeenCalled();
   });
+
+  it('permite publicar la tienda de un trial vigente', async () => {
+    mocks.tenantFindMany.mockResolvedValueOnce([{
+      id: '10000000-0000-4000-8000-000000000002',
+      slug: 'trial-publico',
+      marketplaceSlug: 'trial-publico',
+    }]);
+
+    await PublicTenantMiddleware.resolve(request('trial-publico'), response() as never, vi.fn());
+
+    expect(mocks.tenantFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: expect.arrayContaining([
+          expect.objectContaining({
+            status: { in: expect.arrayContaining(['TRIAL']) },
+            planCode: { in: expect.arrayContaining(['TRIAL']) },
+            OR: expect.arrayContaining([
+              { trialEndsAt: { gt: expect.any(Date) } },
+            ]),
+          }),
+        ]),
+      }),
+    }));
+  });
 });

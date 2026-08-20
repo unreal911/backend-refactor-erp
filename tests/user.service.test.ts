@@ -1,7 +1,8 @@
+import { TenantMembershipRole } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/data/prisma', () => {
-  const client = {
+  const client: Record<string, any> = {
     user: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -10,7 +11,12 @@ vi.mock('../src/data/prisma', () => {
     role: {
       findUnique: vi.fn(),
     },
+    tenantMembership: {
+      findUnique: vi.fn(),
+      update: vi.fn(),
+    },
   };
+  client.$transaction = vi.fn(async (callback: (tx: typeof client) => unknown) => callback(client));
   return { prisma: client, platformPrisma: client };
 });
 
@@ -128,5 +134,60 @@ describe('UserService', () => {
       data: { password: 'next-hash' },
     });
     expect(result).toEqual({ message: 'Contrasena actualizada exitosamente' });
+  });
+
+  it('impide que MANAGER se promueva a ADMIN', async () => {
+    vi.mocked(prisma.role.findUnique).mockResolvedValueOnce({
+      id: 1,
+      name: 'ADMIN',
+      isActive: true,
+    } as never);
+    vi.mocked(prisma.tenantMembership.findUnique).mockResolvedValueOnce({
+      id: 'membership-manager',
+      userId: 15,
+      role: TenantMembershipRole.MANAGER,
+    } as never);
+
+    await expect(UserService.update(
+      15,
+      { roleId: 1 } as never,
+      '00000000-0000-4000-8000-000000000001',
+      { userId: 15, role: TenantMembershipRole.MANAGER },
+    )).rejects.toThrow('No puedes cambiar tu propio rol o estado');
+  });
+
+  it('impide que MANAGER promueva a otro usuario a ADMIN', async () => {
+    vi.mocked(prisma.role.findUnique).mockResolvedValueOnce({
+      id: 1,
+      name: 'ADMIN',
+      isActive: true,
+    } as never);
+    vi.mocked(prisma.tenantMembership.findUnique).mockResolvedValueOnce({
+      id: 'membership-seller',
+      userId: 22,
+      role: TenantMembershipRole.SELLER,
+    } as never);
+
+    await expect(UserService.update(
+      22,
+      { roleId: 1 } as never,
+      '00000000-0000-4000-8000-000000000001',
+      { userId: 15, role: TenantMembershipRole.MANAGER },
+    )).rejects.toThrow('No puedes asignar un rol igual o superior al tuyo');
+  });
+
+  it('impide modificar o desactivar la membresia OWNER', async () => {
+    vi.mocked(prisma.tenantMembership.findUnique).mockResolvedValueOnce({
+      id: 'membership-owner',
+      userId: 10,
+      role: TenantMembershipRole.OWNER,
+    } as never);
+
+    await expect(UserService.update(
+      10,
+      { isActive: false } as never,
+      '00000000-0000-4000-8000-000000000001',
+      { userId: 20, role: TenantMembershipRole.ADMIN },
+    )).rejects.toThrow('La membresía OWNER no se modifica');
   });
 });

@@ -33,11 +33,14 @@ export function registerOwnerRegistrationRoutes(
     router.get(
         "/api/platform/signup-abuse/events",
         AuthMiddleware.validatePlatformJWT,
+        AuthMiddleware.requirePlatformPermission("platform.tenants.view"),
         abuseController.list,
     );
     router.post(
         "/api/platform/signup-abuse/events/:id/review",
         AuthMiddleware.validatePlatformJWT,
+        AuthMiddleware.requirePlatformPermission("platform.tenants.manage"),
+        AuthMiddleware.requireRecentPlatformMfa,
         abuseController.review,
     );
 }

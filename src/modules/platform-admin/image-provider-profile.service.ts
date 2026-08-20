@@ -7,13 +7,71 @@ import {
     Prisma,
 } from "@prisma/client";
 import { platformPrisma } from "../../data/platform-prisma";
+import { cloudinary } from "../../config/cloudinary";
 import { CustomError } from "../../domain/errors/custom.error";
 import { imageAdapter } from "../commercial-assets/image-provider";
 import { PlatformAuditService } from "./platform-audit.service";
 
 type Actor = { platformAdminId: string; correlationId: string | null };
+type UsageActor = { platformAdminId?: string | null; correlationId: string | null };
 const HEALTH_MAX_AGE_MS = 15 * 60 * 1000;
 const TEST_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+
+type UsageMetric = { used: number | null; limit: number | null; percent: number | null };
+export type CloudinaryUsageSnapshot = {
+    source: "CLOUDINARY_ADMIN_API";
+    plan: string | null;
+    lastUpdated: string | null;
+    credits: UsageMetric;
+    storage: UsageMetric;
+    bandwidth: UsageMetric;
+    transformations: UsageMetric;
+    resources: number | null;
+    derivedResources: number | null;
+    adminApi: { limit: number | null; remaining: number | null; resetAt: string | null };
+};
+
+function finiteNumber(value: unknown): number | null {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function record(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+function metric(value: unknown): UsageMetric {
+    const source = record(value);
+    const used = finiteNumber(source.usage ?? source.used);
+    const limit = finiteNumber(source.limit ?? source.max);
+    const explicitPercent = finiteNumber(source.used_percent ?? source.percent);
+    const percent = explicitPercent ?? (used !== null && limit !== null && limit > 0
+        ? Math.round((used / limit) * 10000) / 100
+        : null);
+    return { used, limit, percent };
+}
+
+export function normalizeCloudinaryUsage(value: unknown): CloudinaryUsageSnapshot {
+    const source = record(value);
+    return {
+        source: "CLOUDINARY_ADMIN_API",
+        plan: source.plan ? String(source.plan).slice(0, 100) : null,
+        lastUpdated: source.last_updated ? String(source.last_updated).slice(0, 80) : null,
+        credits: metric(source.credits),
+        storage: metric(source.storage),
+        bandwidth: metric(source.bandwidth),
+        transformations: metric(source.transformations),
+        resources: finiteNumber(source.resources ?? record(source.objects).usage),
+        derivedResources: finiteNumber(source.derived_resources),
+        adminApi: {
+            limit: finiteNumber(source.rate_limit_allowed),
+            remaining: finiteNumber(source.rate_limit_remaining),
+            resetAt: source.rate_limit_reset_at ? String(source.rate_limit_reset_at).slice(0, 80) : null,
+        },
+    };
+}
 
 function text(value: unknown, max: number): string | null {
     const result = String(value || "").trim().replace(/\s+/g, " ");
@@ -67,9 +125,18 @@ function serializeProfile(profile: ImageProviderProfile, usage?: { bytes: bigint
         secretRef: profile.secretRef.startsWith("env:") ? "env:••••" : "aws-secrets-manager:••••",
         config: maskedConfig,
         maxUploadBytes: profile.maxUploadBytes.toString(),
+        capacityBytes: profile.capacityBytes?.toString() ?? null,
         monthlyBudgetUsd: profile.monthlyBudgetUsd?.toString() ?? null,
+        providerUsage: profile.providerUsage ?? null,
+        providerUsageCheckedAt: profile.providerUsageCheckedAt?.toISOString() ?? null,
+        providerUsageError: profile.providerUsageError ?? null,
         usageBytes: usage?.bytes.toString() ?? "0",
         activeAssets: usage?.assets ?? 0,
+        capacityPercent: profile.capacityBytes && profile.capacityBytes > 0n
+            ? Number(((usage?.bytes ?? 0n) * 10000n) / profile.capacityBytes) / 100
+            : null,
+        capacityWarning: Boolean(profile.capacityBytes && profile.capacityBytes > 0n
+            && ((usage?.bytes ?? 0n) * 100n) / profile.capacityBytes >= BigInt(profile.warningPercent)),
         credentialsConfigured: profile.type === ImageProviderType.CLOUDINARY
             ? Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
             : Boolean(config.bucket || process.env.PRODUCT_IMAGE_S3_BUCKET),
@@ -96,9 +163,11 @@ export class ImageProviderProfileService {
         if (maxUploadBytes < 1024n || maxUploadBytes > 20n * 1024n * 1024n) throw CustomError.badRequest("El máximo por imagen debe estar entre 1 KB y 20 MB");
         const warningPercent = Number(input.warningPercent ?? 80);
         if (!Number.isInteger(warningPercent) || warningPercent < 50 || warningPercent > 95) throw CustomError.badRequest("El umbral debe estar entre 50 % y 95 %");
+        const capacityBytes = input.capacityBytes ? BigInt(String(input.capacityBytes)) : null;
+        if (capacityBytes !== null && capacityBytes < 1024n * 1024n) throw CustomError.badRequest("La capacidad debe ser al menos 1 MB");
         const created = await platformPrisma.imageProviderProfile.create({ data: {
             type, name, environment, secretRef: secretRef(input.secretRef), config: safeConfig(type, input.config),
-            maxUploadBytes, warningPercent, monthlyBudgetUsd: input.monthlyBudgetUsd ? new Prisma.Decimal(String(input.monthlyBudgetUsd)) : null,
+            maxUploadBytes, capacityBytes, warningPercent, monthlyBudgetUsd: input.monthlyBudgetUsd ? new Prisma.Decimal(String(input.monthlyBudgetUsd)) : null,
             createdByPlatformAdminId: actor.platformAdminId, updatedByPlatformAdminId: actor.platformAdminId,
         } });
         await PlatformAuditService.record({ actorPlatformAdminId: actor.platformAdminId, action: "IMAGE_PROVIDER_PROFILE_CREATED", entityType: "ImageProviderProfile", entityId: created.id, correlationId: actor.correlationId, after: serializeProfile(created) });
@@ -112,6 +181,12 @@ export class ImageProviderProfileService {
         if (before.isActive && sensitiveChange) throw CustomError.conflict("Desactiva este perfil mediante el cambio controlado antes de modificar su conexión");
         const type = input.type ? String(input.type).toUpperCase() as ImageProviderType : before.type;
         const environment = input.environment ? String(input.environment).toUpperCase() as ImageProviderEnvironment : before.environment;
+        const nextWarningPercent = input.warningPercent !== undefined ? Number(input.warningPercent) : before.warningPercent;
+        if (!Number.isInteger(nextWarningPercent) || nextWarningPercent < 50 || nextWarningPercent > 95) throw CustomError.badRequest("El umbral debe estar entre 50 % y 95 %");
+        const nextCapacity = input.capacityBytes !== undefined && input.capacityBytes
+            ? BigInt(String(input.capacityBytes))
+            : null;
+        if (nextCapacity !== null && nextCapacity < 1024n * 1024n) throw CustomError.badRequest("La capacidad debe ser al menos 1 MB");
         const data: Prisma.ImageProviderProfileUpdateInput = {
             ...(input.name !== undefined ? { name: text(input.name, 100) || before.name } : {}),
             ...(input.type !== undefined ? { type } : {}),
@@ -120,7 +195,8 @@ export class ImageProviderProfileService {
             ...(input.config !== undefined ? { config: safeConfig(type, input.config) } : {}),
             ...(typeof input.isEnabled === "boolean" ? { isEnabled: input.isEnabled } : {}),
             ...(typeof input.pauseNewUploads === "boolean" ? { pauseNewUploads: input.pauseNewUploads } : {}),
-            ...(input.warningPercent !== undefined ? { warningPercent: Number(input.warningPercent) } : {}),
+            ...(input.warningPercent !== undefined ? { warningPercent: nextWarningPercent } : {}),
+            ...(input.capacityBytes !== undefined ? { capacityBytes: nextCapacity } : {}),
             ...(input.monthlyBudgetUsd !== undefined ? { monthlyBudgetUsd: input.monthlyBudgetUsd ? new Prisma.Decimal(String(input.monthlyBudgetUsd)) : null } : {}),
             updatedByPlatformAdminId: actor.platformAdminId,
         };
@@ -146,6 +222,83 @@ export class ImageProviderProfileService {
         const after = await platformPrisma.imageProviderProfile.update({ where: { id }, data: { healthStatus: status, lastHealthMessage: message, lastHealthCheckedAt: new Date() } });
         await PlatformAuditService.record({ actorPlatformAdminId: actor.platformAdminId, action: "IMAGE_PROVIDER_HEALTH_TESTED", entityType: "ImageProviderProfile", entityId: id, correlationId: actor.correlationId, after: { status, message } });
         return serializeProfile(after);
+    }
+
+    static async syncUsage(id: string, actor: UsageActor) {
+        const profile = await platformPrisma.imageProviderProfile.findUnique({ where: { id } });
+        if (!profile) throw CustomError.notFound("El perfil no existe");
+        if (profile.type !== ImageProviderType.CLOUDINARY) {
+            throw CustomError.badRequest("La sincronización de uso está disponible solo para Cloudinary");
+        }
+        if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+            throw CustomError.badRequest("Configura las credenciales de Cloudinary antes de consultar el uso");
+        }
+
+        const checkedAt = new Date();
+        try {
+            const snapshot = normalizeCloudinaryUsage(await cloudinary.api.usage());
+            const after = await platformPrisma.imageProviderProfile.update({
+                where: { id },
+                data: {
+                    providerUsage: snapshot as unknown as Prisma.InputJsonValue,
+                    providerUsageCheckedAt: checkedAt,
+                    providerUsageError: null,
+                },
+            });
+            await PlatformAuditService.record({
+                actorPlatformAdminId: actor.platformAdminId ?? null,
+                action: "CLOUDINARY_USAGE_SYNCED",
+                entityType: "ImageProviderProfile",
+                entityId: id,
+                correlationId: actor.correlationId,
+                after: snapshot as unknown as Prisma.InputJsonValue,
+            });
+            return serializeProfile(after);
+        } catch (caught) {
+            const httpCode = finiteNumber(record(caught).http_code);
+            const message = httpCode
+                ? `Cloudinary rechazó la consulta (HTTP ${httpCode})`
+                : "Cloudinary no respondió a la consulta de uso";
+            await platformPrisma.imageProviderProfile.update({
+                where: { id },
+                data: { providerUsageCheckedAt: checkedAt, providerUsageError: message },
+            }).catch(() => undefined);
+            await PlatformAuditService.record({
+                actorPlatformAdminId: actor.platformAdminId ?? null,
+                action: "CLOUDINARY_USAGE_SYNC_FAILED",
+                entityType: "ImageProviderProfile",
+                entityId: id,
+                correlationId: actor.correlationId,
+                after: { checkedAt: checkedAt.toISOString(), error: "Consulta rechazada por Cloudinary" },
+            }).catch(() => undefined);
+            throw CustomError.internal("No se pudo consultar el uso de Cloudinary");
+        }
+    }
+
+    static async syncDueCloudinaryUsage(now = new Date()) {
+        if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+            return { checked: 0, failed: 0, skipped: true };
+        }
+        const staleBefore = new Date(now.getTime() - 60 * 60 * 1000);
+        const profiles = await platformPrisma.imageProviderProfile.findMany({
+            where: {
+                type: ImageProviderType.CLOUDINARY,
+                isEnabled: true,
+                OR: [{ providerUsageCheckedAt: null }, { providerUsageCheckedAt: { lt: staleBefore } }],
+            },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+        let checked = 0; let failed = 0;
+        for (const profile of profiles) {
+            try {
+                await this.syncUsage(profile.id, { platformAdminId: null, correlationId: `cloudinary-usage:${now.toISOString()}` });
+                checked += 1;
+            } catch {
+                failed += 1;
+            }
+        }
+        return { checked, failed, skipped: false };
     }
 
     static async activate(id: string, input: Record<string, unknown>, actor: Actor) {

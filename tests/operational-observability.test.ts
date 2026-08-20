@@ -7,6 +7,7 @@ import {
     summarizeTrialUsage,
 } from "../src/modules/operations/operational-metrics";
 import { operationalLog } from "../src/presentation/observability/operational-logger";
+import { sanitizeSentryEvent } from "../src/presentation/observability/sentry";
 import { createExpressApp } from "../src/presentation/server";
 
 describe("observabilidad operativa", () => {
@@ -86,6 +87,31 @@ describe("observabilidad operativa", () => {
         expect(line).not.toContain("abc123");
         expect(line).not.toContain("<Invoice>");
         expect(line).not.toContain("MODDATOS");
+    });
+
+    it("elimina datos sensibles antes de enviar un error a Sentry", () => {
+        const event = sanitizeSentryEvent({
+            message: "falló token=abc123",
+            exception: { values: [{ value: "password=secreto" }] },
+            request: {
+                url: "https://api.example.com/venta?token=abc123",
+                headers: { authorization: "Bearer secreto", "user-agent": "vitest" },
+                cookies: { admin_session: "jwt" },
+                data: { password: "secreto", xml: "<Invoice />" },
+                query_string: "token=abc123",
+            },
+            user: { id: "user-1", email: "persona@example.com", ip_address: "127.0.0.1" },
+            extra: { solPassword: "MODDATOS", xml: "<Invoice />" },
+        });
+        const serialized = JSON.stringify(event);
+        expect(event.request?.url).toBe("https://api.example.com/venta");
+        expect(event.user).toEqual({ id: "user-1" });
+        expect(event.request?.headers?.["user-agent"]).toBe("vitest");
+        expect(serialized).not.toContain("abc123");
+        expect(serialized).not.toContain("secreto");
+        expect(serialized).not.toContain("MODDATOS");
+        expect(serialized).not.toContain("<Invoice");
+        expect(serialized).not.toContain("persona@example.com");
     });
 });
 

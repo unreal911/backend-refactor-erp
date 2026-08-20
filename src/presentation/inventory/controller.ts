@@ -60,8 +60,8 @@ export class InventoryController {
         });
     }
 
-    private publishInventoryEvent(actorUserId?: number | null, inventoryId?: number | null) {
-        AdminEventBus.publish({
+    private async publishInventoryEvent(actorUserId?: number | null, inventoryId?: number | null) {
+        await AdminEventBus.publish({
             type: 'INVENTORY_UPDATED',
             entity: 'INVENTORY',
             entityId: Number(inventoryId || 0) || null,
@@ -69,12 +69,12 @@ export class InventoryController {
         });
     }
 
-    private publishTransferEvent(
+    private async publishTransferEvent(
         type: 'TRANSFER_CREATED' | 'TRANSFER_UPDATED',
         transfer: any,
         actorUserId?: number | null,
     ) {
-        AdminEventBus.publish({
+        await AdminEventBus.publish({
             type,
             entity: 'TRANSFER',
             entityId: Number(transfer?.id || 0) || null,
@@ -192,7 +192,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, Number(result?.movement?.inventoryId || 0) || null);
+            await this.publishInventoryEvent(req.user?.id, Number(result?.movement?.inventoryId || 0) || null);
             return res.status(201).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -236,7 +236,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishTransferEvent('TRANSFER_CREATED', transfer, req.user?.id);
+            await this.publishTransferEvent('TRANSFER_CREATED', transfer, req.user?.id);
 
             return res.status(201).json(transfer);
         } catch (err) {
@@ -277,8 +277,8 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, Number(transfer?.id || 0) || null);
-            this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
+            await this.publishInventoryEvent(req.user?.id, Number(transfer?.id || 0) || null);
+            await this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -304,8 +304,8 @@ export class InventoryController {
                 products: [],
                 context: { transferId: id, fromStoreId: transfer?.fromStoreId ?? null },
             });
-            this.publishInventoryEvent(req.user?.id, id);
-            this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
+            await this.publishInventoryEvent(req.user?.id, id);
+            await this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(transfer);
         } catch (err) {
             return this.handleError(err, res);
@@ -350,11 +350,11 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(
+            await this.publishInventoryEvent(
                 req.user?.id,
                 Number(transfer?.id || 0) || null,
             );
-            this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
+            await this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(transfer);
         } catch (err) {
             return this.handleError(err, res);
@@ -392,7 +392,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, Number(dto.inventoryId) || null);
+            await this.publishInventoryEvent(req.user?.id, Number(dto.inventoryId) || null);
             return res.status(201).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -422,7 +422,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, null);
+            await this.publishInventoryEvent(req.user?.id, null);
             return res.status(200).json(result);
         } catch (error) {
             return this.handleError(error, res);

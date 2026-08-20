@@ -33,6 +33,17 @@ export interface AuthRequest extends Request {
     };
 }
 
+function isPlatformMfaEnrollmentRoute(req: Request): boolean {
+    const path = (String(req.originalUrl || req.path).split('?')[0] || '')
+        .replace(/^\/\.netlify\/functions\/api/, '');
+    return [
+        '/api/platform/security/mfa',
+        '/api/platform/security/mfa/enroll',
+        '/api/platform/security/mfa/confirm',
+        '/api/auth/platform/logout',
+    ].includes(path.replace(/\/$/, ''));
+}
+
 function isFiscalSafeMutation(req: Request): boolean {
     if (req.method !== 'POST') return false;
     const path = String(req.originalUrl || req.path).split('?')[0] || '';
@@ -209,6 +220,15 @@ export class AuthMiddleware {
                 return res.status(403).json({ message: 'Acceso de plataforma revocado' });
             }
 
+            const mfaEnrolled = platformAdmin.mfaStatus === 'ENABLED'
+                || platformAdmin.mfaStatus === 'LOCKED';
+            if (envs.PLATFORM_MFA_REQUIRED && !mfaEnrolled && !isPlatformMfaEnrollmentRoute(req)) {
+                return res.status(428).json({
+                    message: 'Debes configurar MFA antes de usar la plataforma',
+                    code: 'PLATFORM_MFA_ENROLLMENT_REQUIRED',
+                });
+            }
+
             req.user = {
                 id: decoded.id,
                 email: decoded.email,
@@ -254,6 +274,15 @@ export class AuthMiddleware {
     static requireTenantContext(req: AuthRequest, res: Response, next: NextFunction) {
         if (!req.user || !req.tenant) {
             return res.status(403).json({ message: 'Contexto de empresa requerido' });
+        }
+        return next();
+    }
+
+    static requireTenantOwner(req: AuthRequest, res: Response, next: NextFunction) {
+        if (!req.tenant || req.tenant.membership.role !== 'OWNER') {
+            return res.status(403).json({
+                message: 'Esta operación está reservada para el propietario de la empresa',
+            });
         }
         return next();
     }

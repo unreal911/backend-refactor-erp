@@ -26,6 +26,7 @@ export const envs = {
     JWT_SECRET,
     PLATFORM_MFA_REQUIRED: env.get("PLATFORM_MFA_REQUIRED").default(isProduction ? "true" : "false").asBool(),
     PLATFORM_MFA_ENC_KEY: env.get("PLATFORM_MFA_ENC_KEY").default("").asString(),
+    PAYMENT_PROOF_ENC_KEY: env.get("PAYMENT_PROOF_ENC_KEY").default("").asString(),
     PLATFORM_MFA_ISSUER: env.get("PLATFORM_MFA_ISSUER").default("Tienda ERP Plataforma").asString(),
     PUBLIC_PATH: env.get("PUBLIC_PATH").required().asString(),
 
@@ -75,6 +76,8 @@ export const envs = {
     // Allowlist de origenes para CORS (coma-separado). Vacio = permitir todos
     // (comportamiento actual); definirlo en produccion para restringir.
     CORS_ORIGINS: env.get("CORS_ORIGINS").default("").asString(),
+    REALTIME_REDIS_URL: env.get("REALTIME_REDIS_URL").default("").asString(),
+    API_INSTANCE_COUNT: env.get("API_INSTANCE_COUNT").default("1").asIntPositive(),
 
     // Seed controls
     SEED_ENDPOINT_ENABLED: env.get("SEED_ENDPOINT_ENABLED").default(isProduction ? "false" : "true").asBool(),

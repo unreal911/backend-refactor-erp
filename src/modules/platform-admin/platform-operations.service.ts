@@ -27,11 +27,19 @@ export class PlatformOperationsService {
             platformPrisma.platformAuditEvent.count({ where: { occurredAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } } }),
             platformPrisma.imageProviderProfile.findFirst({
                 where: { isActive: true },
-                select: { id: true, name: true, type: true, healthStatus: true, pauseNewUploads: true, lastHealthCheckedAt: true },
+                select: { id: true, name: true, type: true, healthStatus: true, pauseNewUploads: true, lastHealthCheckedAt: true, capacityBytes: true, warningPercent: true },
             }),
         ]);
         const tenantByStatus = Object.fromEntries(tenantGroups.map((row) => [row.status, row._count._all]));
         const tenantByPlan = Object.fromEntries(planGroups.map((row) => [row.planCode, row._count._all]));
+        const providerUsage = imageProvider ? await platformPrisma.commercialAsset.aggregate({
+            where: { providerProfileId: imageProvider.id, status: "ACTIVE" },
+            _sum: { sizeBytes: true },
+        }) : null;
+        const providerUsageBytes = providerUsage?._sum.sizeBytes ?? 0n;
+        const capacityPercent = imageProvider?.capacityBytes && imageProvider.capacityBytes > 0n
+            ? Number((providerUsageBytes * 10000n) / imageProvider.capacityBytes) / 100
+            : null;
         return {
             tenantsTotal: tenantGroups.reduce((sum, row) => sum + row._count._all, 0),
             tenantsActive: tenantByStatus.ACTIVE ?? 0,
@@ -41,7 +49,13 @@ export class PlatformOperationsService {
             scheduledPlanVersions: scheduledPlans,
             auditEventsLast24Hours: recentAudit,
             tenantsByPlan: tenantByPlan,
-            imageProvider,
+            imageProvider: imageProvider ? {
+                ...imageProvider,
+                capacityBytes: imageProvider.capacityBytes?.toString() ?? null,
+                usageBytes: providerUsageBytes.toString(),
+                capacityPercent,
+                capacityWarning: capacityPercent !== null && capacityPercent >= imageProvider.warningPercent,
+            } : null,
             generatedAt: now.toISOString(),
         };
     }

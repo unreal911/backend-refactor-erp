@@ -186,6 +186,18 @@ export class TrialProvisioningService {
             },
         });
 
+        await tx.trialBenefitClaim.upsert({
+            where: { tenantId: provisioned.tenant.id },
+            create: {
+                tenantId: provisioned.tenant.id,
+                emailFingerprint: identity.signupEmailFingerprint,
+                ipFingerprint: identity.signupIpFingerprint,
+                deviceFingerprint: identity.signupDeviceFingerprint,
+                claimedAt: now,
+            },
+            update: {},
+        });
+
         return this.result(provisioned.tenant, provisioned.membership, false);
     }
 

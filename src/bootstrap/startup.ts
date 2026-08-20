@@ -10,13 +10,15 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260811155000_platform_admin_default_role";
+export const REQUIRED_SCHEMA_MIGRATION = "20260813200000_cloudinary_usage_snapshot";
 export const REQUIRED_SCHEMA_TABLES = [
     "AuditLog",
     "BillingWebhookEvent",
     "Category",
     "Color",
     "CommercialAsset",
+    "CommercialAlert",
+    "AdminEventOutbox",
     "Comprobante",
     "ComprobanteItem",
     "ComprobanteSerie",
@@ -26,6 +28,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "ImageProviderProfile",
     "ManualPaymentMethod",
     "ManualPaymentRequest",
+    "ManualPaymentProof",
     "MarketplaceCustomer",
     "Order",
     "OrderItem",
@@ -57,6 +60,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "Role",
     "RolePermission",
     "SignupAbuseEvent",
+    "TrialBenefitClaim",
     "SignupRateLimitBucket",
     "Size",
     "StockTransfer",

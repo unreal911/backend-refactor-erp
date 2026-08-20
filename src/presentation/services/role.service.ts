@@ -44,16 +44,16 @@ export class RoleService {
     }
 
     private static async findExistingRole(id: number) {
+        const tenantId = TenantDataContext.currentTenantId();
         return prisma.role.findUnique({
             where: { id },
             include: {
                 users: {
+                    ...(tenantId ? {
+                        where: { tenantMemberships: { some: { tenantId } } },
+                    } : {}),
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -103,6 +103,7 @@ export class RoleService {
     }
 
     static async findAll(filters?: RoleFilters) {
+        const tenantId = TenantDataContext.currentTenantId();
         const where: {
             name?: {
                 contains: string;
@@ -130,12 +131,11 @@ export class RoleService {
             },
             include: {
                 users: {
+                    ...(tenantId ? {
+                        where: { tenantMemberships: { some: { tenantId } } },
+                    } : {}),
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -193,10 +193,6 @@ export class RoleService {
                 users: {
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -221,10 +217,6 @@ export class RoleService {
                 users: {
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }

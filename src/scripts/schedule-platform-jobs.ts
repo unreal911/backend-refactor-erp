@@ -1,8 +1,13 @@
+import "../instrumentation/sentry-scheduler";
 import { platformPrisma } from "../data/platform-prisma";
 import { TenantLifecycleService } from "../modules/lifecycle/tenant-lifecycle.service";
 import { SunatJobQueue } from "../modules/platform/sunat-job-queue";
 import { PlanVersionService } from "../modules/platform-admin/plan-version.service";
 import { ManualPaymentService } from "../modules/platform-admin/manual-payment.service";
+import { CommercialAlertService } from "../modules/lifecycle/commercial-alert.service";
+import { ImageProviderProfileService } from "../modules/platform-admin/image-provider-profile.service";
+import { runTenantDatabaseTransaction } from "../data/prisma";
+import { captureOperationalException, flushSentry } from "../presentation/observability/sentry";
 
 function limaDate(now = new Date()): string {
     return new Intl.DateTimeFormat("en-CA", {
@@ -76,6 +81,26 @@ async function main(): Promise<void> {
     const subscriptions = await TenantLifecycleService.suspendSubscriptionsPastGrace();
     const planVersions = await PlanVersionService.activateDueVersions();
     const manualPayments = await ManualPaymentService.expirePending();
+    const scheduledDowngrades = await ManualPaymentService.activateDueDowngrades();
+    const cloudinaryUsage = await ImageProviderProfileService.syncDueCloudinaryUsage();
+    const commercialTenants = await platformPrisma.tenant.findMany({
+        where: { status: { in: ["TRIAL", "ACTIVE", "SUSPENDED"] } },
+        select: { id: true },
+        orderBy: { id: "asc" },
+    });
+    let evaluatedCommercialAlerts = 0;
+    for (const tenant of commercialTenants) {
+        try {
+            await runTenantDatabaseTransaction(tenant.id, () => CommercialAlertService.evaluateCurrent());
+            evaluatedCommercialAlerts += 1;
+        } catch (caught) {
+            console.error(`[commercial-alerts:${tenant.id}]`, caught instanceof Error ? caught.message : "evaluation failed");
+            captureOperationalException(caught, {
+                operation: "scheduler.commercial_alert",
+                tenantId: tenant.id,
+            });
+        }
+    }
     console.log(JSON.stringify({
         checkedTenants: tenants.length,
         certificateJobs,
@@ -87,6 +112,9 @@ async function main(): Promise<void> {
         suspendedSubscriptions: subscriptions.suspended,
         activatedPlanVersions: planVersions.activated,
         expiredManualPayments: manualPayments.expired,
+        activatedScheduledDowngrades: scheduledDowngrades.activated,
+        cloudinaryUsage,
+        evaluatedCommercialAlerts,
         date,
     }));
 }
@@ -94,6 +122,10 @@ async function main(): Promise<void> {
 void main()
     .catch((caught) => {
         console.error("[platform-scheduler]", caught instanceof Error ? caught.message : "scheduler failed");
+        captureOperationalException(caught, { operation: "scheduler.main", level: "fatal" });
         process.exitCode = 1;
     })
-    .finally(() => platformPrisma.$disconnect());
+    .finally(async () => {
+        await flushSentry();
+        await platformPrisma.$disconnect();
+    });

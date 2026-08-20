@@ -13,6 +13,19 @@ function serialize(asset: any) {
 }
 
 export class CommercialAssetService {
+    private static async isReferenced(tenantId: string, url: string): Promise<boolean> {
+        const rows = await platformPrisma.$queryRaw<Array<{ referenced: boolean }>>(Prisma.sql`
+            SELECT EXISTS (
+                SELECT 1 FROM "ProductImage" WHERE "tenantId" = ${tenantId}::uuid AND "url" = ${url}
+                UNION ALL
+                SELECT 1 FROM "ProductVariant" WHERE "tenantId" = ${tenantId}::uuid AND "imageUrl" = ${url}
+                UNION ALL
+                SELECT 1 FROM "SystemSetting" WHERE "tenantId" = ${tenantId}::uuid AND "value"::text LIKE ${`%${url.replace(/[\\%_]/g, "\\$&")}%`} ESCAPE '\\'
+            ) AS referenced
+        `);
+        return Boolean(rows[0]?.referenced);
+    }
+
     static async upload(input: CommercialUploadInput) {
         const tenantId = TenantDataContext.requireTenantId();
         const profile = await platformPrisma.imageProviderProfile.findFirst({ where: { isActive: true, isEnabled: true } });
@@ -72,5 +85,53 @@ export class CommercialAssetService {
         ]);
         const usedBytes = usage._sum.sizeBytes ?? 0n; const limitBytes = tenant?.maxStorageBytes ?? 0n;
         return { usedBytes: usedBytes.toString(), limitBytes: limitBytes.toString(), assets: usage._count._all, percent: limitBytes > 0n ? Number((usedBytes * 10000n) / limitBytes) / 100 : 0 };
+    }
+
+    static async reconcile(input: { tenantId?: string; deleteOrphans?: boolean; limit?: number } = {}) {
+        const requestedLimit = Number(input.limit ?? 250);
+        const limit = Number.isFinite(requestedLimit)
+            ? Math.max(1, Math.min(1000, Math.trunc(requestedLimit)))
+            : 250;
+        const assets = await platformPrisma.commercialAsset.findMany({
+            where: {
+                status: CommercialAssetStatus.ACTIVE,
+                ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+            },
+            include: { providerProfile: true },
+            orderBy: { createdAt: "asc" },
+            take: limit,
+        });
+        const result = { checked: 0, healthy: 0, missing: 0, orphans: 0, deleted: 0, bytesCorrected: 0 };
+        for (const asset of assets) {
+            result.checked += 1;
+            const adapter = imageAdapter(asset.providerProfile);
+            const info = await adapter.head(asset.externalId);
+            if (!info.exists) {
+                await platformPrisma.commercialAsset.update({
+                    where: { id: asset.id },
+                    data: { status: CommercialAssetStatus.FAILED, failureReason: "Objeto no encontrado durante la reconciliación" },
+                });
+                result.missing += 1;
+                continue;
+            }
+            if (Number.isFinite(info.bytes) && Number(info.bytes) >= 0 && BigInt(Number(info.bytes)) !== asset.sizeBytes) {
+                await platformPrisma.commercialAsset.update({ where: { id: asset.id }, data: { sizeBytes: BigInt(Number(info.bytes)) } });
+                result.bytesCorrected += 1;
+            }
+            if (!await this.isReferenced(asset.tenantId, asset.url)) {
+                result.orphans += 1;
+                if (input.deleteOrphans) {
+                    await adapter.delete(asset.externalId);
+                    await platformPrisma.commercialAsset.update({
+                        where: { id: asset.id },
+                        data: { status: CommercialAssetStatus.DELETED, deletedAt: new Date(), failureReason: "Huérfano eliminado por reconciliación" },
+                    });
+                    result.deleted += 1;
+                }
+                continue;
+            }
+            result.healthy += 1;
+        }
+        return result;
     }
 }

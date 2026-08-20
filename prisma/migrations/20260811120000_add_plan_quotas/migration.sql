@@ -24,7 +24,7 @@ SET
     "maxMainImagesPerProduct" = CASE "planCode"::text
         WHEN 'TRIAL' THEN 3 WHEN 'STARTER' THEN 3 WHEN 'GROWTH' THEN 5 ELSE 8 END,
     "maxImagesPerVariant" = CASE "planCode"::text
-        WHEN 'TRIAL' THEN 1 WHEN 'STARTER' THEN 0 WHEN 'GROWTH' THEN 1 ELSE 3 END,
+        WHEN 'TRIAL' THEN 1 WHEN 'STARTER' THEN 0 ELSE 1 END,
     "maxStorageBytes" = CASE "planCode"::text
         WHEN 'TRIAL' THEN 5368709120
         WHEN 'STARTER' THEN 5368709120

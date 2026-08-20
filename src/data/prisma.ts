@@ -43,7 +43,11 @@ const TENANT_MODELS = new Set([
     "TenantSubscription",
     "TenantPlanAssignment",
     "ManualPaymentRequest",
+    "ManualPaymentProof",
     "CommercialAsset",
+    "CommercialAlert",
+    "AdminEventOutbox",
+    "TrialBenefitClaim",
 ]);
 
 const READ_OPERATIONS = new Set([

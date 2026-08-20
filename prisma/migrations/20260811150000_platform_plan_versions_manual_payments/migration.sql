@@ -190,7 +190,7 @@ INSERT INTO "PlanVersion" (
     (
         '20000000-0000-4000-8000-000000000004', '10000000-0000-4000-8000-000000000004', 1,
         'ACTIVE', 'PEN', 130.00, NULL, 'NEW_CUSTOMERS', 15, 200, 300, 5, 1500,
-        53687091200, 8, 3,
+        53687091200, 8, 1,
         ARRAY['marketplace','picking.basic','picking.collaborative','picking.advanced','transfers','roles.partial','roles.custom','reports.advanced','images.variant','sunat'],
         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'Migración del catálogo estático vigente'
     );
