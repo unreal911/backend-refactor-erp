@@ -8,6 +8,7 @@ export class UpdateOrderWorkflowSettingsDto {
         public readonly marketplacePaymentMethodIds?: number[],
         public readonly marketplaceIncludeIgv?: boolean,
         public readonly marketplaceAutoReserveStock?: boolean,
+        public readonly marketplaceSlug?: string,
         public readonly companyName?: string,
         public readonly companyLegalName?: string,
         public readonly companyRuc?: string,
@@ -29,6 +30,7 @@ export class UpdateOrderWorkflowSettingsDto {
         const rawMarketplaceMethodIds = object?.marketplacePaymentMethodIds;
         const rawMarketplaceIncludeIgv = object?.marketplaceIncludeIgv;
         const rawMarketplaceAutoReserveStock = object?.marketplaceAutoReserveStock;
+        const rawMarketplaceSlug = object?.marketplaceSlug;
         const rawCompanyName = object?.companyName;
         const rawCompanyLegalName = object?.companyLegalName;
         const rawCompanyRuc = object?.companyRuc;
@@ -94,6 +96,26 @@ export class UpdateOrderWorkflowSettingsDto {
                 return ['marketplaceAutoReserveStock debe ser booleano', undefined];
             }
             marketplaceAutoReserveStock = rawMarketplaceAutoReserveStock;
+        }
+
+        let marketplaceSlug: string | undefined;
+        if (rawMarketplaceSlug !== undefined) {
+            if (typeof rawMarketplaceSlug !== 'string') {
+                return ['marketplaceSlug debe ser texto', undefined];
+            }
+            marketplaceSlug = rawMarketplaceSlug.trim().toLowerCase();
+            const reserved = new Set([
+                'api', 'admin', 'marketplace', 'login', 'signup', 'assets', '_next',
+                'www', 'app', 'mail', 'support', 'staging',
+            ]);
+            if (
+                marketplaceSlug.length < 3
+                || marketplaceSlug.length > 50
+                || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(marketplaceSlug)
+                || reserved.has(marketplaceSlug)
+            ) {
+                return ['marketplaceSlug debe tener 3-50 caracteres, usar letras, numeros o guiones y no ser una ruta reservada', undefined];
+            }
         }
 
         let posBoletaEnabled: boolean | undefined;
@@ -216,6 +238,7 @@ export class UpdateOrderWorkflowSettingsDto {
             && marketplacePaymentMethodIds === undefined
             && marketplaceIncludeIgv === undefined
             && marketplaceAutoReserveStock === undefined
+            && marketplaceSlug === undefined
             && companyName === undefined
             && companyLegalName === undefined
             && companyRuc === undefined
@@ -241,6 +264,7 @@ export class UpdateOrderWorkflowSettingsDto {
                 marketplacePaymentMethodIds,
                 marketplaceIncludeIgv,
                 marketplaceAutoReserveStock,
+                marketplaceSlug,
                 companyName,
                 companyLegalName,
                 companyRuc,

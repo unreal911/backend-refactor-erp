@@ -60,11 +60,26 @@ export class InventoryController {
         });
     }
 
-    private publishInventoryEvent(actorUserId?: number | null, inventoryId?: number | null) {
-        AdminEventBus.publish({
+    private async publishInventoryEvent(actorUserId?: number | null, inventoryId?: number | null) {
+        await AdminEventBus.publish({
             type: 'INVENTORY_UPDATED',
             entity: 'INVENTORY',
             entityId: Number(inventoryId || 0) || null,
+            actorUserId: Number(actorUserId || 0) || null,
+        });
+    }
+
+    private async publishTransferEvent(
+        type: 'TRANSFER_CREATED' | 'TRANSFER_UPDATED',
+        transfer: any,
+        actorUserId?: number | null,
+    ) {
+        await AdminEventBus.publish({
+            type,
+            entity: 'TRANSFER',
+            entityId: Number(transfer?.id || 0) || null,
+            entityCode: transfer?.code ? String(transfer.code) : null,
+            status: transfer?.status ? String(transfer.status) : null,
             actorUserId: Number(actorUserId || 0) || null,
         });
     }
@@ -177,7 +192,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, Number(result?.movement?.inventoryId || 0) || null);
+            await this.publishInventoryEvent(req.user?.id, Number(result?.movement?.inventoryId || 0) || null);
             return res.status(201).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -221,6 +236,8 @@ export class InventoryController {
                 },
             });
 
+            await this.publishTransferEvent('TRANSFER_CREATED', transfer, req.user?.id);
+
             return res.status(201).json(transfer);
         } catch (err) {
             return this.handleError(err, res);
@@ -260,8 +277,85 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, Number(transfer?.id || 0) || null);
+            await this.publishInventoryEvent(req.user?.id, Number(transfer?.id || 0) || null);
+            await this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
             return res.status(200).json(result);
+        } catch (err) {
+            return this.handleError(err, res);
+        }
+    }
+
+    dispatchStockTransfer = async (req: AuthRequest, res: Response) => {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id < 1) {
+            return res.status(400).json({ message: 'El ID de la transferencia debe ser un numero valido' });
+        }
+
+        try {
+            const transfer = await this.inventoryService.dispatchStockTransfer(id, req.user?.id);
+            this.registerUserActivity(req, {
+                module: 'TRANSFERS',
+                actionType: 'TRANSFER_DISPATCHED',
+                actionLabel: 'Transferencia despachada',
+                entityType: 'TRANSFER',
+                entityId: Number(transfer?.id || id),
+                entityCode: transfer?.code ? String(transfer.code) : null,
+                description: `Transferencia ${transfer?.code || id} despachada`,
+                products: [],
+                context: { transferId: id, fromStoreId: transfer?.fromStoreId ?? null },
+            });
+            await this.publishInventoryEvent(req.user?.id, id);
+            await this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
+            return res.status(200).json(transfer);
+        } catch (err) {
+            return this.handleError(err, res);
+        }
+    };
+
+    cancelStockTransfer = async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({
+                message: 'El ID de la transferencia debe ser un número válido',
+            });
+        }
+
+        try {
+            const transfer = await this.inventoryService.cancelStockTransfer(
+                Number(id),
+                req.user?.id,
+            );
+            const transferProducts = Array.isArray(transfer?.items)
+                ? transfer.items
+                    .map((item: any) => this.mapProductFromVariant(
+                        item?.variant,
+                        Number(item?.quantity || 0),
+                    ))
+                    .filter((item): item is UserActivityProduct => Boolean(item))
+                : [];
+
+            this.registerUserActivity(req, {
+                module: 'TRANSFERS',
+                actionType: 'TRANSFER_CANCELLED',
+                actionLabel: 'Transferencia cancelada',
+                entityType: 'TRANSFER',
+                entityId: Number(transfer?.id || id) || null,
+                entityCode: transfer?.code ? String(transfer.code) : null,
+                description: `Transferencia ${transfer?.code || id} cancelada`,
+                products: transferProducts,
+                context: {
+                    transferId: Number(id),
+                    fromStoreId: Number(transfer?.fromStoreId || 0) || null,
+                },
+            });
+
+            await this.publishInventoryEvent(
+                req.user?.id,
+                Number(transfer?.id || 0) || null,
+            );
+            await this.publishTransferEvent('TRANSFER_UPDATED', transfer, req.user?.id);
+            return res.status(200).json(transfer);
         } catch (err) {
             return this.handleError(err, res);
         }
@@ -298,7 +392,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, Number(dto.inventoryId) || null);
+            await this.publishInventoryEvent(req.user?.id, Number(dto.inventoryId) || null);
             return res.status(201).json(result);
         } catch (err) {
             return this.handleError(err, res);
@@ -328,7 +422,7 @@ export class InventoryController {
                 },
             });
 
-            this.publishInventoryEvent(req.user?.id, null);
+            await this.publishInventoryEvent(req.user?.id, null);
             return res.status(200).json(result);
         } catch (error) {
             return this.handleError(error, res);

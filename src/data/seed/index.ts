@@ -5,6 +5,7 @@ import { seedDemoUsers } from "./demo-users-seed";
 import { seedProducts } from "./products-seed";
 import { seedBaseRolesAndPermissions } from "./roles-seed";
 import { SeedRunOptions, SeedRunSummary } from "./types";
+import { seedLegacyTenantMemberships } from "../tenant-bootstrap";
 
 export async function runSeed(options: SeedRunOptions = {}): Promise<SeedRunSummary> {
     const includeDemoUsers = options.includeDemoUsers ?? envs.SEED_INCLUDE_DEMO_USERS;
@@ -30,6 +31,11 @@ export async function runSeed(options: SeedRunOptions = {}): Promise<SeedRunSumm
         demoSummary.updated.forEach((email) => usersUpdated.add(email));
         warnings.push(...demoSummary.warnings);
     }
+
+    // Las referencias operativas son tenant-aware. En una base creada desde
+    // cero, los usuarios aparecen después de las migraciones y necesitan su
+    // membresía inicial antes de crear o manipular datos demo.
+    await seedLegacyTenantMemberships();
 
     let productsCreated: string[] = [];
     let productsSkipped: string[] = [];

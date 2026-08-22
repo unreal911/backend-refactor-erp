@@ -3,13 +3,27 @@ import { UpdateProductDto } from "../../domain/dtos/update-product.dto";
 import { ListProductDto } from "../../domain/dtos/list-product.dto";
 import { PublicListProductDto } from "../../domain/dtos/public-list-product.dto";
 import { GenerateVariantsDto } from "../../domain/dtos/generate-variants.dto";
-import { prisma } from "../../data/prisma";
-import { Prisma } from "@prisma/client";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
+import { CommercialAssetPurpose, Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import { ProductEntity } from "../../domain/entities/product.entity";
 import { ProductVariantEntity } from "../../domain/entities/product-variant.entity";
 import { ProductImageEntity } from "../../domain/entities/product-image.entity";
 import { cloudinary } from "../../config/cloudinary";
+import { CommercialAssetService } from "../../modules/commercial-assets/commercial-asset.service";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+import {
+    listProductAssetReferencesOutsideTenant,
+} from "../../modules/platform/product-asset-reference";
+import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
+import { sanitizeProductDescriptionHtml } from "../../domain/sanitization/product-description";
+import {
+    normalizeProductDisplayName,
+    normalizeProductNameKey,
+} from "../../domain/normalization/product-name";
 
 type MarketplaceSimpleVariantConfig = {
     colorIds: number[];
@@ -38,6 +52,42 @@ export class ProductService {
     private readonly marketplaceVariantSettingKeyPrefix = 'marketplace_product_variants_';
 
     constructor() { }
+
+    private async assertUniqueProductName(name: string, excludeProductId?: number): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        const normalizedKey = normalizeProductNameKey(name);
+        const exclusion = excludeProductId
+            ? Prisma.sql`AND "id" <> ${excludeProductId}`
+            : Prisma.empty;
+        const duplicate = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+            SELECT "id"
+            FROM "Product"
+            WHERE "tenantId" = ${tenantId}::uuid
+              AND regexp_replace(
+                    btrim(translate(
+                        lower("name"),
+                        'áàâäãåéèêëíìîïóòôöõúùûüñç',
+                        'aaaaaaeeeeiiiiooooouuuunc'
+                    )),
+                    '[[:space:]]+',
+                    ' ',
+                    'g'
+                  ) = ${normalizedKey}
+              ${exclusion}
+            LIMIT 1
+        `);
+
+        if (duplicate[0]) {
+            throw CustomError.badRequest('Ya existe un producto con el mismo nombre en esta empresa');
+        }
+    }
+
+    private productNameConflict(error: unknown): CustomError | null {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            return CustomError.badRequest('Ya existe un producto con el mismo nombre en esta empresa');
+        }
+        return null;
+    }
 
     /**
      * Normalizar valores para SKU
@@ -180,8 +230,15 @@ export class ProductService {
 
     private async getMarketplaceSimpleVariantConfig(productId: number): Promise<MarketplaceSimpleVariantConfig | null> {
         const key = this.buildMarketplaceVariantSettingKey(productId);
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const rows = await prisma.$queryRaw<Array<{ value: string }>>(
-            Prisma.sql`SELECT "value" FROM "SystemSetting" WHERE "key" = ${key} LIMIT 1`,
+            Prisma.sql`
+                SELECT "value"
+                FROM "SystemSetting"
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "key" = ${key}
+                LIMIT 1
+            `,
         );
         return this.parseMarketplaceSimpleVariantConfig(rows[0]?.value);
     }
@@ -194,11 +251,13 @@ export class ProductService {
         }
 
         const keys = uniqueProductIds.map((productId) => this.buildMarketplaceVariantSettingKey(productId));
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const rows = await prisma.$queryRaw<Array<{ key: string; value: string }>>(
             Prisma.sql`
                 SELECT "key", "value"
                 FROM "SystemSetting"
-                WHERE "key" IN (${Prisma.join(keys)})
+                WHERE "tenantId" = ${tenantId}::uuid
+                  AND "key" IN (${Prisma.join(keys)})
             `,
         );
 
@@ -219,9 +278,14 @@ export class ProductService {
 
     private async upsertMarketplaceSimpleVariantConfig(productId: number, config: MarketplaceSimpleVariantConfig | null): Promise<void> {
         const key = this.buildMarketplaceVariantSettingKey(productId);
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         if (!config || !config.colorIds.length || !config.sizeIds.length) {
             await prisma.$executeRaw(
-                Prisma.sql`DELETE FROM "SystemSetting" WHERE "key" = ${key}`,
+                Prisma.sql`
+                    DELETE FROM "SystemSetting"
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND "key" = ${key}
+                `,
             );
             return;
         }
@@ -239,9 +303,9 @@ export class ProductService {
 
         await prisma.$executeRaw(
             Prisma.sql`
-                INSERT INTO "SystemSetting" ("key", "value")
-                VALUES (${key}, ${payload})
-                ON CONFLICT ("key") DO UPDATE
+                INSERT INTO "SystemSetting" ("tenantId", "key", "value")
+                VALUES (${tenantId}::uuid, ${key}, ${payload})
+                ON CONFLICT ("tenantId", "key") DO UPDATE
                 SET "value" = EXCLUDED."value",
                     "updatedAt" = CURRENT_TIMESTAMP
             `,
@@ -423,20 +487,21 @@ export class ProductService {
     }
 
     private async uploadBase64Image(data: string, publicId: string): Promise<string> {
-        const payload = data.startsWith('data:') ? data : `data:image/jpeg;base64,${data}`;
-
         try {
-            const uploadResult = await cloudinary.uploader.upload(payload, {
-                folder: 'product_images',
-                public_id: publicId,
-                overwrite: true,
-                resource_type: 'image',
+            const productId = publicId.match(/product_(\d+)/)?.[1] || 'unknown';
+            const variantAsset = publicId.includes('_variant_') || publicId.includes('_marketplace_color_');
+            const asset = await CommercialAssetService.upload({
+                data,
+                key: publicId,
+                purpose: variantAsset ? CommercialAssetPurpose.VARIANT : CommercialAssetPurpose.PRODUCT,
+                ownerType: variantAsset ? 'ProductVariantDraft' : 'Product',
+                ownerId: variantAsset ? publicId : productId,
             });
-
-            return uploadResult.secure_url;
+            return asset.url;
         } catch (error) {
-            console.error('Error subiendo imagen a Cloudinary:', error);
-            throw CustomError.internal('Error al subir la imagen');
+            if (error instanceof CustomError) throw error;
+            console.error('Error subiendo imagen comercial:', error);
+            throw CustomError.internal('Error al almacenar la imagen');
         }
     }
 
@@ -463,13 +528,60 @@ export class ProductService {
         }
     }
 
+    private normalizeCloudinaryPublicId(publicId: string): string {
+        let decoded = String(publicId || '').trim();
+        try {
+            decoded = decodeURIComponent(decoded);
+        } catch {
+            throw CustomError.badRequest('El publicId de la imagen no es válido');
+        }
+        decoded = decoded.replace(/\.[A-Za-z0-9]+$/, '');
+        if (
+            !decoded
+            || decoded.includes('..')
+            || !/^[A-Za-z0-9/_-]+$/.test(decoded)
+        ) {
+            throw CustomError.badRequest('El publicId de la imagen no es válido');
+        }
+        return decoded;
+    }
+
+    private publicIdsMatch(storedPublicId: string, requestedPublicId: string): boolean {
+        return storedPublicId === requestedPublicId
+            || storedPublicId.endsWith(`/${requestedPublicId}`);
+    }
+
+    private async assetIsReferencedByAnotherTenant(
+        publicId: string,
+        tenantId: string,
+    ): Promise<boolean> {
+        const references =
+            await listProductAssetReferencesOutsideTenant(tenantId);
+        return references.some((reference) => {
+            const storedPublicId = this.extractPublicIdFromUrl(reference.url);
+            return storedPublicId
+                ? this.publicIdsMatch(storedPublicId, publicId)
+                : false;
+        });
+    }
+
     private async deleteCloudinaryUrl(url: string): Promise<void> {
+        if (await CommercialAssetService.deleteByUrl(url)) {
+            return;
+        }
         const publicId = this.extractPublicIdFromUrl(url);
         if (!publicId) {
             return;
         }
 
         try {
+            const tenantId = TenantDataContext.currentTenantId();
+            if (
+                tenantId
+                && await this.assetIsReferencedByAnotherTenant(publicId, tenantId)
+            ) {
+                return;
+            }
             await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
             console.log(`Imagen ${publicId} eliminada de Cloudinary`);
         } catch (error) {
@@ -478,11 +590,58 @@ export class ProductService {
     }
 
     async deleteImageFromCloudinary(publicId: string): Promise<void> {
+        const tenantId = TenantDataContext.requireTenantId();
+        const requestedPublicId = this.normalizeCloudinaryPublicId(publicId);
         try {
-            await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
-            await prisma.productImage.deleteMany({ where: { url: { contains: publicId } } });
-            console.log(`Imagen ${publicId} eliminada de Cloudinary y de la base de datos`);
+            const ownedImages = await prisma.productImage.findMany({
+                select: {
+                    id: true,
+                    url: true,
+                },
+            });
+            const matchingImages = ownedImages.filter((image) => {
+                const storedPublicId = this.extractPublicIdFromUrl(image.url);
+                return storedPublicId
+                    ? this.publicIdsMatch(storedPublicId, requestedPublicId)
+                    : false;
+            });
+            if (matchingImages.length === 0) {
+                throw CustomError.notFound('La imagen no pertenece al tenant activo');
+            }
+
+            const canonicalPublicId = this.extractPublicIdFromUrl(
+                matchingImages[0]!.url,
+            );
+            if (!canonicalPublicId) {
+                throw CustomError.badRequest('La URL almacenada no contiene un publicId válido');
+            }
+            const shared = await this.assetIsReferencedByAnotherTenant(
+                canonicalPublicId,
+                tenantId,
+            );
+            const managedResults = await Promise.all(
+                matchingImages.map((image) => CommercialAssetService.deleteByUrl(image.url)),
+            );
+            if (!shared && !managedResults.some(Boolean)) {
+                await cloudinary.uploader.destroy(canonicalPublicId, {
+                    resource_type: 'image',
+                });
+            }
+            await prisma.productImage.deleteMany({
+                where: {
+                    id: {
+                        in: matchingImages.map((image) => image.id),
+                    },
+                },
+            });
+            console.log(
+                `Imagen ${canonicalPublicId} eliminada del catálogo tenant`
+                + (shared ? ' y conservada en Cloudinary por referencia compartida' : ' y de Cloudinary'),
+            );
         } catch (error) {
+            if (error instanceof CustomError) {
+                throw error;
+            }
             console.error('Error eliminando imagen de Cloudinary:', error);
             throw CustomError.internal('Error al eliminar la imagen');
         }
@@ -503,13 +662,16 @@ export class ProductService {
         return urls;
     }
 
-    private async uploadVariantImage(productId: number, variant: { colorId: number | null; sizeId: number | null; imageUrl?: string; imageFile?: { filename: string; data: string } }): Promise<string | null> {
+    private async uploadVariantImage(productId: number, variant: VariantWriteInput): Promise<string | null> {
         if (variant.imageFile) {
-            const publicId = `product_${productId}_variant_${variant.colorId ?? 0}_${variant.sizeId ?? 0}_${variant.imageFile.filename.replace(/\.[^/.]+$/, '')}`;
-            return await this.uploadBase64Image(variant.imageFile.data, publicId);
+            const filename = variant.imageFile.filename.replace(/\.[^/.]+$/, '');
+            return this.uploadBase64Image(
+                variant.imageFile.data,
+                `product_${productId}_variant_${variant.colorId ?? 0}_${variant.sizeId ?? 0}_${filename}`,
+            );
         }
-
-        return variant.imageUrl ? variant.imageUrl : null;
+        const imageUrl = String(variant.imageUrl || '').trim();
+        return imageUrl || null;
     }
 
     private async resolveMarketplaceColorImages(
@@ -551,6 +713,7 @@ export class ProductService {
      * Crear un nuevo producto con variantes e imágenes
      */
     async createProduct(createProductDto: CreateProductDto): Promise<any> {
+        await TenantQuotaService.assertAvailable("products");
         const {
             name,
             categoryId,
@@ -564,6 +727,7 @@ export class ProductService {
             variants = [],
             marketplaceColorImages = [],
         } = createProductDto;
+        const normalizedName = normalizeProductDisplayName(name);
 
         console.log('Creando producto con datos:', {
             name,
@@ -580,6 +744,7 @@ export class ProductService {
         try {
             // Validar que la categoría existe
             await this.validateCategory(categoryId);
+            await this.assertUniqueProductName(normalizedName);
 
             // Validar que hay variantes
             if (variants.length === 0) {
@@ -676,21 +841,36 @@ export class ProductService {
                 sizeById = new Map(sizeRecords.map((size) => [size.id, size.name]));
             }
 
+            const activeVariantCount = variantsToCreate.filter((variant) => variant.isActive !== false).length;
+            const requestedMainImages = new Set(imageUrls || []).size + (imageFiles || []).length;
+            const requestedVariantImages = variantsToCreate.filter((variant) => Boolean(variant.imageFile || variant.imageUrl)).length;
+            await TenantQuotaService.assertVariantsAvailable(0, activeVariantCount, true);
+            await TenantQuotaService.assertMainImagesAvailable(0, requestedMainImages, true);
+            await TenantQuotaService.assertVariantImagesAllowed(requestedVariantImages);
+            await TenantQuotaService.assertVariantImagesAllowed(
+                (marketplaceColorImages || []).some((image) => Boolean(image.imageFile || image.imageUrl)) ? 1 : 0,
+            );
+
             const now = new Date();
 
             // Crear el producto (dimensiones explicitas segun el modo)
-            const product = await prisma.product.create({
-                data: {
-                    name,
-                    description: description || null,
-                    categoryId,
-                    afectacionIgv: afectacionIgv ?? '10',
-                    isActive: true,
-                    hasColor: variantMode === 'MATRIX',
-                    hasSize: variantMode !== 'SIMPLE',
-                    updatedAt: now,
-                },
-            });
+            let product;
+            try {
+                product = await prisma.product.create({
+                    data: {
+                        name: normalizedName,
+                        description: description || null,
+                        categoryId,
+                        afectacionIgv: afectacionIgv ?? '10',
+                        isActive: true,
+                        hasColor: variantMode === 'MATRIX',
+                        hasSize: variantMode !== 'SIMPLE',
+                        updatedAt: now,
+                    },
+                });
+            } catch (error) {
+                throw this.productNameConflict(error) || error;
+            }
 
             const marketplaceColorImageConfig = simpleMarketplaceConfig
                 ? await this.resolveMarketplaceColorImages(product.id, simpleMarketplaceConfig.colorIds, marketplaceColorImages)
@@ -715,7 +895,7 @@ export class ProductService {
 
             const createdVariants = await Promise.all(
                 variantsToCreate.map(async (variant) => {
-                    const imageUrl = await this.uploadVariantImage(product.id, variant);
+                    const variantImageUrl = await this.uploadVariantImage(product.id, variant);
                     const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
                     const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                     return prisma.productVariant.create({
@@ -725,7 +905,7 @@ export class ProductService {
                             colorId: variant.colorId,
                             sizeId: variant.sizeId,
                             variantKey: this.variantKeyOf(variant.colorId, variant.sizeId),
-                            imageUrl: imageUrl || null,
+                            imageUrl: variantImageUrl,
                             productId: product.id,
                             isActive: variant.isActive !== false,
                             updatedAt: now,
@@ -744,13 +924,13 @@ export class ProductService {
                     marketplaceVariantSizeIds: simpleMarketplaceConfig?.sizeIds || [],
                     marketplaceColorImages: marketplaceColorImageConfig,
                 },
-                variants: createdVariants.map(v => ProductVariantEntity.fromObject(v)),
+                variants: createdVariants.map((variant) => this.mapVariantForResponse(variant)),
                 images: allImageUrls,
                 message: isSimpleMode
-                    ? `Producto "${name}" creado exitosamente como producto unico`
+                    ? `Producto "${normalizedName}" creado exitosamente como producto unico`
                     : isSizeOnlyMode
-                        ? `Producto "${name}" creado exitosamente como producto con talla`
-                    : `Producto "${name}" creado exitosamente con ${createdVariants.length} variantes`,
+                        ? `Producto "${normalizedName}" creado exitosamente como producto con talla`
+                        : `Producto "${normalizedName}" creado exitosamente con ${createdVariants.length} variantes`,
             };
         } catch (error) {
             if (error instanceof CustomError) {
@@ -1122,7 +1302,7 @@ export class ProductService {
             return {
                 id: product.id,
                 name: product.name,
-                description: product.description,
+                description: sanitizeProductDescriptionHtml(product.description),
                 category: product.category ? { id: product.category.id, name: product.category.name } : null,
                 imageUrl: product.images?.[0]?.url || variants.find((variant) => !!variant.imageUrl)?.imageUrl || null,
                 images: (product.images || []).map((image) => ({ id: image.id, url: image.url })),
@@ -1308,7 +1488,7 @@ export class ProductService {
         return {
             id: product.id,
             name: product.name,
-            description: product.description,
+            description: sanitizeProductDescriptionHtml(product.description),
             category: product.category ? { id: product.category.id, name: product.category.name } : null,
             imageUrl: product.images?.[0]?.url || variants.find((variant) => !!variant.imageUrl)?.imageUrl || null,
             images: (product.images || []).map((image) => ({ id: image.id, url: image.url })),
@@ -1328,6 +1508,11 @@ export class ProductService {
      * Eliminar y recrear las imágenes de producto
      */
     private async replaceProductImages(productId: number, imageUrls: string[] = [], imageFiles: Array<{ filename: string; data: string }> = []) {
+        await TenantQuotaService.assertMainImagesAvailable(
+            productId,
+            new Set(imageUrls || []).size + (imageFiles || []).length,
+            true,
+        );
         const existingImages = await prisma.productImage.findMany({ where: { productId }, select: { url: true } });
         const uploadedUrls = await this.uploadProductFiles(productId, imageFiles);
         const allImageUrls = [...new Set([...(imageUrls || []), ...uploadedUrls])];
@@ -1354,9 +1539,19 @@ export class ProductService {
      * Reemplazar las variantes de un producto
      */
     private async replaceVariants(productId: number, productName: string, variants: VariantWriteInput[]) {
+        await TenantQuotaService.assertVariantsAvailable(
+            productId,
+            variants.filter((variant) => variant.isActive !== false).length,
+            true,
+        );
+        await TenantQuotaService.assertVariantImagesAllowed(
+            variants.filter((variant) => Boolean(variant.imageFile || String(variant.imageUrl || '').trim())).length,
+        );
         const existingVariants = await prisma.productVariant.findMany({
             where: { productId },
-            select: { id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true },
+            select: {
+                id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true,
+            },
         });
 
         const incomingMap = new Map<string, VariantWriteInput>();
@@ -1384,26 +1579,15 @@ export class ProductService {
             variants.map(async variant => {
                 const key = this.variantKeyOf(variant.colorId, variant.sizeId);
                 const existing = existingByKey.get(key);
-                const uploadedImage = await this.uploadVariantImage(productId, variant);
+                const hasImageChanges = variant.imageUrl !== undefined || variant.imageFile !== undefined;
+                const imageUrlToPersist = hasImageChanges
+                    ? await this.uploadVariantImage(productId, variant)
+                    : existing?.imageUrl ?? null;
                 const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
                 const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                 const shouldBeActive = variant.isActive !== false;
 
-                let imageUrlToPersist: string | null = null;
-                if (variant.imageFile) {
-                    imageUrlToPersist = uploadedImage;
-                } else if (variant.imageUrl !== undefined) {
-                    imageUrlToPersist = variant.imageUrl || null;
-                } else if (existing?.imageUrl) {
-                    imageUrlToPersist = existing.imageUrl;
-                }
-
-                if (
-                    existing?.imageUrl &&
-                    imageUrlToPersist &&
-                    existing.imageUrl !== imageUrlToPersist &&
-                    (variant.imageFile !== undefined || variant.imageUrl !== undefined)
-                ) {
+                if (hasImageChanges && existing?.imageUrl && existing.imageUrl !== imageUrlToPersist) {
                     removedVariantImages.push(existing.imageUrl);
                 }
 
@@ -1424,7 +1608,6 @@ export class ProductService {
                         data: variantData,
                     });
                 }
-
                 return prisma.productVariant.create({
                     data: {
                         ...variantData,
@@ -1529,6 +1712,24 @@ export class ProductService {
                 throw CustomError.notFound(`El producto con ID ${id} no existe`);
             }
 
+            if (updateData.isActive === true && !product.isActive) {
+                await TenantQuotaService.assertAvailable("products");
+            }
+            if (updateData.marketplaceColorImages) {
+                await TenantQuotaService.assertVariantImagesAllowed(
+                    updateData.marketplaceColorImages.filter(
+                        (image) => Boolean(image.imageFile || image.imageUrl),
+                    ).length,
+                );
+            }
+
+            const normalizedName = updateData.name !== undefined
+                ? normalizeProductDisplayName(updateData.name)
+                : product.name;
+            if (updateData.name !== undefined) {
+                await this.assertUniqueProductName(normalizedName, id);
+            }
+
             if (updateData.categoryId) {
                 await this.validateCategory(updateData.categoryId);
             }
@@ -1584,7 +1785,7 @@ export class ProductService {
             }
 
             if (updateData.variants) {
-                const productName = updateData.name ?? product.name;
+                const productName = normalizedName;
                 if (isSimpleMode) {
                     const firstVariant = updateData.variants[0];
                     if (!firstVariant) {
@@ -1624,20 +1825,25 @@ export class ProductService {
                 await this.upsertMarketplaceSimpleVariantConfig(id, simpleMarketplaceConfigToPersist);
             }
 
-            const updated = await prisma.product.update({
-                where: { id },
-                data: {
-                    name: updateData.name ?? product.name,
-                    description: updateData.description !== undefined ? updateData.description : product.description,
-                    categoryId: updateData.categoryId ?? product.categoryId,
-                    isActive: updateData.isActive !== undefined ? updateData.isActive : product.isActive,
-                    afectacionIgv: updateData.afectacionIgv ?? product.afectacionIgv,
-                    // Dimensiones explicitas derivadas del modo resultante.
-                    hasColor: nextMode === 'MATRIX',
-                    hasSize: nextMode !== 'SIMPLE',
-                    updatedAt: new Date(),
-                },
-            });
+            let updated;
+            try {
+                updated = await prisma.product.update({
+                    where: { id },
+                    data: {
+                        name: normalizedName,
+                        description: updateData.description !== undefined ? updateData.description : product.description,
+                        categoryId: updateData.categoryId ?? product.categoryId,
+                        isActive: updateData.isActive !== undefined ? updateData.isActive : product.isActive,
+                        afectacionIgv: updateData.afectacionIgv ?? product.afectacionIgv,
+                        // Dimensiones explicitas derivadas del modo resultante.
+                        hasColor: nextMode === 'MATRIX',
+                        hasSize: nextMode !== 'SIMPLE',
+                        updatedAt: new Date(),
+                    },
+                });
+            } catch (error) {
+                throw this.productNameConflict(error) || error;
+            }
 
             return ProductEntity.fromObject(updated);
         } catch (error) {

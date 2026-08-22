@@ -27,7 +27,7 @@ export class publicRoute {
         router.get('/checkout-payment-methods', controller.listMarketplaceCheckoutPaymentMethods);
         router.get('/branding', controller.getMarketplaceBranding);
 
-        router.post('/orders', publicWriteRateLimiter, controller.createMarketplaceOrder);
+        router.post('/orders', publicWriteRateLimiter, MarketplaceAuthMiddleware.optionalJWT, controller.createMarketplaceOrder);
         // Consultas de pedidos por codigo/telefono: rate-limit para frenar
         // enumeracion/scraping de PII (mitigacion de la fuga tipo IDOR).
         router.get('/orders/my', publicReadRateLimiter, controller.listMarketplaceOrders);

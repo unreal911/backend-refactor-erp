@@ -41,6 +41,9 @@ export class CreateStockTransferDto {
                 return ['Cada artículo debe incluir una cantidad mayor a cero', undefined];
             }
         }
+        if (new Set(items.map((item) => item.variantId)).size !== items.length) {
+            return ['Una variante no puede repetirse en la misma transferencia', undefined];
+        }
 
         return [undefined, new CreateStockTransferDto(fromStoreId, toStoreId, items, note)];
     }

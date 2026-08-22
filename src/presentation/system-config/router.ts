@@ -9,7 +9,7 @@ export class systemConfigRoute {
         const service = new SystemConfigService();
         const controller = new SystemConfigController(service);
 
-        router.get('/order-workflow', controller.getOrderWorkflowSettings);
+        router.get('/order-workflow', AuthMiddleware.requirePermission(['orders.view', 'picking.view', 'settings.manage']), controller.getOrderWorkflowSettings);
         router.patch('/order-workflow', AuthMiddleware.requirePermission('settings.manage'), controller.updateOrderWorkflowSettings);
 
         return router;

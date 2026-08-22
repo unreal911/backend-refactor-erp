@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
+import { tenantService } from './helpers/tenant-service';
+import { ensureTenantTestUser } from './helpers/tenant-test-user';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -25,6 +27,7 @@ const createdPickingSessionIds: number[] = [];
 const createdStoreIds: number[] = [];
 const createdUserIds: number[] = [];
 const createdRoleIds: number[] = [];
+const createdMembershipIds: string[] = [];
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -44,6 +47,7 @@ async function seedEcommerceOrder(opts: { status?: string; quantity: number; res
   const order = await prisma.order.create({
     data: {
       code: `MK-${tag}`, // MK- => ECOMMERCE
+      salesChannel: 'ECOMMERCE',
       status: (opts.status ?? 'CONFIRMED') as any,
       sourceStoreId: storeId,
       sellerUserId: userId,
@@ -87,17 +91,11 @@ beforeAll(async () => {
   const size = await firstOrCreate(() => prisma.size.findFirst(), () => prisma.size.create({ data: { name: `SH Size ${uniq}` } }));
   sizeId = size.id;
 
-  const existingUser = await prisma.user.findFirst();
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
-    const existingRole = await prisma.role.findFirst();
-    const role = existingRole ?? await prisma.role.create({ data: { name: `SH Role ${uniq}` } });
-    if (!existingRole) createdRoleIds.push(role.id);
-    const user = await prisma.user.create({ data: { firstName: 'SH', lastName: 'User', email: `sh-user-${uniq}@test.local`, password: 'x', roleId: role.id } });
-    createdUserIds.push(user.id);
-    userId = user.id;
-  }
+  const testUser = await ensureTenantTestUser('SH');
+  userId = testUser.userId;
+  if (testUser.createdMembershipId) createdMembershipIds.push(testUser.createdMembershipId);
+  if (testUser.createdUserId) createdUserIds.push(testUser.createdUserId);
+  if (testUser.createdRoleId) createdRoleIds.push(testUser.createdRoleId);
 });
 
 afterAll(async () => {
@@ -106,6 +104,7 @@ afterAll(async () => {
     try { if (createdOrderIds.length) await prisma.order.deleteMany({ where: { id: { in: createdOrderIds } } }); } catch { /* noop */ }
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
     try { if (createdStoreIds.length) await prisma.store.deleteMany({ where: { id: { in: createdStoreIds } } }); } catch { /* noop */ }
@@ -119,7 +118,7 @@ describe('markOrderItemShortage', () => {
     // quantity 5, reserved 2 -> pendiente 3.
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2 });
 
-    const res = await new OrderService().markOrderItemShortage(order.id, itemId, 3, userId);
+    const res = await tenantService(new OrderService()).markOrderItemShortage(order.id, itemId, 3, userId);
     expect(res.shortageQuantity).toBe(3);
 
     const item = await readItem(itemId);
@@ -133,7 +132,7 @@ describe('markOrderItemShortage', () => {
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2 });
 
     // Pide 10 pero solo 3 estan pendientes.
-    const res = await new OrderService().markOrderItemShortage(order.id, itemId, 10, userId);
+    const res = await tenantService(new OrderService()).markOrderItemShortage(order.id, itemId, 10, userId);
     expect(res.shortageQuantity).toBe(3);
     expect((await readItem(itemId))?.shortageQuantity).toBe(3);
   }, 30_000);
@@ -141,7 +140,7 @@ describe('markOrderItemShortage', () => {
   it('limpiar el faltante (0) devuelve el pedido a PENDING', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2 });
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
 
     await svc.markOrderItemShortage(order.id, itemId, 3, userId); // -> WAITING_STOCK
     expect((await readOrder(order.id))?.status).toBe('WAITING_STOCK');
@@ -170,7 +169,7 @@ describe('markOrderItemShortage', () => {
     createdOrderIds.push(order.id);
 
     await expect(
-      new OrderService().markOrderItemShortage(order.id, order.items[0].id, 2, userId),
+      tenantService(new OrderService()).markOrderItemShortage(order.id, order.items[0].id, 2, userId),
     ).rejects.toThrow(/ecommerce/i);
   }, 30_000);
 
@@ -179,7 +178,7 @@ describe('markOrderItemShortage', () => {
     const { order, itemId } = await seedEcommerceOrder({ quantity: 5, reserved: 2, withPicking: true });
 
     await expect(
-      new OrderService().markOrderItemShortage(order.id, itemId, 2, userId),
+      tenantService(new OrderService()).markOrderItemShortage(order.id, itemId, 2, userId),
     ).rejects.toThrow(/picking ya iniciado/i);
   }, 30_000);
 });

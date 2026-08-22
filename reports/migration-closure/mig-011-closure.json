@@ -1,0 +1,773 @@
+{
+  "tenantId": "00000000-0000-4000-8000-000000000001",
+  "deploymentSequence": [
+    "EXPAND",
+    "BACKFILL",
+    "VALIDATE",
+    "RESTRICT",
+    "RETIRE_COMPATIBILITY"
+  ],
+  "prerequisites": [
+    {
+      "storyId": "MIG-003",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:21.617Z",
+      "detailsHash": "b7a541e89efe8ab3a65661b0257b61696cf36ff9297d76d683a66ffd1238260c",
+      "fingerprintsHash": "5f0e5ced96cac808d14f5abf2f169c58edaf7a7f8a9b8ad7bf9ff975ae3caa68"
+    },
+    {
+      "storyId": "MIG-004",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:27.852Z",
+      "detailsHash": "8f884b1fd7e4650851a5b5b1a5cc4d1a4cf6766c69d23ab711b592a3fca69529",
+      "fingerprintsHash": "73968aca93fe41a5202e81eee23f5a6c16efebaabf932b735d159b20cdbb35bd"
+    },
+    {
+      "storyId": "MIG-005",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:33.883Z",
+      "detailsHash": "bb1d3fa2d49032d417c2cacc7b5eb6137eeafa8d4e3a539273efb817e8193a92",
+      "fingerprintsHash": "1d2bdc009f2887c7fdd2a472eadf24bb0588fda429ba3686310166f06725bf44"
+    },
+    {
+      "storyId": "MIG-006",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:40.429Z",
+      "detailsHash": "cc0deb3da6f8c8205e16fc15a2b8abe5ef030cb3c31f81386d7cdcac7fdb2b75",
+      "fingerprintsHash": "d868bde5f7eb07598324bd51de969617401c07ad75190acd1762bb92775ba3e9"
+    },
+    {
+      "storyId": "MIG-007",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:46.517Z",
+      "detailsHash": "9dd0783039a4847856904440be92efeba3ebab6f3cd56037eb896daa7e605e83",
+      "fingerprintsHash": "973d9a84f6ca70c9c865f17d489b5d4f92d8ecc51f1557ff8f174941e6c8be33"
+    },
+    {
+      "storyId": "MIG-008",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:52.825Z",
+      "detailsHash": "3d08a0009a4e2e14ba77f5215d341acf8e7f8a49c1c09ec62bf2fb356ffbd272",
+      "fingerprintsHash": "52cbad31dd843d65f4483352c731f45733724e31dea6e453129253b15b2fc875"
+    },
+    {
+      "storyId": "MIG-009",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:26:59.638Z",
+      "detailsHash": "9fc7778b3288ee88e4ab689aa0076ac58a138c304102db756a1975058cd5302f",
+      "fingerprintsHash": "56e8b6ac1d87298ca683527191d8ca34facd5aded26e02c62d01aa3e70f098e1"
+    },
+    {
+      "storyId": "MIG-010",
+      "status": "COMPLETED",
+      "completedAt": "2026-08-02T18:27:06.481Z",
+      "detailsHash": "392976d45def2ff40c7e43bd6274572833a1b08676ea5d87af235d920913a8a1",
+      "fingerprintsHash": "48fff8ececf757818feaa619e275bf1c1cd39cf32b1620a61812960579eb565d"
+    }
+  ],
+  "coverage": [
+    {
+      "table": "Tenant",
+      "storyId": "MIG-003",
+      "scope": "TENANT",
+      "sourceRows": 1,
+      "destinationRows": 1,
+      "currentRows": 1,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "User",
+      "storyId": "MIG-003",
+      "scope": "GLOBAL",
+      "sourceRows": 3,
+      "destinationRows": 3,
+      "currentRows": 154,
+      "postBaselineRows": 151,
+      "reconciled": true
+    },
+    {
+      "table": "TenantMembership",
+      "storyId": "MIG-003",
+      "scope": "TENANT",
+      "sourceRows": 3,
+      "destinationRows": 3,
+      "currentRows": 94,
+      "postBaselineRows": 91,
+      "reconciled": true
+    },
+    {
+      "table": "Role",
+      "storyId": "MIG-003",
+      "scope": "GLOBAL",
+      "sourceRows": 6,
+      "destinationRows": 6,
+      "currentRows": 6,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "Permission",
+      "storyId": "MIG-003",
+      "scope": "GLOBAL",
+      "sourceRows": 49,
+      "destinationRows": 49,
+      "currentRows": 49,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "RolePermission",
+      "storyId": "MIG-003",
+      "scope": "GLOBAL",
+      "sourceRows": 78,
+      "destinationRows": 78,
+      "currentRows": 78,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "Category",
+      "storyId": "MIG-004",
+      "scope": "TENANT",
+      "sourceRows": 4,
+      "destinationRows": 4,
+      "currentRows": 5,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "Color",
+      "storyId": "MIG-004",
+      "scope": "TENANT",
+      "sourceRows": 3,
+      "destinationRows": 3,
+      "currentRows": 3,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "Size",
+      "storyId": "MIG-004",
+      "scope": "TENANT",
+      "sourceRows": 4,
+      "destinationRows": 4,
+      "currentRows": 4,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "Product",
+      "storyId": "MIG-004",
+      "scope": "TENANT",
+      "sourceRows": 2,
+      "destinationRows": 2,
+      "currentRows": 3,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "ProductImage",
+      "storyId": "MIG-004",
+      "scope": "TENANT",
+      "sourceRows": 8,
+      "destinationRows": 8,
+      "currentRows": 8,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "ProductVariant",
+      "storyId": "MIG-004",
+      "scope": "TENANT",
+      "sourceRows": 13,
+      "destinationRows": 13,
+      "currentRows": 14,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "Store",
+      "storyId": "MIG-005",
+      "scope": "TENANT",
+      "sourceRows": 2,
+      "destinationRows": 2,
+      "currentRows": 3,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "Inventory",
+      "storyId": "MIG-005",
+      "scope": "TENANT",
+      "sourceRows": 5,
+      "destinationRows": 5,
+      "currentRows": 6,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "InventoryMovement",
+      "storyId": "MIG-006",
+      "scope": "TENANT",
+      "sourceRows": 387,
+      "destinationRows": 387,
+      "currentRows": 387,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "StockTransfer",
+      "storyId": "MIG-006",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "StockTransferItem",
+      "storyId": "MIG-006",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "Order",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 42,
+      "destinationRows": 42,
+      "currentRows": 43,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "OrderItem",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 106,
+      "destinationRows": 106,
+      "currentRows": 107,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "Reservation",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 161,
+      "destinationRows": 161,
+      "currentRows": 161,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingSession",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 14,
+      "destinationRows": 14,
+      "currentRows": 14,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingItem",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 14,
+      "destinationRows": 14,
+      "currentRows": 13,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingSharedResponsibility",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingResponsibilityRequest",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingItemContribution",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 1,
+      "destinationRows": 1,
+      "currentRows": 1,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingUnpickRequest",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "PickingOrderItemDetail",
+      "storyId": "MIG-007",
+      "scope": "TENANT",
+      "sourceRows": 99,
+      "destinationRows": 99,
+      "currentRows": 99,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "OrderReturn",
+      "storyId": "MIG-008",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "OrderReturnItem",
+      "storyId": "MIG-008",
+      "scope": "TENANT",
+      "sourceRows": 0,
+      "destinationRows": 0,
+      "currentRows": 0,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "MarketplaceCustomer",
+      "storyId": "MIG-009",
+      "scope": "TENANT",
+      "sourceRows": 14,
+      "destinationRows": 14,
+      "currentRows": 15,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "PaymentMethod",
+      "storyId": "MIG-009",
+      "scope": "TENANT",
+      "sourceRows": 6,
+      "destinationRows": 6,
+      "currentRows": 7,
+      "postBaselineRows": 1,
+      "reconciled": true
+    },
+    {
+      "table": "SystemSetting",
+      "storyId": "MIG-009",
+      "scope": "TENANT",
+      "sourceRows": 18,
+      "destinationRows": 18,
+      "currentRows": 18,
+      "postBaselineRows": 0,
+      "reconciled": true
+    },
+    {
+      "table": "AuditLog",
+      "storyId": "MIG-010",
+      "scope": "AUDIT",
+      "sourceRows": 30418,
+      "destinationRows": 30418,
+      "currentRows": 30633,
+      "postBaselineRows": 215,
+      "reconciled": true
+    },
+    {
+      "table": "UserActivityLog",
+      "storyId": "MIG-010",
+      "scope": "TENANT",
+      "sourceRows": 509,
+      "destinationRows": 509,
+      "currentRows": 509,
+      "postBaselineRows": 0,
+      "reconciled": true
+    }
+  ],
+  "controlTotals": {
+    "inventory": {
+      "stock": 158,
+      "reservedStock": 0,
+      "availableStock": 158
+    },
+    "movements": {
+      "quantity": 1106,
+      "previousStock": 36288,
+      "newStock": 36446,
+      "netGap": 0
+    },
+    "orders": {
+      "orderTax": "510.48",
+      "itemPicked": 121,
+      "orderTotal": "4750.48",
+      "detailPicked": 118,
+      "itemQuantity": 265,
+      "itemReserved": 235,
+      "itemReturned": 0,
+      "itemShortage": 12,
+      "itemSubtotal": "4762.00",
+      "orderSubtotal": "4240.00",
+      "pickingPicked": 95,
+      "pickingQuantity": 131,
+      "reservationQuantity": 356,
+      "contributionQuantity": 4
+    },
+    "returns": {
+      "returnAmount": "0.00",
+      "returnQuantity": 0,
+      "returnedQuantity": 0
+    }
+  },
+  "integrity": {
+    "tenantTableCount": 27,
+    "nullableTenantColumns": 0,
+    "tenantIndexedTables": 27,
+    "tenantUniqueIndexes": 40,
+    "foreignKeys": 199,
+    "unvalidatedConstraints": 0,
+    "orphanRows": 0,
+    "crossTenantRows": 0,
+    "invalidAuditScopes": 0,
+    "invalidOperationalPickingRows": 0
+  },
+  "quarantine": {
+    "records": 1,
+    "reasonCode": "QUARANTINED_LEGACY_PICKING_OVERFLOW",
+    "sourceTable": "PickingItem",
+    "sourceKey": "8",
+    "originalHash": "04b6194b595f2320405b26111233a4fc17f1f4bb0129966a0ed643df694e6085",
+    "relatedPickingDetails": 6,
+    "relatedPickedQuantity": 21,
+    "activeSourceRows": 0,
+    "detachedOperationalDetails": 6,
+    "resolution": "ARCHIVED_OUTSIDE_OPERATIONAL_FLOW"
+  },
+  "approvedDecisions": [
+    {
+      "code": "QUARANTINED_LEGACY_PICKING_OVERFLOW",
+      "affectedRows": 1,
+      "resolution": "ARCHIVED_OUTSIDE_OPERATIONAL_FLOW"
+    },
+    {
+      "code": "APPROVED_LEGACY_HISTORY_GAP",
+      "affectedRows": 36,
+      "resolution": "PRESERVED_WITH_ZERO_NET_GAP"
+    },
+    {
+      "code": "AUDIT_CONTEXT_AMBIGUOUS",
+      "affectedRows": 607,
+      "resolution": "PRESERVED_AS_AUDIT_QUARANTINE"
+    },
+    {
+      "code": "PAYMENT_EVIDENCE_IN_ORDER_NOTE",
+      "affectedRows": 18,
+      "resolution": "PRESERVED_WITH_HASHED_EVIDENCE"
+    },
+    {
+      "code": "EXTERNAL_MEDIA_REFERENCES",
+      "affectedRows": 21,
+      "resolution": "PRESERVED_FOR_DOCUMENT_MIGRATION"
+    }
+  ],
+  "sequences": [
+    {
+      "table": "AuditLog",
+      "sequence": "public.\"AuditLog_id_seq\"",
+      "maximumId": 30837,
+      "lastValue": 30862,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Category",
+      "sequence": "public.\"Category_id_seq\"",
+      "maximumId": 90,
+      "lastValue": 427,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Color",
+      "sequence": "public.\"Color_id_seq\"",
+      "maximumId": 3,
+      "lastValue": 21,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Inventory",
+      "sequence": "public.\"Inventory_id_seq\"",
+      "maximumId": 357,
+      "lastValue": 1180,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "InventoryMovement",
+      "sequence": "public.\"InventoryMovement_id_seq\"",
+      "maximumId": 1111,
+      "lastValue": 1752,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "MarketplaceCustomer",
+      "sequence": "public.\"MarketplaceCustomer_id_seq\"",
+      "maximumId": 47,
+      "lastValue": 141,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Order",
+      "sequence": "public.\"Order_id_seq\"",
+      "maximumId": 1385,
+      "lastValue": 2273,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "OrderItem",
+      "sequence": "public.\"OrderItem_id_seq\"",
+      "maximumId": 1254,
+      "lastValue": 1940,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "OrderReturn",
+      "sequence": "public.\"OrderReturn_id_seq\"",
+      "maximumId": null,
+      "lastValue": 149,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "OrderReturnItem",
+      "sequence": "public.\"OrderReturnItem_id_seq\"",
+      "maximumId": null,
+      "lastValue": 115,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PaymentMethod",
+      "sequence": "public.\"PaymentMethod_id_seq\"",
+      "maximumId": 18439,
+      "lastValue": 27565,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Permission",
+      "sequence": "public.\"Permission_id_seq\"",
+      "maximumId": 7073,
+      "lastValue": 7561,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingItem",
+      "sequence": "public.\"PickingItem_id_seq\"",
+      "maximumId": 457,
+      "lastValue": 835,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingItemContribution",
+      "sequence": "public.\"PickingItemContribution_id_seq\"",
+      "maximumId": 260,
+      "lastValue": 552,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingOrderItemDetail",
+      "sequence": "public.\"PickingOrderItemDetail_id_seq\"",
+      "maximumId": 926,
+      "lastValue": 1528,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingResponsibilityRequest",
+      "sequence": "public.\"PickingResponsibilityRequest_id_seq\"",
+      "maximumId": null,
+      "lastValue": 146,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingSession",
+      "sequence": "public.\"PickingSession_id_seq\"",
+      "maximumId": 465,
+      "lastValue": 860,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingSharedResponsibility",
+      "sequence": "public.\"PickingSharedResponsibility_id_seq\"",
+      "maximumId": null,
+      "lastValue": 168,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "PickingUnpickRequest",
+      "sequence": "public.\"PickingUnpickRequest_id_seq\"",
+      "maximumId": null,
+      "lastValue": 48,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Product",
+      "sequence": "public.\"Product_id_seq\"",
+      "maximumId": 370,
+      "lastValue": 1227,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "ProductImage",
+      "sequence": "public.\"ProductImage_id_seq\"",
+      "maximumId": 40,
+      "lastValue": 94,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "ProductVariant",
+      "sequence": "public.\"ProductVariant_id_seq\"",
+      "maximumId": 376,
+      "lastValue": 1220,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Reservation",
+      "sequence": "public.\"Reservation_id_seq\"",
+      "maximumId": 969,
+      "lastValue": 1579,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Role",
+      "sequence": "public.\"Role_id_seq\"",
+      "maximumId": 6,
+      "lastValue": 70,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "RolePermission",
+      "sequence": "public.\"RolePermission_id_seq\"",
+      "maximumId": 78,
+      "lastValue": 8736,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Size",
+      "sequence": "public.\"Size_id_seq\"",
+      "maximumId": 4,
+      "lastValue": 22,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "StockTransfer",
+      "sequence": "public.\"StockTransfer_id_seq\"",
+      "maximumId": null,
+      "lastValue": 167,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "StockTransferItem",
+      "sequence": "public.\"StockTransferItem_id_seq\"",
+      "maximumId": null,
+      "lastValue": 99,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "Store",
+      "sequence": "public.\"Store_id_seq\"",
+      "maximumId": 107,
+      "lastValue": 394,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "SystemSetting",
+      "sequence": "public.\"SystemSetting_id_seq\"",
+      "maximumId": 40952,
+      "lastValue": 60725,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "User",
+      "sequence": "public.\"User_id_seq\"",
+      "maximumId": 355,
+      "lastValue": 361,
+      "isCalled": true,
+      "nextValueSafe": true
+    },
+    {
+      "table": "UserActivityLog",
+      "sequence": "public.\"UserActivityLog_id_seq\"",
+      "maximumId": 537,
+      "lastValue": 611,
+      "isCalled": true,
+      "nextValueSafe": true
+    }
+  ],
+  "conflicts": {
+    "missingBaselineRows": 0,
+    "duplicateBaselineRows": 0,
+    "unsafeSequences": 0,
+    "unexplainedChanges": 0
+  },
+  "fingerprints": {
+    "prerequisites": "ed5ce46d25c9470100914fa6bb581ff7c4b9fe08f3cfc91193da4cc2415163b1",
+    "coverage": "c5e72ebc9098875fdde5bfbacaa07274fd1ed0bf86855dc510ab8d7ed73ce0eb",
+    "controlTotals": "7ef479a70fa8fd4fd2f592b540b553678f79eee1b145db08271d93ffb1eb6dca",
+    "integrity": "c7f0269743ae703da2bb4c15840a743a122d359782cf60f5b19d218167d07473",
+    "quarantine": "0c8c9b8fc045ae716923ff01939f2f423b95aceeaf51d457beab609f85fa77dd",
+    "sequences": "bde5efa5c852f0ba2c6e95cfeeb1c61e460033749849c9a5c1861cf69cc769ea",
+    "report": "b730d2aaad2742fcce0fa21c889703d99bc10d7a2c458d49e5af654ad6906e78"
+  },
+  "execution": {
+    "startedAt": "2026-08-02T18:27:11.983Z",
+    "completedAt": "2026-08-02T18:27:13.373Z",
+    "durationMs": 1390.16
+  }
+}

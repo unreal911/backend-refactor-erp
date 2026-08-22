@@ -12,10 +12,51 @@
  *
  * Nota e-beta: getStatus puede devolver 98 (en proceso); el job reintenta con backoff.
  */
-import { prisma } from "../data/prisma";
+import {
+    prisma,
+    runTenantDatabaseTransaction,
+} from "../data/prisma";
+import { platformPrisma } from "../data/platform-prisma";
 import { ComprobanteService } from "../modules/sunat/services/comprobante.service";
 
 const service = new ComprobanteService();
+
+type SunatJobPayload = {
+    tenantId: string;
+    command: "resumen" | "tickets";
+    date?: string;
+};
+
+function validateJobPayload(input: {
+    tenantId?: unknown;
+    command?: unknown;
+    date?: unknown;
+}): SunatJobPayload {
+    const tenantId = String(input.tenantId ?? "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tenantId)) {
+        throw new Error("El payload del job requiere un tenantId UUID valido");
+    }
+    if (input.command !== "resumen" && input.command !== "tickets") {
+        throw new Error(
+            "Uso: sunat-jobs.ts <resumen [YYYY-MM-DD] | tickets>",
+        );
+    }
+
+    const date = input.date === undefined
+        ? undefined
+        : String(input.date).trim();
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        throw new Error("La fecha del job debe usar el formato YYYY-MM-DD");
+    }
+    if (input.command === "tickets" && date) {
+        throw new Error("El job tickets no recibe fecha");
+    }
+    return {
+        tenantId,
+        command: input.command,
+        ...(date ? { date } : {}),
+    };
+}
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -66,19 +107,61 @@ async function cmdTickets(): Promise<void> {
     }
 }
 
+async function resolveJobTenant(): Promise<{ id: string; slug: string }> {
+    const selector = String(
+        process.env.SUNAT_TENANT_ID
+        ?? process.env.SUNAT_TENANT_SLUG
+        ?? "",
+    ).trim();
+    if (selector) {
+        const tenant = await platformPrisma.tenant.findFirst({
+            where: {
+                OR: [{ id: selector }, { slug: selector }],
+                status: { in: ["TRIAL", "ACTIVE"] },
+            },
+            select: { id: true, slug: true },
+        });
+        if (!tenant) {
+            throw new Error(
+                `La empresa SUNAT '${selector}' no existe o no esta activa`,
+            );
+        }
+        return tenant;
+    }
+
+    const tenants = await platformPrisma.tenant.findMany({
+        where: { status: { in: ["TRIAL", "ACTIVE"] } },
+        select: { id: true, slug: true },
+        orderBy: { createdAt: "asc" },
+        take: 2,
+    });
+    if (tenants.length !== 1) {
+        throw new Error(
+            "Define SUNAT_TENANT_SLUG o SUNAT_TENANT_ID para ejecutar el job en una empresa",
+        );
+    }
+    return tenants[0]!;
+}
+
 async function main(): Promise<void> {
     const [cmd, arg] = process.argv.slice(2);
-    switch (cmd) {
-        case "resumen":
-            await cmdResumen(arg);
-            break;
-        case "tickets":
-            await cmdTickets();
-            break;
-        default:
-            console.error("Uso: sunat-jobs.ts <resumen [YYYY-MM-DD] | tickets>");
-            process.exit(1);
-    }
+    const tenant = await resolveJobTenant();
+    const payload = validateJobPayload({
+        tenantId: tenant.id,
+        command: cmd,
+        date: arg,
+    });
+    console.log(`Empresa SUNAT: ${tenant.slug} (${tenant.id})`);
+    await runTenantDatabaseTransaction(payload.tenantId, async () => {
+        switch (payload.command) {
+            case "resumen":
+                await cmdResumen(payload.date);
+                break;
+            case "tickets":
+                await cmdTickets();
+                break;
+        }
+    });
 }
 
 main()

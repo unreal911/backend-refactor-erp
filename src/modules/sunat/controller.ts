@@ -34,6 +34,16 @@ function parseDryRun(body: unknown): boolean {
     return (body as Record<string, unknown>).dryRun === true;
 }
 
+function idempotencyKey(req: Request): string | undefined {
+    const header = req.header("Idempotency-Key")?.trim();
+    if (header) return header;
+    if (!req.body || typeof req.body !== "object") return undefined;
+    const bodyValue = (req.body as Record<string, unknown>).idempotencyKey;
+    return typeof bodyValue === "string" && bodyValue.trim()
+        ? bodyValue.trim()
+        : undefined;
+}
+
 function parseIdList(body: unknown): number[] {
     if (!body || typeof body !== "object") throw CustomError.badRequest("Body invalido");
     const b = body as Record<string, unknown>;
@@ -84,6 +94,7 @@ export class SunatController {
             const comprobante = await this.service.emitirDesdeOrder(orderId, "FACTURA", {
                 cliente: parseCliente(req.body),
                 dryRun: parseDryRun(req.body),
+                idempotencyKey: idempotencyKey(req),
             });
             res.status(201).json(comprobante);
         } catch (error) {
@@ -101,6 +112,7 @@ export class SunatController {
                 cliente: parseCliente(req.body),
                 dryRun: parseDryRun(req.body),
                 viaResumen: body.viaResumen === true,
+                idempotencyKey: idempotencyKey(req),
             });
             res.status(201).json(comprobante);
         } catch (error) {
@@ -113,7 +125,7 @@ export class SunatController {
         try {
             const body = (req.body ?? {}) as Record<string, unknown>;
             const fecha = typeof body.fecha === "string" ? body.fecha : undefined;
-            res.status(201).json(await this.service.generarResumenDiario(fecha));
+            res.status(201).json(await this.service.generarResumenDiario(fecha, idempotencyKey(req)));
         } catch (error) {
             handleError(error, res);
         }
@@ -132,7 +144,10 @@ export class SunatController {
     // body: { comprobanteIds: number[] }  o  { comprobanteId }  (boletas ya aceptadas)
     anularBoletas = async (req: Request, res: Response): Promise<void> => {
         try {
-            res.status(201).json(await this.service.anularBoletasPorResumen(parseIdList(req.body)));
+            res.status(201).json(await this.service.anularBoletasPorResumen(
+                parseIdList(req.body),
+                idempotencyKey(req),
+            ));
         } catch (error) {
             handleError(error, res);
         }
@@ -142,7 +157,10 @@ export class SunatController {
     // body: { items: [{comprobanteId, motivo}] }  o  { comprobanteId, motivo } (uno solo)
     generarComunicacionBaja = async (req: Request, res: Response): Promise<void> => {
         try {
-            res.status(201).json(await this.service.generarComunicacionBaja(parseBajaItems(req.body)));
+            res.status(201).json(await this.service.generarComunicacionBaja(
+                parseBajaItems(req.body),
+                idempotencyKey(req),
+            ));
         } catch (error) {
             handleError(error, res);
         }
@@ -192,6 +210,7 @@ export class SunatController {
             codigoMotivo,
             descripcionMotivo,
             dryRun: parseDryRun(body),
+            idempotencyKey: idempotencyKey(req),
         });
         res.status(201).json(comprobante);
     };

@@ -1,4 +1,4 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { Prisma } from "@prisma/client";
 import { CustomError } from "../../domain/errors/custom.error";
 import { CreateOrderDto } from "../../domain/dtos/create-order.dto";
@@ -15,7 +15,13 @@ import { RequestPickingResponsibilityDto } from "../../domain/dtos/request-picki
 import { ResolvePickingResponsibilityRequestDto } from "../../domain/dtos/resolve-picking-responsibility-request.dto";
 import { RequestPickingUnpickActionDto } from "../../domain/dtos/request-picking-unpick-action.dto";
 import { ResolvePickingUnpickActionDto } from "../../domain/dtos/resolve-picking-unpick-action.dto";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
+import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
+import { PlanAccessService } from "../../modules/plans/plan-access.service";
 import {
     MarketplaceGuideItem,
     MarketplacePaymentMethod,
@@ -117,6 +123,10 @@ import {
 export class OrderService {
     constructor() {}
 
+    private currentTenantId(): string {
+        return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+    }
+
     private async syncPickingOrderItemDetailsForOrder(
         order: any,
         dbClient: any = prisma,
@@ -184,6 +194,7 @@ export class OrderService {
             await dbClient.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "PickingOrderItemDetail" (
+                        "tenantId",
                         "orderId",
                         "orderItemId",
                         "pickingItemId",
@@ -191,13 +202,14 @@ export class OrderService {
                         "pickedQuantity"
                     )
                     VALUES (
+                        ${this.currentTenantId()}::uuid,
                         ${orderId},
                         ${orderItemId},
                         ${normalizedPickingItemId},
                         ${variantId},
                         ${nextPickedQuantity}
                     )
-                    ON CONFLICT ("orderItemId")
+                    ON CONFLICT ("tenantId", "orderItemId")
                     DO UPDATE SET
                         "orderId" = EXCLUDED."orderId",
                         "pickingItemId" = EXCLUDED."pickingItemId",
@@ -357,42 +369,62 @@ export class OrderService {
     /**
      * Crear un nuevo pedido
      */
-    async createOrder(dto: CreateOrderDto) {
+    async createOrder(dto: CreateOrderDto, context?: {
+        salesChannel: 'POS' | 'INTERNAL';
+        actorUserId: number;
+        canOverridePrice: boolean;
+    }) {
+        const salesChannel = context?.salesChannel ?? detectSalesChannel(dto.note);
+        const actorUserId = context?.actorUserId ?? dto.sellerUserId;
         // C4: idempotencia. Si ya existe una orden con esta clave, devolverla
         // (replay de un reintento/doble-submit) sin crear ni consumir stock de nuevo.
         if (dto.idempotencyKey) {
             const existing = await this.findOrderByIdempotencyKey(dto.idempotencyKey);
             if (existing) {
+                if (context && Number(existing.sellerUserId || 0) !== context.actorUserId) {
+                    throw CustomError.notFound('Pedido no encontrado');
+                }
                 return existing;
             }
         }
 
+        if (salesChannel === "POS") {
+            await TenantQuotaService.assertPosSaleAllowed();
+        }
+
         // Validar que la tienda origen existe
-        const sourceStore = await prisma.store.findUnique({
-            where: { id: dto.sourceStoreId },
+        const sourceStore = await prisma.store.findFirst({
+            where: { id: dto.sourceStoreId, isActive: true },
         });
         if (!sourceStore) {
-            throw CustomError.badRequest(`La tienda origen con ID ${dto.sourceStoreId} no existe`);
+            throw CustomError.badRequest(`La tienda origen con ID ${dto.sourceStoreId} no existe o está inactiva`);
         }
 
         // Validar que la tienda de fulfillment existe si se proporciona
         if (dto.fulfillmentStoreId) {
-            const fulfillmentStore = await prisma.store.findUnique({
-                where: { id: dto.fulfillmentStoreId },
+            const fulfillmentStore = await prisma.store.findFirst({
+                where: { id: dto.fulfillmentStoreId, isActive: true },
             });
             if (!fulfillmentStore) {
-                throw CustomError.badRequest(`La tienda de fulfillment con ID ${dto.fulfillmentStoreId} no existe`);
+                throw CustomError.badRequest(`La tienda de fulfillment con ID ${dto.fulfillmentStoreId} no existe o está inactiva`);
             }
         }
 
         // Validar que el usuario vendedor existe si se proporciona
-        if (dto.sellerUserId) {
+        if (actorUserId) {
             const seller = await prisma.user.findUnique({
-                where: { id: dto.sellerUserId },
+                where: { id: actorUserId },
             });
             if (!seller) {
-                throw CustomError.badRequest(`El usuario vendedor con ID ${dto.sellerUserId} no existe`);
+                throw CustomError.badRequest(`El usuario vendedor con ID ${actorUserId} no existe`);
             }
+        }
+
+        const selectedCustomer = dto.customerId
+            ? await prisma.customer.findUnique({ where: { id: dto.customerId } })
+            : null;
+        if (dto.customerId && (!selectedCustomer || !selectedCustomer.isActive)) {
+            throw CustomError.badRequest('El cliente seleccionado no existe o esta inactivo');
         }
 
         // Validar que todos los productos/variantes existen
@@ -429,7 +461,7 @@ export class OrderService {
         const orderFulfillmentStoreId = uniqueFulfillmentStoreIds.length === 1
             ? uniqueFulfillmentStoreIds[0] ?? null
             : dto.fulfillmentStoreId ?? null;
-        const isPosOrder = detectSalesChannel(dto.note) === 'POS';
+        const isPosOrder = salesChannel === 'POS';
         const hasRemoteFulfillment = resolvedFulfillmentStoreIds.some((storeId) => Number(storeId) !== Number(dto.sourceStoreId));
         const shouldConsumeDirectStock = isPosOrder && !hasRemoteFulfillment;
 
@@ -447,15 +479,23 @@ export class OrderService {
             });
         }
 
-        // C3: en mayorista el precio se negocia y lo fija el vendedor (DTO), pero se
-        // valida que sea un numero positivo para bloquear tampering (0/negativo/NaN).
+        // El catalogo es la fuente de verdad. Un precio distinto solo se acepta
+        // cuando el actor posee el permiso explicito de descuento.
         const resolveUnitPrice = (item: { variantId: number; unitPrice: number }): number => {
-            const price = Number(item.unitPrice);
-            if (!Number.isFinite(price) || price <= 0) {
-                const variant = variants.find((v) => v.id === item.variantId);
+            const variant = variants.find((entry) => entry.id === item.variantId);
+            const catalogPrice = Number(variant?.price || 0);
+            const requestedPrice = Number(item.unitPrice);
+            if (!Number.isFinite(catalogPrice) || catalogPrice <= 0) {
+                throw CustomError.badRequest(`Precio de catalogo invalido para ${variant?.product.name ?? item.variantId}`);
+            }
+            if (!Number.isFinite(requestedPrice) || requestedPrice <= 0) {
                 throw CustomError.badRequest(`Precio unitario invalido para ${variant?.product.name ?? item.variantId}`);
             }
-            return price;
+            const isOverride = Math.abs(requestedPrice - catalogPrice) >= 0.005;
+            if (isOverride && context && !context.canOverridePrice) {
+                throw CustomError.forbidden('No tienes permiso para modificar el precio de catalogo');
+            }
+            return isOverride && (context?.canOverridePrice ?? true) ? requestedPrice : catalogPrice;
         };
 
         // Calcular totales con el precio validado.
@@ -531,13 +571,15 @@ export class OrderService {
                             ? OrderStatusEnum.WAITING_TRANSFER
                             : OrderStatusEnum.PENDING,
                     sourceStoreId: dto.sourceStoreId,
+                    salesChannel,
                     fulfillmentStoreId: orderFulfillmentStoreId,
-                    sellerUserId: dto.sellerUserId ?? null,
-                    clientName: dto.clientName ?? null,
-                    clientEmail: dto.clientEmail ?? null,
-                    clientPhone: dto.clientPhone ?? null,
-                    clienteTipoDoc: dto.clienteTipoDoc ?? null,
-                    clienteNumDoc: dto.clienteNumDoc ?? null,
+                    sellerUserId: actorUserId ?? null,
+                    customerId: selectedCustomer?.id ?? null,
+                    clientName: dto.clientName ?? selectedCustomer?.name ?? null,
+                    clientEmail: dto.clientEmail ?? selectedCustomer?.email ?? null,
+                    clientPhone: dto.clientPhone ?? selectedCustomer?.phone ?? null,
+                    clienteTipoDoc: dto.clienteTipoDoc ?? selectedCustomer?.documentType ?? null,
+                    clienteNumDoc: dto.clienteNumDoc ?? selectedCustomer?.documentNumber ?? null,
                     comprobanteTipo: dto.comprobanteTipo ?? null,
                     subtotal,
                     tax,
@@ -601,7 +643,7 @@ export class OrderService {
                             previousStock,
                             newStock,
                             note: `Stock consumido por venta POS ${createdOrder.code}`,
-                            responsibleUserId: dto.sellerUserId ?? null,
+                            responsibleUserId: actorUserId ?? null,
                             inventoryId: inventory.id,
                         },
                     });
@@ -615,7 +657,7 @@ export class OrderService {
                         inventoryId: inventory.id,
                         variantId: item.variantId,
                         orderId: createdOrder.id,
-                        reservedById: dto.sellerUserId ?? null,
+                        reservedById: actorUserId ?? null,
                     },
                 });
                 await tx.inventory.update({
@@ -681,17 +723,28 @@ export class OrderService {
         }
     }
 
-    async createMarketplaceOrder(dto: CreateMarketplaceOrderDto) {
+    async createMarketplaceOrder(dto: CreateMarketplaceOrderDto, marketplaceCustomerId?: number) {
         // C4: idempotencia. Reintento/doble-submit con la misma clave -> replay.
         if (dto.idempotencyKey) {
+            const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
             const existing = await prisma.order.findUnique({
-                where: { idempotencyKey: dto.idempotencyKey },
+                where: {
+                    tenantId_idempotencyKey: {
+                        tenantId,
+                        idempotencyKey: dto.idempotencyKey,
+                    },
+                },
                 include: this.orderDetailInclude,
             });
             if (existing) {
+                if ((existing.marketplaceCustomerId ?? null) !== (marketplaceCustomerId ?? null)) {
+                    throw CustomError.notFound('Pedido no encontrado');
+                }
                 return buildMarketplaceOrderResponse(existing);
             }
         }
+
+        await PlanAccessService.assert("marketplace");
 
         const [selectedPaymentMethod, marketplaceSettings] = await Promise.all([
             resolveMarketplacePaymentMethod(dto.paymentMethodId),
@@ -755,22 +808,29 @@ export class OrderService {
             let totalRequested = 0;
             let totalReserved = 0;
             let totalPending = 0;
-            const autoReserveStock = false;
+            const autoReserveStock = marketplaceSettings.autoReserveStock;
             const availableStockByVariant = new Map<number, number>();
             const inventoryIdByVariant = new Map<number, number>();
 
-            const inventories = await tx.inventory.findMany({
-                where: {
-                    storeId: dto.sourceStoreId,
-                    variantId: { in: uniqueVariantIds },
-                },
-                select: {
-                    id: true,
-                    variantId: true,
-                    stock: true,
-                    reservedStock: true,
-                },
-            });
+            const transactionTenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+            // Serializa el calculo y la reserva sobre cada fila. El segundo checkout
+            // concurrente espera y luego observa el reservedStock ya confirmado.
+            const inventories = await tx.$queryRaw<Array<{
+                id: number;
+                variantId: number;
+                stock: number;
+                reservedStock: number;
+            }>>(
+                Prisma.sql`
+                    SELECT "id", "variantId", "stock", "reservedStock"
+                    FROM "Inventory"
+                    WHERE "tenantId" = ${transactionTenantId}::uuid
+                      AND "storeId" = ${dto.sourceStoreId}
+                      AND "variantId" IN (${Prisma.join(uniqueVariantIds)})
+                    ORDER BY "id"
+                    FOR UPDATE
+                `,
+            );
 
             for (const inventory of inventories) {
                 const availableStock = Math.max(0, Number(inventory.stock || 0) - Number(inventory.reservedStock || 0));
@@ -831,10 +891,12 @@ export class OrderService {
                     ...(dto.idempotencyKey ? { idempotencyKey: dto.idempotencyKey } : {}),
                     status,
                     sourceStoreId: dto.sourceStoreId,
+                    salesChannel: 'ECOMMERCE',
                     fulfillmentStoreId: dto.sourceStoreId,
                     clientName: normalizedClientName,
                     clientEmail: dto.clientEmail ?? null,
                     clientPhone: dto.clientPhone,
+                    marketplaceCustomerId: marketplaceCustomerId ?? null,
                     subtotal,
                     tax,
                     total,
@@ -938,11 +1000,20 @@ export class OrderService {
         } catch (error) {
             // Carrera exacta con la misma idempotencyKey: devolver la ya creada.
             if (dto.idempotencyKey && (error as { code?: string })?.code === 'P2002') {
+                const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
                 const existing = await prisma.order.findUnique({
-                    where: { idempotencyKey: dto.idempotencyKey },
+                    where: {
+                        tenantId_idempotencyKey: {
+                            tenantId,
+                            idempotencyKey: dto.idempotencyKey,
+                        },
+                    },
                     include: this.orderDetailInclude,
                 });
                 if (existing) {
+                    if ((existing.marketplaceCustomerId ?? null) !== (marketplaceCustomerId ?? null)) {
+                        throw CustomError.notFound('Pedido no encontrado');
+                    }
                     return buildMarketplaceOrderResponse(existing);
                 }
             }
@@ -1075,32 +1146,12 @@ export class OrderService {
         return mapMarketplaceOrderSummaries(orders);
     }
 
-    async listMarketplaceOrdersByCustomerProfile(customer: { phone: string; email: string }, take: number = 20) {
-        const phone = String(customer.phone || '').trim();
-        const email = String(customer.email || '').trim().toLowerCase();
-
-        if (!phone && !email) {
-            return [];
-        }
-
-        const fallbackOr: Array<any> = [];
-        if (phone) {
-            fallbackOr.push({ clientPhone: phone });
-        }
-        if (email) {
-            fallbackOr.push({ clientEmail: { equals: email, mode: 'insensitive' as const } });
-        }
-
-        if (fallbackOr.length === 0) {
-            return [];
-        }
-
+    async listMarketplaceOrdersByCustomerId(marketplaceCustomerId: number, take: number = 20) {
+        if (!Number.isInteger(marketplaceCustomerId) || marketplaceCustomerId < 1) return [];
         const orders = await prisma.order.findMany({
             where: {
-                AND: [
-                    { OR: fallbackOr },
-                    buildMarketplaceOrderScopeWhere(),
-                ],
+                marketplaceCustomerId,
+                ...buildMarketplaceOrderScopeWhere(),
             },
             include: {
                 items: true,
@@ -1154,8 +1205,14 @@ export class OrderService {
     // C4: busca una orden ya creada con esta clave de idempotencia (mismo include
     // que devuelve createOrder, para que el replay entregue la misma forma).
     private async findOrderByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         return prisma.order.findUnique({
-            where: { idempotencyKey },
+            where: {
+                tenantId_idempotencyKey: {
+                    tenantId,
+                    idempotencyKey,
+                },
+            },
             include: {
                 items: {
                     include: {
@@ -1206,7 +1263,7 @@ export class OrderService {
     }
 
     private async reserveMarketplaceGuideForConfirmation(order: any, dbClient: any, responsibleUserId?: number | null) {
-        if (detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+        if (detectSalesChannel(order?.note, order?.code, order?.salesChannel) !== 'ECOMMERCE') {
             return;
         }
 
@@ -1236,7 +1293,7 @@ export class OrderService {
     }
 
     private async attachReservationSuggestions(order: any, dbClient: any = prisma) {
-        if (!order || detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+        if (!order || detectSalesChannel(order?.note, order?.code, order?.salesChannel) !== 'ECOMMERCE') {
             return order;
         }
 
@@ -1531,7 +1588,7 @@ export class OrderService {
         const targetStatus = dto.status as OrderStatusEnum;
         const isEcommerceGuideConfirmationRetry = currentStatus === OrderStatusEnum.CONFIRMED
             && targetStatus === OrderStatusEnum.CONFIRMED
-            && detectSalesChannel(order?.note, order?.code) === 'ECOMMERCE'
+            && detectSalesChannel(order?.note, order?.code, order?.salesChannel) === 'ECOMMERCE'
             && !order.reservations.some((reservation: any) => reservation.status === 'ACTIVE');
 
         // Validar transicion de estados
@@ -1540,7 +1597,9 @@ export class OrderService {
             [OrderStatusEnum.CONFIRMED]: [OrderStatusEnum.PREPARING, OrderStatusEnum.WAITING_TRANSFER, OrderStatusEnum.CANCELLED, OrderStatusEnum.RETURN_PENDING],
             [OrderStatusEnum.WAITING_STOCK]: [OrderStatusEnum.CONFIRMED, OrderStatusEnum.CANCELLED, OrderStatusEnum.RETURN_PENDING],
             [OrderStatusEnum.WAITING_TRANSFER]: [OrderStatusEnum.PREPARING, OrderStatusEnum.CANCELLED, OrderStatusEnum.RETURN_PENDING],
-            [OrderStatusEnum.PREPARING]: [OrderStatusEnum.READY, OrderStatusEnum.CANCELLED, OrderStatusEnum.RETURN_PENDING],
+            // READY solo lo establece completeOrderPicking, que verifica todas las
+            // cantidades separadas y cierra la sesion de picking atomicamente.
+            [OrderStatusEnum.PREPARING]: [OrderStatusEnum.CANCELLED, OrderStatusEnum.RETURN_PENDING],
             [OrderStatusEnum.READY]: [OrderStatusEnum.DELIVERED, OrderStatusEnum.CANCELLED, OrderStatusEnum.RETURN_PENDING],
             [OrderStatusEnum.DELIVERED]: [],
             [OrderStatusEnum.RETURN_PENDING]: [OrderStatusEnum.CANCELLED],
@@ -2401,6 +2460,7 @@ export class OrderService {
                 await tx.$executeRaw(
                     Prisma.sql`
                         INSERT INTO "PickingOrderItemDetail" (
+                            "tenantId",
                             "orderId",
                             "orderItemId",
                             "pickingItemId",
@@ -2408,13 +2468,14 @@ export class OrderService {
                             "pickedQuantity"
                         )
                         VALUES (
+                            ${this.currentTenantId()}::uuid,
                             ${orderId},
                             ${Number(orderItem.id)},
                             ${Number(requestRow.pickingItemId)},
                             ${Number(orderItem.variantId || pickingItem.variantId || 0)},
                             ${nextPickedQuantityForItem}
                         )
-                        ON CONFLICT ("orderItemId")
+                        ON CONFLICT ("tenantId", "orderItemId")
                         DO UPDATE SET
                             "orderId" = EXCLUDED."orderId",
                             "pickingItemId" = EXCLUDED."pickingItemId",
@@ -3060,6 +3121,7 @@ export class OrderService {
             await tx.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "PickingOrderItemDetail" (
+                        "tenantId",
                         "orderId",
                         "orderItemId",
                         "pickingItemId",
@@ -3067,13 +3129,14 @@ export class OrderService {
                         "pickedQuantity"
                     )
                     VALUES (
+                        ${this.currentTenantId()}::uuid,
                         ${orderId},
                         ${orderItemId},
                         ${pickingItemId > 0 ? pickingItemId : null},
                         ${Number(targetOrderItem?.variantId || 0)},
                         ${normalizedPickedQuantity}
                     )
-                    ON CONFLICT ("orderItemId")
+                    ON CONFLICT ("tenantId", "orderItemId")
                     DO UPDATE SET
                         "orderId" = EXCLUDED."orderId",
                         "pickingItemId" = EXCLUDED."pickingItemId",
@@ -3259,6 +3322,7 @@ export class OrderService {
                 await tx.$executeRaw(
                     Prisma.sql`
                         INSERT INTO "PickingOrderItemDetail" (
+                            "tenantId",
                             "orderId",
                             "orderItemId",
                             "pickingItemId",
@@ -3266,13 +3330,14 @@ export class OrderService {
                             "pickedQuantity"
                         )
                         VALUES (
+                            ${this.currentTenantId()}::uuid,
                             ${order.id},
                             ${Number(orderItem.id)},
                             ${pickingItemId},
                             ${Number(orderItem.variantId || pickingItem.variantId || 0)},
                             ${nextPickedQuantityForItem}
                         )
-                        ON CONFLICT ("orderItemId")
+                        ON CONFLICT ("tenantId", "orderItemId")
                         DO UPDATE SET
                             "orderId" = EXCLUDED."orderId",
                             "pickingItemId" = EXCLUDED."pickingItemId",
@@ -3508,15 +3573,16 @@ export class OrderService {
                 await tx.$executeRaw(
                     Prisma.sql`
                         INSERT INTO "PickingOrderItemDetail" (
-                            "orderId","orderItemId","pickingItemId","variantId","pickedQuantity"
+                            "tenantId","orderId","orderItemId","pickingItemId","variantId","pickedQuantity"
                         ) VALUES (
+                            ${this.currentTenantId()}::uuid,
                             ${orderId},
                             ${row.orderItemId},
                             ${row.pickingItemId > 0 ? row.pickingItemId : null},
                             ${row.variantId},
                             ${row.limit}
                         )
-                        ON CONFLICT ("orderItemId")
+                        ON CONFLICT ("tenantId", "orderItemId")
                         DO UPDATE SET
                             "orderId" = EXCLUDED."orderId",
                             "pickingItemId" = EXCLUDED."pickingItemId",
@@ -4083,7 +4149,7 @@ export class OrderService {
             if (!order) {
                 throw CustomError.notFound(`El pedido con ID ${orderId} no existe`);
             }
-            if (detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+            if (detectSalesChannel(order?.note, order?.code, order?.salesChannel) !== 'ECOMMERCE') {
                 throw CustomError.badRequest('Solo se puede marcar faltante en proformas ecommerce');
             }
 
@@ -4370,7 +4436,7 @@ export class OrderService {
         if (!order) {
             throw CustomError.notFound('El pedido no existe');
         }
-        if (detectSalesChannel(order?.note, order?.code) !== 'ECOMMERCE') {
+        if (detectSalesChannel(order?.note, order?.code, order?.salesChannel) !== 'ECOMMERCE') {
             throw CustomError.badRequest(`Solo se puede ${action} en proformas ecommerce`);
         }
         const status = String(order.status || '').toUpperCase();

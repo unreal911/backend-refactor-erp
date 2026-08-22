@@ -2,6 +2,8 @@
 // Soporta sendBill (sincrono) y sendSummary/getStatus (asincrono, para
 // resumen diario de boletas y comunicacion de baja).
 
+import { OperationalMetrics } from "../../operations/operational-metrics";
+
 export interface SoapCredentials {
     username: string; // RUC + usuario SOL concatenados
     password: string;
@@ -87,9 +89,14 @@ export class SunatSoapClient {
 </soapenv:Envelope>`;
     }
 
-    private async post(endpoint: string, envelope: string): Promise<{ status: number; ok: boolean; body: string }> {
+    private async post(
+        endpoint: string,
+        envelope: string,
+        operation: "sendBill" | "sendSummary" | "getStatus",
+    ): Promise<{ status: number; ok: boolean; body: string }> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+        const startedAt = Date.now();
         try {
             const res = await fetch(endpoint, {
                 method: "POST",
@@ -98,7 +105,11 @@ export class SunatSoapClient {
                 signal: controller.signal,
             });
             const body = await res.text();
+            OperationalMetrics.observeDependency("SUNAT", operation, res.ok, Date.now() - startedAt);
             return { status: res.status, ok: res.ok, body };
+        } catch (caught) {
+            OperationalMetrics.observeDependency("SUNAT", operation, false, Date.now() - startedAt);
+            throw caught;
         } finally {
             clearTimeout(timeout);
         }
@@ -107,7 +118,7 @@ export class SunatSoapClient {
     async sendBill(input: SendBillInput): Promise<SendBillResponse> {
         const body = `<ser:sendBill><fileName>${escapeXml(input.fileName)}</fileName><contentFile>${input.zipBuffer.toString("base64")}</contentFile></ser:sendBill>`;
         try {
-            const { status, ok, body: resBody } = await this.post(input.endpoint, this.envelope(input.credentials, body));
+            const { status, ok, body: resBody } = await this.post(input.endpoint, this.envelope(input.credentials, body), "sendBill");
             const appResponse = extractTag(resBody, "applicationResponse");
             const faultCode = extractTag(resBody, "faultcode");
             const faultString = decodeXml(extractTag(resBody, "faultstring"));
@@ -130,7 +141,7 @@ export class SunatSoapClient {
     async sendSummary(input: SendBillInput): Promise<SendSummaryResponse> {
         const body = `<ser:sendSummary><fileName>${escapeXml(input.fileName)}</fileName><contentFile>${input.zipBuffer.toString("base64")}</contentFile></ser:sendSummary>`;
         try {
-            const { status, ok, body: resBody } = await this.post(input.endpoint, this.envelope(input.credentials, body));
+            const { status, ok, body: resBody } = await this.post(input.endpoint, this.envelope(input.credentials, body), "sendSummary");
             const ticket = extractTag(resBody, "ticket");
             const faultCode = extractTag(resBody, "faultcode");
             const faultString = decodeXml(extractTag(resBody, "faultstring"));
@@ -153,7 +164,7 @@ export class SunatSoapClient {
     async getStatus(endpoint: string, cred: SoapCredentials, ticket: string): Promise<GetStatusResponse> {
         const body = `<ser:getStatus><ticket>${escapeXml(ticket)}</ticket></ser:getStatus>`;
         try {
-            const { status, ok, body: resBody } = await this.post(endpoint, this.envelope(cred, body));
+            const { status, ok, body: resBody } = await this.post(endpoint, this.envelope(cred, body), "getStatus");
             const statusCode = extractTag(resBody, "statusCode");
             const content = extractTag(resBody, "content");
             const faultCode = extractTag(resBody, "faultcode");

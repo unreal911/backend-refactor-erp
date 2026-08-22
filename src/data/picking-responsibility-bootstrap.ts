@@ -102,7 +102,23 @@ const PICKING_RESPONSIBILITY_SCHEMA_STATEMENTS: string[] = [
 ];
 
 export async function ensurePickingResponsibilitySchema(): Promise<void> {
-    for (const statement of PICKING_RESPONSIBILITY_SCHEMA_STATEMENTS) {
-        await prisma.$executeRawUnsafe(statement);
+    const rows = await prisma.$queryRawUnsafe<Array<{ table_name: string }>>(
+        `SELECT table_name
+         FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND column_name = 'tenantId'
+           AND table_name = ANY($1::text[])`,
+        [
+            'PickingSharedResponsibility',
+            'PickingResponsibilityRequest',
+            'PickingItemContribution',
+            'PickingUnpickRequest',
+            'PickingOrderItemDetail',
+        ],
+    );
+    if (new Set(rows.map((row) => row.table_name)).size !== 5) {
+        throw new Error(
+            'Esquema de picking tenant incompleto. Ejecuta `npm run db:migrate:deploy`.',
+        );
     }
 }

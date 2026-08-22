@@ -1,4 +1,12 @@
 import { Prisma } from "@prisma/client";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
+
+function currentTenantId(): string {
+    return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+}
 
 // Primitivas de reserva atomica anti-carrera (extraidas del god object).
 // El WHERE condicional se re-evalua bajo el lock de fila -> dos reservas
@@ -14,6 +22,7 @@ export async function reserveInventoryConditional(tx: any, inventoryId: number, 
             UPDATE "Inventory"
             SET "reservedStock" = "reservedStock" + ${quantity}
             WHERE "id" = ${inventoryId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "stock" - "reservedStock" >= ${quantity}
         `,
     );
@@ -38,6 +47,7 @@ export async function reserveOrderItemConditional(
                 "status" = 'PENDING',
                 "fulfillmentStoreId" = COALESCE("fulfillmentStoreId", ${fulfillmentStoreId})
             WHERE "id" = ${orderItemId}
+              AND "tenantId" = ${currentTenantId()}::uuid
               AND "reserved" + ${quantity} <= "quantity"
         `,
     );
@@ -55,6 +65,7 @@ export async function revertInventoryReservation(tx: any, inventoryId: number, q
             UPDATE "Inventory"
             SET "reservedStock" = GREATEST(0, "reservedStock" - ${quantity})
             WHERE "id" = ${inventoryId}
+              AND "tenantId" = ${currentTenantId()}::uuid
         `,
     );
 }
@@ -70,6 +81,7 @@ export async function releaseOrderItemReservation(tx: any, orderItemId: number, 
             SET "reserved" = GREATEST(0, "reserved" - ${quantity}),
                 "status" = 'PENDING'
             WHERE "id" = ${orderItemId}
+              AND "tenantId" = ${currentTenantId()}::uuid
         `,
     );
 }
@@ -84,6 +96,7 @@ export async function clampOrderItemPickedToReserved(tx: any, orderItemId: numbe
             UPDATE "OrderItem"
             SET "picked" = LEAST("picked", "reserved")
             WHERE "id" = ${orderItemId}
+              AND "tenantId" = ${currentTenantId()}::uuid
         `,
     );
 }
@@ -99,6 +112,7 @@ export async function clampPickingDetailToReserved(tx: any, orderItemId: number,
             SET "pickedQuantity" = LEAST("pickedQuantity", ${maxReserved}),
                 "updatedAt" = CURRENT_TIMESTAMP
             WHERE "orderItemId" = ${orderItemId}
+              AND "tenantId" = ${currentTenantId()}::uuid
             RETURNING "pickingItemId"
         `,
     ) as Array<{ pickingItemId: number | null }>;

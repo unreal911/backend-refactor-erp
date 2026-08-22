@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
 import { InventoryService } from '../src/presentation/services/inventory.service';
+import { tenantService } from './helpers/tenant-service';
+import { ensureTenantTestUser } from './helpers/tenant-test-user';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -29,6 +31,7 @@ const createdProductIds: number[] = [];
 const createdStoreIds: number[] = [];
 const createdUserIds: number[] = [];
 const createdRoleIds: number[] = [];
+const createdMembershipIds: string[] = [];
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -98,17 +101,11 @@ beforeAll(async () => {
   const size = await firstOrCreate(() => prisma.size.findFirst(), () => prisma.size.create({ data: { name: `RA Size ${uniq}` } }));
   sizeId = size.id;
 
-  const existingUser = await prisma.user.findFirst();
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
-    const existingRole = await prisma.role.findFirst();
-    const role = existingRole ?? await prisma.role.create({ data: { name: `RA Role ${uniq}` } });
-    if (!existingRole) createdRoleIds.push(role.id);
-    const user = await prisma.user.create({ data: { firstName: 'RA', lastName: 'User', email: `ra-user-${uniq}@test.local`, password: 'x', roleId: role.id } });
-    createdUserIds.push(user.id);
-    userId = user.id;
-  }
+  const testUser = await ensureTenantTestUser('RA');
+  userId = testUser.userId;
+  if (testUser.createdMembershipId) createdMembershipIds.push(testUser.createdMembershipId);
+  if (testUser.createdUserId) createdUserIds.push(testUser.createdUserId);
+  if (testUser.createdRoleId) createdRoleIds.push(testUser.createdRoleId);
 });
 
 afterAll(async () => {
@@ -119,6 +116,7 @@ afterAll(async () => {
     try { await prisma.inventory.deleteMany({ where: { variantId: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
     try { if (createdStoreIds.length) await prisma.store.deleteMany({ where: { id: { in: createdStoreIds } } }); } catch { /* noop */ }
@@ -133,7 +131,7 @@ describe('reserveAllRecommendedForOrder', () => {
     await seedInv(storeAId, variantId, 10);
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 5 }]);
 
-    const res = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const res = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(res.reservedUnits).toBe(5);
     expect(res.reservedLines).toBe(1);
     expect(await itemReserved(order.items[0].id)).toBe(5);
@@ -143,7 +141,7 @@ describe('reserveAllRecommendedForOrder', () => {
     expect(fresh?.fulfillmentStoreId).toBe(storeAId);
 
     // Re-correr no vuelve a reservar (idempotente: ya no hay pendiente).
-    const again = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const again = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(again.reservedUnits).toBe(0);
     expect(await invReserved(storeAId, variantId)).toBe(5);
   }, 30_000);
@@ -154,7 +152,7 @@ describe('reserveAllRecommendedForOrder', () => {
     await seedInv(storeAId, variantId, 3);
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 5 }]);
 
-    const res = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const res = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(res.reservedUnits).toBe(3);
     expect(await itemReserved(order.items[0].id)).toBe(3);
     const inv = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId: storeAId, variantId } } });
@@ -169,7 +167,7 @@ describe('reserveAllRecommendedForOrder', () => {
     await seedInv(storeBId, variantId, 4); // mayor disponibilidad -> primero
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 5 }]);
 
-    const res = await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    const res = await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
     expect(res.reservedUnits).toBe(5);
     expect(await itemReserved(order.items[0].id)).toBe(5);
     // B (4 disponibles) se consume entero, A cubre la restante (1).
@@ -184,7 +182,7 @@ describe('reserveAllRecommendedForOrder', () => {
     const order = await seedOrder('CANCELLED', [{ variantId, quantity: 5 }]);
 
     await expect(
-      new OrderService().reserveAllRecommendedForOrder(order.id, userId),
+      tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId),
     ).rejects.toThrow(/cerrado o en devolucion/i);
     expect(await invReserved(storeAId, variantId)).toBe(0);
   }, 30_000);
@@ -195,11 +193,11 @@ describe('reserveAllRecommendedForOrder', () => {
     const inv = await seedInv(storeAId, variantId, 8);
     const order = await seedOrder('CONFIRMED', [{ variantId, quantity: 6 }]);
 
-    await new OrderService().reserveAllRecommendedForOrder(order.id, userId);
+    await tenantService(new OrderService()).reserveAllRecommendedForOrder(order.id, userId);
 
     const agg = await prisma.reservation.aggregate({ where: { inventoryId: inv.id, status: 'ACTIVE' }, _sum: { quantity: true } });
     expect(Number(agg._sum.quantity || 0)).toBe(6);
-    const audit = await new InventoryService().auditReservedStock();
+    const audit = await tenantService(new InventoryService()).auditReservedStock();
     expect(audit.items.some((i) => i.inventoryId === inv.id)).toBe(false);
   }, 30_000);
 });

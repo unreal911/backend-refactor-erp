@@ -9,6 +9,14 @@ vi.mock('../src/data/prisma', () => ({
   },
 }));
 
+vi.mock('../src/modules/lifecycle/tenant-lifecycle.service', () => ({
+  TenantQuotaService: {
+    assertVariantsAvailable: vi.fn().mockResolvedValue(undefined),
+    assertMainImagesAvailable: vi.fn().mockResolvedValue(undefined),
+    assertVariantImagesAllowed: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 import { prisma } from '../src/data/prisma';
 import { ProductService } from '../src/presentation/services/product.service';
 

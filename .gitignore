@@ -10,12 +10,16 @@ postgres/
 
 # Entorno local con secretos reales (NO commitear)
 .env
-.env.example
-# .env.production.example SI se commitea (solo plantilla con campos vacios)
+# Las plantillas .env.example y .env.production.example se versionan sin secretos.
 
 node_modules/
 dist/
 build/
 coverage/
+*.log
+.local-runtime/
 /generated/prisma
 docs
+
+# Los dumps de ensayo pueden contener datos empresariales; nunca versionarlos.
+reports/mig-012/*.dump

@@ -4,6 +4,7 @@ vi.mock('../src/data/prisma', () => {
   const prismaMock: any = {
     store: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
     },
     user: {
@@ -33,6 +34,13 @@ vi.mock('../src/data/prisma', () => {
   prismaMock.$transaction = vi.fn(async (cb: any) => cb(prismaMock));
   return { prisma: prismaMock };
 });
+
+vi.mock('../src/modules/lifecycle/tenant-lifecycle.service', () => ({
+  TenantQuotaService: {
+    assertAvailable: vi.fn().mockResolvedValue(undefined),
+    assertPosSaleAllowed: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 
 import { prisma } from '../src/data/prisma';
 import { CreateOrderDto } from '../src/domain/dtos/create-order.dto';
@@ -70,11 +78,12 @@ describe('OrderService POS stock fulfillment', () => {
       reservedStock: 0,
     };
 
-    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
+    vi.mocked(prisma.store.findFirst).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
     vi.mocked(prisma.store.findMany).mockResolvedValueOnce([{ id: 2 }] as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       {
         id: 10,
+        price: 18,
         product: { name: 'Polo para Caballero - Algodon Licrado 30/1 v2' },
       },
     ] as never);
@@ -166,10 +175,11 @@ describe('OrderService POS stock fulfillment', () => {
       reservedStock: 1,
     };
 
-    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
+    vi.mocked(prisma.store.findFirst).mockResolvedValueOnce({ id: 1, name: 'Feria mañana' } as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
       {
         id: 10,
+        price: 18,
         product: { name: 'Polo para Caballero - Algodon Licrado 30/1' },
       },
     ] as never);
@@ -248,9 +258,9 @@ describe('OrderService POS stock fulfillment', () => {
       reservedStock: 0,
     };
 
-    vi.mocked(prisma.store.findUnique).mockResolvedValueOnce({ id: 1, name: 'Feria manana' } as never);
+    vi.mocked(prisma.store.findFirst).mockResolvedValueOnce({ id: 1, name: 'Feria manana' } as never);
     vi.mocked(prisma.productVariant.findMany).mockResolvedValueOnce([
-      { id: 10, product: { name: 'Polo' } },
+      { id: 10, price: 18, product: { name: 'Polo' } },
     ] as never);
     // getOrCreateInventory del primer loop resuelve el par (1:10) una sola vez;
     // el segundo loop ya NO re-consulta (usa el snapshot bajo lock).

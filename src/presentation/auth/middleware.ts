@@ -2,6 +2,19 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { envs } from '../../config/envs';
 import { PermissionService } from '../../modules/auth/services/permission.service';
+import {
+    TenantAccessError,
+    TenantContextService,
+    TenantRequestContext,
+} from '../../modules/tenant/tenant-context.service';
+import {
+    runTenantDatabaseTransaction,
+} from '../../data/prisma';
+import { platformPrisma } from '../../data/platform-prisma';
+import { continueThroughResponse } from '../response-tasks';
+import { CustomError } from '../../domain/errors/custom.error';
+import { PlanAccessService } from '../../modules/plans/plan-access.service';
+import { PlanFeature } from '../../modules/plans/plan-catalog';
 
 export interface AuthRequest extends Request {
     user?: {
@@ -10,10 +23,22 @@ export interface AuthRequest extends Request {
         role: string;
         permissions?: string[];
     };
+    tenant?: TenantRequestContext;
+}
+
+function isFiscalSafeMutation(req: Request): boolean {
+    if (req.method !== 'POST') return false;
+    const path = String(req.originalUrl || req.path).split('?')[0] || '';
+    return [
+        /^\/api\/sunat\/orders\/\d+\/(factura|boleta)\/?$/,
+        /^\/api\/sunat\/comprobantes\/\d+\/(nota-credito|nota-debito)\/?$/,
+        /^\/api\/sunat\/resumen-diario(?:\/anulacion|\/\d+\/consultar)?\/?$/,
+        /^\/api\/sunat\/comunicacion-baja(?:\/\d+\/consultar)?\/?$/,
+    ].some((pattern) => pattern.test(path));
 }
 
 export class AuthMiddleware {
-    static validateJWT(req: AuthRequest, res: Response, next: NextFunction) {
+    static async validateJWT(req: AuthRequest, res: Response, next: NextFunction) {
         const token = req.header('Authorization')?.replace('Bearer ', '');
 
         if (!token) {
@@ -22,17 +47,66 @@ export class AuthMiddleware {
 
         try {
             const decoded = jwt.verify(token, envs.JWT_SECRET) as {
+                scope?: string;
                 id: number;
                 email: string;
                 role: string;
                 permissions?: string[];
+                tenantId?: string;
+                tenantSlug?: string;
+                membershipId?: string;
+                tenantRole?: string;
+                authVersion?: number;
             };
+
+            if (
+                decoded.scope !== 'tenant'
+                || !decoded.tenantId
+                || !decoded.membershipId
+            ) {
+                return res.status(401).json({ message: 'Token tenant inválido' });
+            }
+
+            const tokenUser = await platformPrisma.user.findUnique({
+                where: { id: decoded.id },
+                select: { authVersion: true, isActive: true },
+            });
+            if (
+                !tokenUser?.isActive
+                || tokenUser.authVersion !== (decoded.authVersion ?? 0)
+            ) {
+                return res.status(401).json({ message: 'La sesión ya no es válida' });
+            }
+
+            const tenantContext = await TenantContextService.resolveAuthenticatedContext({
+                userId: decoded.id,
+                tenantId: decoded.tenantId,
+                membershipId: decoded.membershipId,
+            });
+            const requestedTenantId = req.header('x-tenant-id');
+            const requestedTenantSlug = req.header('x-tenant-slug');
+            if (
+                (requestedTenantId && requestedTenantId !== tenantContext.tenant.id)
+                || (requestedTenantSlug && requestedTenantSlug !== tenantContext.tenant.slug)
+            ) {
+                return res.status(403).json({
+                    message: 'El encabezado no corresponde a la membresía autenticada',
+                });
+            }
 
             req.user = {
                 id: decoded.id,
                 email: decoded.email,
-                role: decoded.role
+                role: tenantContext.rbacRole,
             };
+            req.tenant = tenantContext;
+
+            const safeMethod = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
+            if (tenantContext.tenant.readOnly && !safeMethod && !isFiscalSafeMutation(req)) {
+                return res.status(403).json({
+                    message: 'La empresa está en modo de solo lectura',
+                });
+            }
 
             if (Array.isArray(decoded.permissions)) {
                 req.user.permissions = decoded.permissions;
@@ -40,23 +114,54 @@ export class AuthMiddleware {
 
             const refreshedToken = jwt.sign(
                 {
+                    scope: 'tenant',
                     id: decoded.id,
                     email: decoded.email,
-                    role: decoded.role,
+                    role: tenantContext.rbacRole,
                     ...(Array.isArray(decoded.permissions) ? { permissions: decoded.permissions } : {}),
+                    tenantId: tenantContext.tenant.id,
+                    tenantSlug: tenantContext.tenant.slug,
+                    membershipId: tenantContext.membership.id,
+                    tenantRole: tenantContext.membership.role,
+                    authVersion: tokenUser.authVersion,
                 },
                 envs.JWT_SECRET,
                 { expiresIn: '1h' },
             );
             res.setHeader('x-access-token', refreshedToken);
 
-            next();
+            return runTenantDatabaseTransaction(
+                tenantContext.tenant.id,
+                () => continueThroughResponse(res, next),
+            );
         } catch (error: unknown) {
+            if (res.headersSent) {
+                return next(error);
+            }
             if (error instanceof jwt.TokenExpiredError) {
                 return res.status(401).json({ message: 'Token expirado' });
             }
+            if (error instanceof TenantAccessError) {
+                return res.status(403).json({ message: error.message });
+            }
             return res.status(401).json({ message: 'Token invalido' });
         }
+    }
+
+    static requireTenantContext(req: AuthRequest, res: Response, next: NextFunction) {
+        if (!req.user || !req.tenant) {
+            return res.status(403).json({ message: 'Contexto de empresa requerido' });
+        }
+        return next();
+    }
+
+    static requireTenantOwner(req: AuthRequest, res: Response, next: NextFunction) {
+        if (!req.tenant || req.tenant.membership.role !== 'OWNER') {
+            return res.status(403).json({
+                message: 'Esta operación está reservada para el propietario de la empresa',
+            });
+        }
+        return next();
     }
 
     static requireRole(requiredRole: string) {
@@ -85,20 +190,12 @@ export class AuthMiddleware {
             }
 
             try {
-                const permissionQuery: {
-                    userId: number;
-                    roleName: string;
-                    tokenPermissions?: string[] | null;
-                } = {
-                    userId: req.user.id,
-                    roleName: req.user.role
-                };
-
-                if (Array.isArray(req.user.permissions)) {
-                    permissionQuery.tokenPermissions = req.user.permissions;
+                if (!req.tenant) {
+                    return res.status(403).json({ message: 'Contexto de empresa requerido' });
                 }
-
-                const effectivePermissions = await PermissionService.resolvePermissionsForUser(permissionQuery);
+                const effectivePermissions = await PermissionService.resolvePermissionsForTenantRole(
+                    req.tenant.rbacRole,
+                );
 
                 req.user.permissions = effectivePermissions;
 
@@ -113,6 +210,27 @@ export class AuthMiddleware {
             } catch (error: unknown) {
                 const message = error instanceof Error ? error.message : 'No se pudo validar permisos';
                 return res.status(500).json({ message });
+            }
+        };
+    }
+
+    static requirePlanFeature(feature: PlanFeature) {
+        return async (req: AuthRequest, res: Response, next: NextFunction) => {
+            if (!req.tenant) {
+                return res.status(403).json({ message: 'Contexto de empresa requerido' });
+            }
+            try {
+                await PlanAccessService.assert(feature);
+                return next();
+            } catch (caught) {
+                if (caught instanceof CustomError) {
+                    return res.status(caught.statusCode).json({
+                        message: caught.message,
+                        reason: 'PLAN_FEATURE_NOT_INCLUDED',
+                        feature,
+                    });
+                }
+                return res.status(500).json({ message: 'No se pudo validar el plan' });
             }
         };
     }

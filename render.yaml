@@ -1,0 +1,156 @@
+# Blueprint de prueba: API tenant y worker por cron.
+# El backend del superadmin y su scheduler permanecen fuera de Render.
+
+services:
+  - type: web
+    name: tienda-api-test
+    runtime: node
+    plan: free
+    branch: agent/mig-012-preproduction
+    buildCommand: npm ci && npm run build && npm run release
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_PATH
+        value: public
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: PAYMENT_PROOF_ENC_KEY
+        sync: false
+      - key: SUNAT_CONFIG_ENC_KEY
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.resend.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        value: resend
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: OWNER_SIGNUP_ENABLED
+        value: "true"
+      - key: OWNER_SIGNUP_VERIFY_URL
+        sync: false
+      - key: OWNER_SIGNUP_TERMS_VERSION
+        sync: false
+      - key: OWNER_SIGNUP_TOKEN_PEPPER
+        generateValue: true
+      - key: OWNER_SIGNUP_ABUSE_PEPPER
+        generateValue: true
+      - key: TENANT_INVITATION_ENABLED
+        value: "true"
+      - key: TENANT_INVITATION_ACCEPT_URL
+        sync: false
+      - key: TENANT_INVITATION_TOKEN_PEPPER
+        generateValue: true
+      - key: PASSWORD_RESET_ENABLED
+        value: "true"
+      - key: PASSWORD_RESET_URL
+        sync: false
+      - key: PASSWORD_RESET_TOKEN_PEPPER
+        generateValue: true
+      - key: TRIAL_EXPORT_URL
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_EXPECTED_HOSTNAMES
+        sync: false
+      - key: CLOUD_MODE
+        value: aws
+      - key: SUNAT_DOCUMENT_STORAGE_ENABLED
+        value: "false"
+      - key: SUNAT_KMS_SECRETS_ENABLED
+        value: "false"
+      - key: SUNAT_LEGACY_BASE64_FALLBACK_ENABLED
+        value: "true"
+      - key: S3_FORCE_PATH_STYLE
+        value: "false"
+      - key: SEED_ENDPOINT_ENABLED
+        value: "false"
+      - key: SEED_INCLUDE_DEMO_USERS
+        value: "false"
+      - key: SEED_INCLUDE_PRODUCTS
+        value: "false"
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: render-test
+
+  # Sustituto económico de un worker permanente para pruebas.
+  - type: cron
+    name: tienda-worker-drain-test
+    runtime: node
+    plan: starter
+    branch: agent/mig-012-preproduction
+    schedule: "*/5 * * * *"
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:worker:drain
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_PATH
+        value: public
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.resend.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        value: resend
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: TRIAL_EXPORT_URL
+        sync: false
+      - key: CLOUD_MODE
+        value: aws
+      - key: SUNAT_DOCUMENT_STORAGE_ENABLED
+        value: "false"
+      - key: SUNAT_KMS_SECRETS_ENABLED
+        value: "false"
+      - key: SUNAT_LEGACY_BASE64_FALLBACK_ENABLED
+        value: "true"
+      - key: S3_FORCE_PATH_STYLE
+        value: "false"
+      - key: WORKER_DRAIN_MAX_JOBS
+        value: "50"
+      - key: SUNAT_TICKET_POLL_SECONDS
+        value: "120"
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: render-test

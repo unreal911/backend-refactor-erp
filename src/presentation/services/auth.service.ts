@@ -1,9 +1,15 @@
-import { prisma } from '../../data/prisma';
+import { platformPrisma as prisma } from '../../data/platform-prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { LoginDto } from '../../domain/dtos/login.dto';
 import { PermissionService } from './permission.service';
 import { envs } from '../../config/envs';
+import {
+    TenantContextService,
+    TenantRequestContext,
+} from '../../modules/tenant/tenant-context.service';
+import { PlanAccessService } from '../../modules/plans/plan-access.service';
+import { TenantPlanCode } from '@prisma/client';
 
 type AuthUserPayload = {
     id: number;
@@ -11,25 +17,52 @@ type AuthUserPayload = {
     lastName: string;
     email: string;
     isActive: boolean;
+    authVersion: number;
     role: {
         name: string;
     };
 };
 
+export class AccountActivationRequiredError extends Error {
+    readonly statusCode = 403;
+    readonly code: "EMAIL_VERIFICATION_REQUIRED" | "TRIAL_SETUP_REQUIRED";
+
+    constructor(code: AccountActivationRequiredError["code"]) {
+        super(code === "EMAIL_VERIFICATION_REQUIRED"
+            ? "Tu correo todavía no está verificado. Reenvía el enlace de activación y revisa también la carpeta de spam."
+            : "Tu correo ya está verificado, pero falta terminar de crear la prueba. Solicita un nuevo enlace para continuar.");
+        this.code = code;
+    }
+}
+
 export class AuthService {
-    private static async buildAuthUserContext(user: AuthUserPayload) {
-        const permissions = await PermissionService.resolvePermissionsForUser({
-            userId: user.id,
-            roleName: user.role.name
-        });
+    private static async buildAuthUserContext(
+        user: AuthUserPayload,
+        tenantContext: TenantRequestContext,
+    ) {
+        const permissions = await PermissionService.resolvePermissionsForTenantRole(
+            tenantContext.rbacRole,
+        );
+        const planSnapshot = {
+            planCode: tenantContext.tenant.planCode ?? TenantPlanCode.STARTER,
+            planFeatures: tenantContext.tenant.planFeatures ?? [],
+            welcomeStorePromotionEndsAt: tenantContext.tenant.welcomeStorePromotionEndsAt ?? null,
+        };
+        const planFeatures = Array.from(PlanAccessService.effectiveFeatures(planSnapshot)).sort();
 
         return {
             id: user.id,
             firstName: user.firstName,
             lastName: user.lastName,
             email: user.email,
-            role: user.role.name,
-            permissions
+            role: tenantContext.rbacRole,
+            permissions,
+            tenant: tenantContext.tenant,
+            membership: tenantContext.membership,
+            plan: {
+                code: planSnapshot.planCode,
+                features: planFeatures,
+            },
         };
     }
 
@@ -56,6 +89,7 @@ export class AuthService {
                 email: true,
                 password: true,
                 isActive: true,
+                authVersion: true,
                 role: {
                     select: {
                         name: true
@@ -65,6 +99,22 @@ export class AuthService {
         });
 
         if (!user) {
+            const pendingRegistration = await prisma.ownerRegistration.findUnique({
+                where: { email },
+                select: { passwordHash: true, status: true },
+            });
+            if (pendingRegistration) {
+                const pendingPasswordValid = await bcrypt.compare(
+                    password,
+                    pendingRegistration.passwordHash,
+                );
+                if (pendingPasswordValid && pendingRegistration.status === "EMAIL_PENDING") {
+                    throw new AccountActivationRequiredError("EMAIL_VERIFICATION_REQUIRED");
+                }
+                if (pendingPasswordValid && pendingRegistration.status === "EMAIL_VERIFIED") {
+                    throw new AccountActivationRequiredError("TRIAL_SETUP_REQUIRED");
+                }
+            }
             throw new Error('Credenciales invalidas');
         }
 
@@ -77,14 +127,27 @@ export class AuthService {
             throw new Error('Credenciales invalidas');
         }
 
-        const authUser = await this.buildAuthUserContext(user as AuthUserPayload);
+        const tenantContext = await TenantContextService.resolveForLogin(
+            user.id,
+            loginDto.tenantSlug,
+        );
+        const authUser = await this.buildAuthUserContext(
+            user as AuthUserPayload,
+            tenantContext,
+        );
 
         const token = jwt.sign(
             {
+                scope: 'tenant',
                 id: user.id,
                 email: user.email,
-                role: user.role.name,
-                permissions: authUser.permissions
+                role: tenantContext.rbacRole,
+                permissions: authUser.permissions,
+                tenantId: tenantContext.tenant.id,
+                tenantSlug: tenantContext.tenant.slug,
+                membershipId: tenantContext.membership.id,
+                tenantRole: tenantContext.membership.role,
+                authVersion: user.authVersion,
             },
             envs.JWT_SECRET,
             { expiresIn: '1h' }
@@ -96,7 +159,11 @@ export class AuthService {
         };
     }
 
-    static async me(userId: number, fallbackRoleName?: string, tokenPermissions?: string[]) {
+    static async me(
+        userId: number,
+        tenantContext: TenantRequestContext,
+        tokenPermissions?: string[],
+    ) {
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -105,11 +172,6 @@ export class AuthService {
                 lastName: true,
                 email: true,
                 isActive: true,
-                role: {
-                    select: {
-                        name: true
-                    }
-                }
             }
         });
 
@@ -121,20 +183,15 @@ export class AuthService {
             throw new Error('Usuario inactivo');
         }
 
-        const permissionQuery: {
-            userId: number;
-            roleName: string;
-            tokenPermissions?: string[] | null;
-        } = {
-            userId: user.id,
-            roleName: user.role?.name || fallbackRoleName || ''
+        const permissions = await PermissionService.resolvePermissionsForTenantRole(
+            tenantContext.rbacRole,
+        );
+        const planSnapshot = {
+            planCode: tenantContext.tenant.planCode ?? TenantPlanCode.STARTER,
+            planFeatures: tenantContext.tenant.planFeatures ?? [],
+            welcomeStorePromotionEndsAt: tenantContext.tenant.welcomeStorePromotionEndsAt ?? null,
         };
-
-        if (Array.isArray(tokenPermissions)) {
-            permissionQuery.tokenPermissions = tokenPermissions;
-        }
-
-        const permissions = await PermissionService.resolvePermissionsForUser(permissionQuery);
+        const planFeatures = Array.from(PlanAccessService.effectiveFeatures(planSnapshot)).sort();
 
         return {
             user: {
@@ -142,9 +199,15 @@ export class AuthService {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 email: user.email,
-                role: user.role?.name || fallbackRoleName || 'USER',
-                permissions
-            }
+                role: tenantContext.rbacRole,
+                permissions: permissions.length > 0 ? permissions : tokenPermissions ?? [],
+                tenant: tenantContext.tenant,
+                membership: tenantContext.membership,
+                plan: {
+                    code: planSnapshot.planCode,
+                    features: planFeatures,
+                },
+            },
         };
     }
 }

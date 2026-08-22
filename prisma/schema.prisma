@@ -13,35 +13,54 @@ datasource db {
 
 model Category {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  tenantId  String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name      String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   products Product[]
+
+  @@unique([tenantId, name])
+  @@unique([id, tenantId])
 }
 
 model Color {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  tenantId  String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name      String
   hex       String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   variants ProductVariant[]
+
+  @@unique([tenantId, name])
+  @@unique([id, tenantId])
 }
 
 model Size {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  tenantId  String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name      String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   variants ProductVariant[]
+
+  @@unique([tenantId, name])
+  @@unique([id, tenantId])
 }
 
 model Product {
   id          Int     @id @default(autoincrement())
+  tenantId    String  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   name        String
+  // Unicidad lógica por empresa mediante el índice funcional
+  // Product_tenantId_name_normalized_key (REL-001).
   description String?
 
   isActive Boolean @default(true)
@@ -65,10 +84,15 @@ model Product {
   // RELATIONS
   variants ProductVariant[]
   images   ProductImage[]
+
+  @@unique([id, tenantId])
 }
 
 model ProductImage {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   url String
 
@@ -77,12 +101,17 @@ model ProductImage {
   // RELATION
   productId Int
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
 }
 
 model ProductVariant {
   id Int @id @default(autoincrement())
 
-  sku     String  @unique
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  sku     String
   barcode String?
 
   price Decimal @db.Decimal(10, 2)
@@ -133,7 +162,9 @@ model ProductVariant {
 
   orderItems OrderItem[]
 
-  @@unique([productId, variantKey])
+  @@unique([tenantId, sku])
+  @@unique([tenantId, productId, variantKey])
+  @@unique([id, tenantId])
 }
 
 enum InventoryMovementType {
@@ -169,6 +200,948 @@ enum PickingStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  PURGED
+}
+
+enum TenantKind {
+  TRIAL
+  CUSTOMER
+  INTERNAL
+}
+
+enum TenantDatabaseMode {
+  SHARED
+  DEDICATED
+}
+
+enum TenantPlanCode {
+  TRIAL
+  STARTER
+  GROWTH
+  PREMIUM
+}
+
+enum TenantSubscriptionStatus {
+  INACTIVE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum BillingWebhookStatus {
+  RECEIVED
+  PROCESSED
+  REJECTED
+}
+
+enum PlanVersionStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  RETIRED
+  CANCELLED
+}
+
+enum PlanApplicationPolicy {
+  NEW_CUSTOMERS
+  RENEWAL
+  MANUAL
+  IMMEDIATE
+}
+
+enum TenantPlanAssignmentSource {
+  MIGRATION
+  TRIAL
+  MANUAL_PAYMENT
+  PLATFORM
+  AUTOMATED_PAYMENT
+}
+
+enum TenantPlanAssignmentStatus {
+  SCHEDULED
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum ManualPaymentMethodType {
+  BANK_TRANSFER
+  QR
+}
+
+enum ManualPaymentRequestStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum BillingCycle {
+  MONTHLY
+  ANNUAL
+}
+
+enum ImageProviderType {
+  CLOUDINARY
+  S3
+}
+
+enum ImageProviderEnvironment {
+  ANY
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum ImageProviderHealthStatus {
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+  UNAVAILABLE
+}
+
+enum CommercialAssetPurpose {
+  PRODUCT
+  VARIANT
+  COMPANY_LOGO
+  PLATFORM_QR
+  OTHER
+}
+
+enum CommercialAssetStatus {
+  UPLOADING
+  ACTIVE
+  FAILED
+  DELETED
+}
+
+enum AdminEventOutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+}
+
+enum PlatformMfaStatus {
+  DISABLED
+  PENDING
+  ENABLED
+  LOCKED
+}
+
+enum TenantMembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  SELLER
+  WAREHOUSE
+  PICKER
+  VIEWER
+}
+
+enum TenantMembershipStatus {
+  INVITED
+  ACTIVE
+  INACTIVE
+}
+
+enum TenantInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum OwnerRegistrationStatus {
+  EMAIL_PENDING
+  EMAIL_VERIFIED
+  CONSUMED
+  CANCELLED
+}
+
+enum SignupRateLimitDimension {
+  IP
+  EMAIL
+  DEVICE
+}
+
+enum SignupAbuseReason {
+  CAPTCHA_FAILED
+  CAPTCHA_UNAVAILABLE
+  IP_RATE_LIMIT
+  EMAIL_RATE_LIMIT
+  DEVICE_RATE_LIMIT
+  ACTIVE_TRIAL_LIMIT
+  RUC_TRIAL_LIMIT
+}
+
+enum SignupAbuseReviewStatus {
+  UNREVIEWED
+  FALSE_POSITIVE
+  CONFIRMED_ABUSE
+}
+
+enum TenantMigrationStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  QUARANTINED
+}
+
+model Tenant {
+  id String @id @default(uuid()) @db.Uuid
+
+  slug            String  @unique
+  marketplaceSlug String? @unique
+  name            String
+  legalName       String?
+
+  kind TenantKind @default(CUSTOMER)
+
+  ruc            String?   @db.VarChar(11)
+  rucConfirmedAt DateTime?
+  address        String?
+  contactPhone   String?
+  contactEmail   String?
+  logoUrl        String?
+
+  status       TenantStatus       @default(TRIAL)
+  databaseMode TenantDatabaseMode @default(SHARED)
+
+  planCode        TenantPlanCode @default(TRIAL)
+  maxUsers        Int            @default(3)
+  maxProducts     Int            @default(100)
+  maxOrders       Int            @default(250)
+  maxStorageBytes BigInt         @default(524288000)
+
+  // Cuotas comerciales vigentes. maxOrders se conserva temporalmente por
+  // compatibilidad y refleja la misma cifra que maxPosSalesPerMonth.
+  maxVariantsPerProduct   Int @default(10)
+  maxStores               Int @default(5)
+  maxPosSalesPerMonth     Int @default(70)
+  maxMainImagesPerProduct Int @default(3)
+  maxImagesPerVariant     Int @default(1)
+
+  welcomeStorePromotionStartedAt DateTime?
+  welcomeStorePromotionEndsAt    DateTime?
+  primaryStoreId                 Int?
+
+  // Snapshot comercial aplicado. La versión publicada nunca se consulta como
+  // límite "en vivo": una asignación copia cuotas y capacidades al tenant.
+  activePlanVersionId String?      @db.Uuid
+  activePlanVersion   PlanVersion? @relation(fields: [activePlanVersionId], references: [id], onDelete: Restrict)
+  planFeatures        String[]     @default([])
+
+  trialStartedAt   DateTime?
+  trialEndsAt      DateTime?
+  readOnlyAt       DateTime?
+  graceEndsAt      DateTime?
+  purgeScheduledAt DateTime?
+  purgedAt         DateTime?
+
+  productionApprovedAt   DateTime?
+  productionApprovedById Int?
+  sunatProductionEnabled Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships           TenantMembership[]
+  invitations           TenantInvitation[]
+  trialRegistration     OwnerRegistration?          @relation("ProvisionedTrialTenant")
+  migrationCheckpoints  TenantMigrationCheckpoint[]
+  migrationQuarantines  TenantMigrationQuarantine[]
+  categories            Category[]
+  colors                Color[]
+  sizes                 Size[]
+  products              Product[]
+  productImages         ProductImage[]
+  productVariants       ProductVariant[]
+  stores                Store[]
+  inventories           Inventory[]
+  inventoryMovements    InventoryMovement[]
+  stockTransfers        StockTransfer[]
+  stockTransferItems    StockTransferItem[]
+  reservations          Reservation[]
+  pickingSessions       PickingSession[]
+  pickingItems          PickingItem[]
+  customers             Customer[]
+  orders                Order[]
+  orderItems            OrderItem[]
+  orderReturns          OrderReturn[]
+  orderReturnItems      OrderReturnItem[]
+  paymentMethods        PaymentMethod[]
+  comprobanteSeries     ComprobanteSerie[]
+  comprobantes          Comprobante[]
+  comprobanteItems      ComprobanteItem[]
+  sunatDispatches       SunatDispatch[]
+  resumenesDiarios      ResumenDiario[]
+  comunicacionesBaja    ComunicacionBaja[]
+  sunatEmisorConfigs    SunatEmisorConfig[]
+  sunatArtifacts        SunatArtifact[]
+  sunatJobs             SunatJob[]
+  lifecycleEvents       TenantLifecycleEvent[]
+  subscription          TenantSubscription?
+  billingEvents         BillingWebhookEvent[]
+  planAssignments       TenantPlanAssignment[]
+  manualPaymentRequests ManualPaymentRequest[]
+  commercialAssets      CommercialAsset[]
+  commercialAlerts      CommercialAlert[]
+  adminEventOutbox      AdminEventOutbox[]
+}
+
+model AdminEventOutbox {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sequence BigInt @unique @default(autoincrement())
+  eventType String @db.VarChar(80)
+  payload Json
+  status AdminEventOutboxStatus @default(PENDING)
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, availableAt, createdAt])
+  @@index([tenantId, sequence])
+}
+
+model Customer {
+  id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  name           String
+  documentType   String?
+  documentNumber String?
+  email          String?
+  phone          String?
+  address        String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@unique([tenantId, documentNumber])
+  @@unique([id, tenantId])
+  @@index([tenantId, name])
+}
+
+model TenantLifecycleEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  type        String
+  actorUserId Int?
+  source      String
+  metadata    Json?
+  occurredAt  DateTime @default(now())
+
+  @@unique([id, tenantId])
+  @@index([tenantId, occurredAt])
+  @@index([type, occurredAt])
+}
+
+model TenantSubscription {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @unique @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  provider               String
+  externalCustomerId     String?
+  externalSubscriptionId String?
+  planCode               TenantPlanCode
+  planVersionId          String?                  @db.Uuid
+  planVersion            PlanVersion?             @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  status                 TenantSubscriptionStatus @default(INACTIVE)
+  currentPeriodEndsAt    DateTime?
+  suspendedAt            DateTime?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  @@unique([provider, externalSubscriptionId])
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+}
+
+model Plan {
+  id String @id @default(uuid()) @db.Uuid
+
+  code                           TenantPlanCode @unique
+  displayName                    String
+  description                    String?
+  isPublic                       Boolean        @default(true)
+  isAvailableForNewSubscriptions Boolean        @default(true)
+  createdAt                      DateTime       @default(now())
+  updatedAt                      DateTime       @updatedAt
+
+  versions PlanVersion[]
+}
+
+model PlanVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  planId  String            @db.Uuid
+  plan    Plan              @relation(fields: [planId], references: [id], onDelete: Restrict)
+  version Int
+  status  PlanVersionStatus @default(DRAFT)
+
+  currency          String                @default("PEN") @db.Char(3)
+  monthlyPrice      Decimal?              @db.Decimal(10, 2)
+  annualPrice       Decimal?              @db.Decimal(10, 2)
+  trialDays         Int?
+  applicationPolicy PlanApplicationPolicy @default(NEW_CUSTOMERS)
+
+  maxUsers                Int
+  maxProducts             Int
+  maxVariantsPerProduct   Int
+  maxStores               Int
+  maxPosSalesPerMonth     Int
+  maxStorageBytes         BigInt
+  maxMainImagesPerProduct Int
+  maxImagesPerVariant     Int
+  featureCodes            String[] @default([])
+
+  effectiveFrom            DateTime?
+  effectiveUntil           DateTime?
+  activatedAt              DateTime?
+  retiredAt                DateTime?
+  createdByPlatformAdminId String?   @db.Uuid
+  activationReason         String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  activeTenants         Tenant[]
+  subscriptions         TenantSubscription[]
+  assignments           TenantPlanAssignment[]
+  manualPaymentRequests ManualPaymentRequest[]
+
+  @@unique([planId, version])
+  @@index([planId, status, effectiveFrom])
+}
+
+model TenantPlanAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId      String      @db.Uuid
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  planVersionId String      @db.Uuid
+  planVersion   PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+
+  status                   TenantPlanAssignmentStatus @default(ACTIVE)
+  source                   TenantPlanAssignmentSource
+  price                    Decimal?                   @db.Decimal(10, 2)
+  currency                 String                     @default("PEN") @db.Char(3)
+  startsAt                 DateTime
+  endsAt                   DateTime?
+  reason                   String?
+  createdByPlatformAdminId String?                    @db.Uuid
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  manualPaymentRequest ManualPaymentRequest?
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status, startsAt])
+  @@index([planVersionId, status])
+}
+
+model ManualPaymentMethod {
+  id String @id @default(uuid()) @db.Uuid
+
+  type                     ManualPaymentMethodType
+  name                     String
+  bankName                 String?
+  accountHolder            String?
+  accountNumber            String?
+  cci                      String?
+  currency                 String                  @default("PEN") @db.Char(3)
+  qrImageUrl               String?
+  instructions             String?
+  displayOrder             Int                     @default(0)
+  isActive                 Boolean                 @default(true)
+  effectiveFrom            DateTime?
+  effectiveUntil           DateTime?
+  createdByPlatformAdminId String?                 @db.Uuid
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  requests ManualPaymentRequest[]
+
+  @@index([isActive, displayOrder])
+}
+
+model ManualPaymentRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  code            String                @unique
+  clientRequestId String
+  tenantId        String                @db.Uuid
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  planVersionId   String                @db.Uuid
+  planVersion     PlanVersion           @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  paymentMethodId String?               @db.Uuid
+  paymentMethod   ManualPaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  assignmentId    String?               @unique @db.Uuid
+  assignment      TenantPlanAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  proof           ManualPaymentProof?
+
+  status                    ManualPaymentRequestStatus @default(PENDING_REVIEW)
+  billingCycle              BillingCycle               @default(MONTHLY)
+  periodMonths              Int                        @default(1)
+  offeredPrice              Decimal                    @db.Decimal(10, 2)
+  currency                  String                     @default("PEN") @db.Char(3)
+  amountReported            Decimal?                   @db.Decimal(10, 2)
+  operationReference        String?
+  paidAt                    DateTime?
+  proofUrl                  String?
+  applicantNote             String?
+  downgradeSelection        Json?
+  internalNote              String?
+  requestedByUserId         Int?
+  reviewedByPlatformAdminId String?                    @db.Uuid
+  reviewedAt                DateTime?
+  rejectionReason           String?
+  expiresAt                 DateTime
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, clientRequestId])
+  @@index([tenantId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([operationReference])
+}
+
+model ManualPaymentProof {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId        String @db.Uuid
+  paymentRequestId String @unique @db.Uuid
+  paymentRequest  ManualPaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+
+  filename    String @db.VarChar(180)
+  contentType String @db.VarChar(80)
+  sizeBytes   Int
+  sha256      String @db.Char(64)
+  ciphertext Bytes
+  iv         Bytes
+  authTag    Bytes
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model ImageProviderProfile {
+  id String @id @default(uuid()) @db.Uuid
+
+  type        ImageProviderType
+  name        String @unique
+  environment ImageProviderEnvironment @default(ANY)
+  secretRef   String
+  config      Json @default("{}")
+
+  isEnabled         Boolean @default(true)
+  isActive          Boolean @default(false)
+  pauseNewUploads   Boolean @default(false)
+  maxUploadBytes    BigInt  @default(10485760)
+  capacityBytes     BigInt?
+  warningPercent    Int     @default(80)
+  monthlyBudgetUsd  Decimal? @db.Decimal(10, 2)
+
+  providerUsage          Json?
+  providerUsageCheckedAt DateTime?
+  providerUsageError     String?
+
+  healthStatus            ImageProviderHealthStatus @default(UNKNOWN)
+  lastHealthMessage       String?
+  lastHealthCheckedAt     DateTime?
+  createdByPlatformAdminId String? @db.Uuid
+  updatedByPlatformAdminId String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets CommercialAsset[]
+
+  @@index([isActive, isEnabled])
+  @@index([type, environment])
+}
+
+model CommercialAsset {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  providerProfileId String @db.Uuid
+  providerProfile ImageProviderProfile @relation(fields: [providerProfileId], references: [id], onDelete: Restrict)
+
+  purpose CommercialAssetPurpose
+  ownerType String
+  ownerId String
+  externalId String
+  url String
+  contentType String
+  sizeBytes BigInt
+  width Int?
+  height Int?
+  sha256 String @db.Char(64)
+  variants Json?
+  status CommercialAssetStatus @default(UPLOADING)
+  failureReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@unique([id, tenantId])
+  @@unique([providerProfileId, externalId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, ownerType, ownerId, status])
+  @@index([url])
+}
+
+model CommercialAlert {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  key       String
+  type      String
+  severity  String
+  title     String
+  message   String
+  percent   Int?
+  metadata  Json?
+  isActive  Boolean @default(true)
+  firstTriggeredAt DateTime @default(now())
+  lastTriggeredAt  DateTime @default(now())
+  resolvedAt DateTime?
+  dismissedAt DateTime?
+
+  @@unique([tenantId, key])
+  @@unique([id, tenantId])
+  @@index([tenantId, isActive, lastTriggeredAt])
+}
+
+model BillingWebhookEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  provider        String
+  externalEventId String
+  eventType       String
+  payloadSha256   String               @db.Char(64)
+  signatureSha256 String               @db.Char(64)
+  status          BillingWebhookStatus @default(RECEIVED)
+  rejectionReason String?
+
+  tenantId String? @db.Uuid
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@unique([provider, externalEventId])
+  @@index([tenantId, receivedAt])
+  @@index([status, receivedAt])
+}
+
+model TenantMembership {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  role   TenantMembershipRole
+  status TenantMembershipStatus @default(ACTIVE)
+
+  invitedAt     DateTime?
+  activatedAt   DateTime?
+  deactivatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sentInvitations     TenantInvitation[] @relation("TenantInvitationInviter")
+  acceptedInvitations TenantInvitation[] @relation("TenantInvitationAcceptedMembership")
+
+  @@unique([userId, tenantId])
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+  @@index([userId, status])
+}
+
+model TenantInvitation {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  email  String                 @db.VarChar(320)
+  role   TenantMembershipRole
+  status TenantInvitationStatus @default(PENDING)
+
+  tokenHash String   @unique @db.Char(64)
+  expiresAt DateTime
+
+  invitedByMembershipId String           @db.Uuid
+  invitedByMembership   TenantMembership @relation("TenantInvitationInviter", fields: [invitedByMembershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  acceptedMembershipId String?           @unique @db.Uuid
+  acceptedMembership   TenantMembership? @relation("TenantInvitationAcceptedMembership", fields: [acceptedMembershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([tenantId, status, createdAt])
+  @@index([email, status])
+}
+
+model OwnerRegistration {
+  id String @id @default(uuid()) @db.Uuid
+
+  firstName    String @db.VarChar(100)
+  lastName     String @db.VarChar(100)
+  email        String @unique @db.VarChar(320)
+  passwordHash String
+  businessName String @db.VarChar(120)
+
+  signupEmailFingerprint  String? @db.Char(64)
+  signupIpFingerprint     String? @db.Char(64)
+  signupDeviceFingerprint String? @db.Char(64)
+
+  status          OwnerRegistrationStatus @default(EMAIL_PENDING)
+  termsAcceptedAt DateTime
+  termsVersion    String                  @db.VarChar(50)
+
+  verificationTokenHash      String?   @unique @db.Char(64)
+  verificationTokenExpiresAt DateTime?
+  verificationRequestedAt    DateTime
+  emailVerifiedAt            DateTime?
+
+  trialProvisioningTokenHash      String?   @unique @db.Char(64)
+  trialProvisioningTokenExpiresAt DateTime?
+  consumedAt                      DateTime?
+
+  provisionedTenantId String? @unique @db.Uuid
+  provisionedTenant   Tenant? @relation("ProvisionedTrialTenant", fields: [provisionedTenantId], references: [id], onDelete: Restrict)
+  provisionedUserId   Int?    @unique
+  provisionedUser     User?   @relation("ProvisionedTrialUser", fields: [provisionedUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, verificationTokenExpiresAt])
+  @@index([status, trialProvisioningTokenExpiresAt])
+  @@index([signupEmailFingerprint, signupDeviceFingerprint])
+}
+
+model SignupRateLimitBucket {
+  id String @id @default(uuid()) @db.Uuid
+
+  dimension       SignupRateLimitDimension
+  fingerprint     String                   @db.Char(64)
+  windowStartedAt DateTime
+  windowEndsAt    DateTime
+  attempts        Int                      @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dimension, fingerprint, windowStartedAt])
+  @@index([windowEndsAt])
+}
+
+model SignupAbuseEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  reason            SignupAbuseReason
+  aggregationKey    String            @db.Char(64)
+  emailFingerprint  String            @db.Char(64)
+  ipFingerprint     String            @db.Char(64)
+  deviceFingerprint String            @db.Char(64)
+  rucFingerprint    String?           @db.Char(64)
+  captchaVerified   Boolean           @default(false)
+  bucketStartedAt   DateTime
+  firstOccurredAt   DateTime          @default(now())
+  lastOccurredAt    DateTime          @default(now())
+  occurrences       Int               @default(1)
+
+  reviewStatus  SignupAbuseReviewStatus @default(UNREVIEWED)
+  reviewNote    String?                 @db.VarChar(500)
+  reviewedAt    DateTime?
+  overrideUntil DateTime?
+
+  reviewedByPlatformAdminId String?        @db.Uuid
+  reviewedByPlatformAdmin   PlatformAdmin? @relation(fields: [reviewedByPlatformAdminId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reason, aggregationKey, bucketStartedAt])
+  @@index([reviewStatus, lastOccurredAt])
+  @@index([emailFingerprint, deviceFingerprint, overrideUntil])
+}
+
+model TrialBenefitClaim {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId         String  @unique @db.Uuid
+  emailFingerprint String? @db.Char(64)
+  ipFingerprint    String? @db.Char(64)
+  deviceFingerprint String? @db.Char(64)
+  rucFingerprint   String? @unique @db.Char(64)
+
+  claimedAt     DateTime  @default(now())
+  rucConfirmedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([emailFingerprint])
+  @@index([deviceFingerprint])
+}
+
+model TenantMigrationCheckpoint {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  domain  String
+  storyId String
+  status  TenantMigrationStatus @default(PENDING)
+  details Json?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenantId, storyId])
+  @@index([tenantId, status])
+}
+
+model TenantMigrationQuarantine {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  storyId     String
+  sourceTable String
+  sourceKey   String
+  reasonCode  String
+  resolution  String
+
+  originalData Json
+  relatedData  Json?
+  originalHash String
+  archivedAt   DateTime @default(now())
+
+  @@unique([tenantId, storyId, sourceTable, sourceKey], map: "TenantMigrationQuarantine_source_key")
+  @@index([tenantId, reasonCode], map: "TenantMigrationQuarantine_tenant_reason_idx")
+}
+
+model PlatformAdmin {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  roleId String @default(dbgenerated("'40000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  role   PlatformRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  mfaStatus              PlatformMfaStatus @default(DISABLED)
+  totpSecretEncrypted    String?
+  recoveryCodeHashes     String[] @default([])
+  mfaFailedAttempts      Int @default(0)
+  mfaLockedUntil         DateTime?
+  mfaEnrolledAt          DateTime?
+
+  signupAbuseReviews SignupAbuseEvent[]
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId, isActive])
+}
+
+model PlatformRole {
+  id String @id @default(uuid()) @db.Uuid
+  code String @unique
+  name String
+  description String?
+  version Int @default(1)
+  isSystem Boolean @default(true)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admins PlatformAdmin[]
+  permissions PlatformRolePermission[]
+}
+
+model PlatformPermission {
+  code String @id
+  name String
+  module String
+  description String?
+  createdAt DateTime @default(now())
+
+  roles PlatformRolePermission[]
+}
+
+model PlatformRolePermission {
+  roleId String @db.Uuid
+  role PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionCode String
+  permission PlatformPermission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([roleId, permissionCode])
+  @@index([permissionCode])
+}
+
+model PlatformAuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  actorPlatformAdminId String?  @db.Uuid
+  action               String
+  entityType           String
+  entityId             String?
+  reason               String?
+  correlationId        String?
+  before               Json?
+  after                Json?
+  occurredAt           DateTime @default(now())
+
+  @@index([occurredAt])
+  @@index([actorPlatformAdminId, occurredAt])
+  @@index([entityType, entityId, occurredAt])
 }
 
 model Role {
@@ -218,8 +1191,9 @@ model User {
   firstName String
   lastName  String
 
-  email    String @unique
-  password String
+  email       String @unique
+  password    String
+  authVersion Int    @default(0)
 
   isActive Boolean @default(true)
 
@@ -228,6 +1202,11 @@ model User {
 
   roleId Int
   role   Role @relation(fields: [roleId], references: [id])
+
+  tenantMemberships   TenantMembership[]
+  platformAdmin       PlatformAdmin?
+  trialRegistration   OwnerRegistration?   @relation("ProvisionedTrialUser")
+  passwordResetTokens PasswordResetToken[]
 
   inventoryMovements InventoryMovement[]
 
@@ -239,12 +1218,27 @@ model User {
   pickingSessions PickingSession[]
 
   // ORDER RESPONSIBILITIES
-  sellerOrders Order[] @relation("OrderSeller")
-  pickerOrders Order[] @relation("OrderPicker")
-  dispenserOrders Order[] @relation("OrderDispenser")
-  cancelledOrders Order[] @relation("OrderCancelledBy")
+  sellerOrders            Order[] @relation("OrderSeller")
+  pickerOrders            Order[] @relation("OrderPicker")
+  dispenserOrders         Order[] @relation("OrderDispenser")
+  cancelledOrders         Order[] @relation("OrderCancelledBy")
   returnResponsibleOrders Order[] @relation("OrderReturnResponsible")
-  delegatedReturnOrders Order[] @relation("OrderReturnDelegatedBy")
+  delegatedReturnOrders   Order[] @relation("OrderReturnDelegatedBy")
+}
+
+model PasswordResetToken {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, usedAt])
 }
 
 enum StoreType {
@@ -255,9 +1249,12 @@ enum StoreType {
 model Store {
   id Int @id @default(autoincrement())
 
-  name String
-  code String @unique
-  type StoreType @default(STORE)
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  name    String
+  code    String
+  type    StoreType @default(STORE)
   address String?
 
   isActive Boolean @default(true)
@@ -271,16 +1268,22 @@ model Store {
   incomingTransfers StockTransfer[] @relation("TransferTo")
 
   // ORDER RELATIONS
-  sourceOrders Order[] @relation("OrderSourceStore")
-  fulfillmentOrders Order[] @relation("OrderFulfillmentStore")
+  sourceOrders          Order[]     @relation("OrderSourceStore")
+  fulfillmentOrders     Order[]     @relation("OrderFulfillmentStore")
   fulfillmentOrderItems OrderItem[] @relation("OrderItemFulfillmentStore")
 
   // SUNAT
   comprobanteSeries ComprobanteSerie[] @relation("StoreComprobanteSeries")
+
+  @@unique([tenantId, code])
+  @@unique([id, tenantId])
 }
 
 model Inventory {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   stock Int @default(0)
 
@@ -300,10 +1303,15 @@ model Inventory {
   reservations Reservation[]
 
   @@unique([storeId, variantId])
+  @@unique([tenantId, storeId, variantId])
+  @@unique([id, tenantId])
 }
 
 model InventoryMovement {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   type InventoryMovementType
 
@@ -327,12 +1335,17 @@ model InventoryMovement {
 
   reservationId Int?
   reservation   Reservation? @relation(fields: [reservationId], references: [id])
+
+  @@unique([id, tenantId])
 }
 
 model StockTransfer {
   id Int @id @default(autoincrement())
 
-  code String @unique
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  code String
 
   status TransferStatus @default(PENDING)
 
@@ -353,16 +1366,23 @@ model StockTransfer {
   toStoreId Int
   toStore   Store @relation("TransferTo", fields: [toStoreId], references: [id])
 
-  orderId Int? @unique
-  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId Int?   @unique
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   items StockTransferItem[]
 
   movements InventoryMovement[]
+
+  @@unique([tenantId, code])
+  @@unique([orderId, tenantId])
+  @@unique([id, tenantId])
 }
 
 model StockTransferItem {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   quantity Int
 
@@ -373,10 +1393,15 @@ model StockTransferItem {
 
   variantId Int
   variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@unique([id, tenantId])
 }
 
 model Reservation {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   quantity Int
 
@@ -391,40 +1416,51 @@ model Reservation {
   variantId Int
   variant   ProductVariant @relation(fields: [variantId], references: [id])
 
-  orderId Int?
-  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId Int?   @unique
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   // Linea concreta del pedido que originó la reserva. Permite el "ledger" por
   // tienda por item desde el backend (multi-dispositivo) sin depender de
   // localStorage. Nullable por compatibilidad con reservas legacy (variante).
   orderItemId Int?
-  orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  orderItem   OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
 
   reservedById Int?
   reservedBy   User? @relation(fields: [reservedById], references: [id])
 
   movements InventoryMovement[]
+
+  @@unique([id, tenantId])
 }
 
 model PickingSession {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   status PickingStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  orderId Int? @unique
-  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId Int?   @unique
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   assignedUserId Int?
   assignedUser   User? @relation(fields: [assignedUserId], references: [id])
 
   items PickingItem[]
+
+  @@unique([orderId, tenantId])
+  @@unique([id, tenantId])
 }
 
 model PickingItem {
   id Int @id @default(autoincrement())
+
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   quantity Int
 
@@ -437,6 +1473,8 @@ model PickingItem {
 
   variantId Int
   variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@unique([id, tenantId])
 }
 
 // ORDER MANAGEMENT
@@ -462,29 +1500,42 @@ enum OrderItemStatus {
 model Order {
   id Int @id @default(autoincrement())
 
-  code String @unique
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  code String
 
   // Idempotencia: clave enviada por el cliente para deduplicar reintentos/doble-submit.
   // Nullable + unique (Postgres permite multiples NULL). Sin clave => sin dedupe.
-  idempotencyKey String? @unique
+  idempotencyKey String?
 
-  status OrderStatus @default(PENDING)
+  status       OrderStatus @default(PENDING)
+  salesChannel String      @default("INTERNAL")
 
-  clientName String?
+  clientName  String?
   clientEmail String?
   clientPhone String?
 
   // Documento del adquirente para facturacion electronica (catalogo 06: 1=DNI, 6=RUC).
   clienteTipoDoc String?
-  clienteNumDoc String?
+  clienteNumDoc  String?
+
+  // Vinculo a la ficha reutilizable. Los campos client* de arriba permanecen
+  // como snapshot historico para comprobantes y reportes.
+  customerId Int?
+  customer   Customer? @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  // Propietario de cuenta marketplace. Es un FK SQL compuesto hacia la tabla
+  // MarketplaceCustomer, gestionada fuera del cliente Prisma.
+  marketplaceCustomerId Int?
 
   // Comprobante electronico solicitado al vender: BOLETA | FACTURA (null/NOTA = sin comprobante SUNAT).
   // El backend crea el Comprobante en BORRADOR al registrar la venta (fuente de verdad, reconciliable).
   comprobanteTipo String?
 
   subtotal Decimal @default(0) @db.Decimal(12, 2)
-  tax Decimal @default(0) @db.Decimal(12, 2)
-  total Decimal @default(0) @db.Decimal(12, 2)
+  tax      Decimal @default(0) @db.Decimal(12, 2)
+  total    Decimal @default(0) @db.Decimal(12, 2)
 
   note String?
 
@@ -493,80 +1544,91 @@ model Order {
 
   // STORE RELATIONS
   sourceStoreId Int
-  sourceStore Store @relation("OrderSourceStore", fields: [sourceStoreId], references: [id])
+  sourceStore   Store @relation("OrderSourceStore", fields: [sourceStoreId], references: [id])
 
   fulfillmentStoreId Int?
-  fulfillmentStore Store? @relation("OrderFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
+  fulfillmentStore   Store? @relation("OrderFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
 
   // USER RELATIONS (Responsibles)
   sellerUserId Int?
-  sellerUser User? @relation("OrderSeller", fields: [sellerUserId], references: [id])
+  sellerUser   User? @relation("OrderSeller", fields: [sellerUserId], references: [id])
 
   pickerUserId Int?
-  pickerUser User? @relation("OrderPicker", fields: [pickerUserId], references: [id])
+  pickerUser   User? @relation("OrderPicker", fields: [pickerUserId], references: [id])
 
   dispenserUserId Int?
-  dispenserUser User? @relation("OrderDispenser", fields: [dispenserUserId], references: [id])
+  dispenserUser   User? @relation("OrderDispenser", fields: [dispenserUserId], references: [id])
 
   cancelledByUserId Int?
-  cancelledByUser User? @relation("OrderCancelledBy", fields: [cancelledByUserId], references: [id])
+  cancelledByUser   User? @relation("OrderCancelledBy", fields: [cancelledByUserId], references: [id])
 
   returnResponsibleUserId Int?
-  returnResponsibleUser User? @relation("OrderReturnResponsible", fields: [returnResponsibleUserId], references: [id])
+  returnResponsibleUser   User? @relation("OrderReturnResponsible", fields: [returnResponsibleUserId], references: [id])
 
   returnResponsibilityDelegatedById Int?
-  returnResponsibilityDelegatedBy User? @relation("OrderReturnDelegatedBy", fields: [returnResponsibilityDelegatedById], references: [id])
+  returnResponsibilityDelegatedBy   User? @relation("OrderReturnDelegatedBy", fields: [returnResponsibilityDelegatedById], references: [id])
 
-  returnResponsibilityStatus ReturnResponsibilityStatus?
-  returnRequestedAt DateTime?
+  returnResponsibilityStatus     ReturnResponsibilityStatus?
+  returnRequestedAt              DateTime?
   returnResponsibilityAcceptedAt DateTime?
-  returnedAt DateTime?
+  returnedAt                     DateTime?
 
   // RELATIONS
-  items OrderItem[]
-  reservations Reservation[]
+  items          OrderItem[]
+  reservations   Reservation[]
   pickingSession PickingSession?
-  transfer StockTransfer?
-  comprobantes Comprobante[]
-  returns OrderReturn[]
+  transfer       StockTransfer?
+  comprobantes   Comprobante[]
+  returns        OrderReturn[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, idempotencyKey])
+  @@unique([id, tenantId])
+  @@index([tenantId, customerId])
+  @@index([tenantId, marketplaceCustomerId])
 }
 
 model OrderItem {
   id Int @id @default(autoincrement())
 
-  quantity Int
-  reserved Int @default(0)
-  picked Int @default(0)
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  quantity         Int
+  reserved         Int @default(0)
+  picked           Int @default(0)
   shortageQuantity Int @default(0)
   // Devolucion post-entrega (G4): unidades ya devueltas de esta linea (acumulado).
   returnedQuantity Int @default(0)
 
   unitPrice Decimal @db.Decimal(10, 2)
-  subtotal Decimal @db.Decimal(12, 2)
+  subtotal  Decimal @db.Decimal(12, 2)
 
   status OrderItemStatus @default(PENDING)
 
   // Soft-delete de la proforma ecommerce (eliminar/restaurar con estado real).
   // removedAt != null => la linea queda fuera del total pero se puede restaurar.
-  removedAt DateTime?
+  removedAt     DateTime?
   removedReason String?
-  removedNote String?
-  removedById Int?
+  removedNote   String?
+  removedById   Int?
   removedByName String?
 
   createdAt DateTime @default(now())
 
   orderId Int
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   variantId Int
-  variant ProductVariant @relation(fields: [variantId], references: [id])
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
 
   fulfillmentStoreId Int?
-  fulfillmentStore Store? @relation("OrderItemFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
+  fulfillmentStore   Store? @relation("OrderItemFulfillmentStore", fields: [fulfillmentStoreId], references: [id])
 
   reservations Reservation[]
-  returnItems OrderReturnItem[]
+  returnItems  OrderReturnItem[]
+
+  @@unique([id, tenantId])
 }
 
 // Devolucion post-entrega (G4). Cabecera: una devolucion parcial o total de un
@@ -575,14 +1637,17 @@ model OrderItem {
 model OrderReturn {
   id Int @id @default(autoincrement())
 
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
   orderId Int
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   // Tienda a la que vuelve el stock (normalmente fulfillment/source del pedido).
   storeId Int
 
   reason String
-  note String?
+  note   String?
 
   // Merma: si es false, la devolucion NO repone stock (mercaderia inservible).
   restock Boolean @default(true)
@@ -590,46 +1655,58 @@ model OrderReturn {
   // Responsable de registrar la devolucion (FK a User a nivel BD).
   responsibleUserId Int?
 
-  totalQuantity Int @default(0)
-  totalAmount Decimal @default(0) @db.Decimal(12, 2)
+  totalQuantity Int     @default(0)
+  totalAmount   Decimal @default(0) @db.Decimal(12, 2)
 
   createdAt DateTime @default(now())
 
   items OrderReturnItem[]
 
+  @@unique([id, tenantId])
   @@index([orderId])
 }
 
 model OrderReturnItem {
   id Int @id @default(autoincrement())
 
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
   returnId Int
-  return OrderReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  return   OrderReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
 
   orderItemId Int
-  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
 
   // FK a ProductVariant a nivel BD (sin relacion Prisma para acotar el blast radius).
   variantId Int
 
-  quantity Int
+  quantity  Int
   unitPrice Decimal @db.Decimal(10, 2)
-  subtotal Decimal @db.Decimal(12, 2)
+  subtotal  Decimal @db.Decimal(12, 2)
 
+  @@unique([id, tenantId])
   @@index([returnId])
 }
 
 model PaymentMethod {
   id Int @id @default(autoincrement())
 
-  name String @unique
-  code String @unique
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  displayOrder Int @default(0)
-  isActive Boolean @default(true)
+  name String
+  code String
+
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, code])
+  @@unique([id, tenantId])
 }
 
 // ==========================================================================
@@ -663,16 +1740,64 @@ enum SunatDispatchStatus {
   ERROR
 }
 
+enum SunatArtifactType {
+  SIGNED_XML
+  SUBMISSION_ZIP
+  CDR_ZIP
+  CDR_XML
+  SOAP_RESPONSE
+  PDF_A4
+  PDF_THERMAL
+}
+
+enum SunatArtifactOwnerType {
+  COMPROBANTE
+  DISPATCH
+  RESUMEN
+  BAJA
+}
+
+enum SunatArtifactStorageStatus {
+  PENDING
+  STORED
+  VERIFIED
+  QUARANTINED
+  DELETED
+}
+
+enum SunatJobType {
+  SEND_SUMMARY
+  POLL_TICKET
+  GENERATE_PDF
+  CHECK_CERTIFICATE_EXPIRY
+  PURGE_TRIAL
+  MIGRATE_ARTIFACTS
+  REENCRYPT_SECRETS
+  NOTIFY_TRIAL_EXPIRY
+}
+
+enum SunatJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DEAD
+}
+
 // Numeracion correlativa por tipo de comprobante y serie (opcionalmente por tienda).
 model ComprobanteSerie {
   id Int @id @default(autoincrement())
 
-  tipo ComprobanteTipo
-  serie String // p.ej. F001, B001, FC01, FD01
-  correlativo Int @default(0) // ultimo numero emitido
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  tipo        ComprobanteTipo
+  serie       String // p.ej. F001, B001, FC01, FD01
+  scopeKey    String          @default("GLOBAL")
+  correlativo Int             @default(0) // ultimo numero emitido
 
   storeId Int?
-  store Store? @relation("StoreComprobanteSeries", fields: [storeId], references: [id])
+  store   Store? @relation("StoreComprobanteSeries", fields: [storeId], references: [id])
 
   isActive Boolean @default(true)
 
@@ -681,7 +1806,8 @@ model ComprobanteSerie {
 
   comprobantes Comprobante[]
 
-  @@unique([tipo, serie])
+  @@unique([tenantId, tipo, serie, scopeKey])
+  @@unique([id, tenantId])
   @@index([storeId])
 }
 
@@ -689,69 +1815,80 @@ model ComprobanteSerie {
 model Comprobante {
   id Int @id @default(autoincrement())
 
-  tipo ComprobanteTipo
-  tipoCodigo String // 01 / 03 / 07 / 08 (catalogo 01)
-  serie String
-  numero Int
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  tipo           ComprobanteTipo
+  tipoCodigo     String // 01 / 03 / 07 / 08 (catalogo 01)
+  serie          String
+  numero         Int
   // Identificador SUNAT: RUC-TT-SERIE-NUMERO (sin extension)
-  nombreArchivo String @unique
+  nombreArchivo  String
+  numberingScope String          @default("GLOBAL")
+  idempotencyKey String?
+  payloadSha256  String?         @db.Char(64)
 
   estado ComprobanteEstado @default(BORRADOR)
 
   // Emisor
-  emisorRuc String
+  emisorRuc         String
   emisorRazonSocial String
 
   // Adquirente
   clienteTipoDoc String // catalogo 06: 6=RUC 1=DNI 0=sin/varios
-  clienteNumDoc String
-  clienteNombre String
+  clienteNumDoc  String
+  clienteNombre  String
 
-  moneda String @default("PEN")
+  moneda       String   @default("PEN")
   fechaEmision DateTime @default(now())
 
   // Totales (snapshot)
-  totalGravado Decimal @default(0) @db.Decimal(12, 2)
-  totalExonerado Decimal @default(0) @db.Decimal(12, 2)
-  totalInafecto Decimal @default(0) @db.Decimal(12, 2)
-  totalGratuito Decimal @default(0) @db.Decimal(12, 2)
-  totalIgv Decimal @default(0) @db.Decimal(12, 2)
-  totalIsc Decimal @default(0) @db.Decimal(12, 2)
+  totalGravado       Decimal @default(0) @db.Decimal(12, 2)
+  totalExonerado     Decimal @default(0) @db.Decimal(12, 2)
+  totalInafecto      Decimal @default(0) @db.Decimal(12, 2)
+  totalGratuito      Decimal @default(0) @db.Decimal(12, 2)
+  totalIgv           Decimal @default(0) @db.Decimal(12, 2)
+  totalIsc           Decimal @default(0) @db.Decimal(12, 2)
   totalOtrosTributos Decimal @default(0) @db.Decimal(12, 2)
-  totalDescuentos Decimal @default(0) @db.Decimal(12, 2)
-  totalValorVenta Decimal @default(0) @db.Decimal(12, 2) // suma valores de venta
-  totalPrecioVenta Decimal @default(0) @db.Decimal(12, 2) // importe total (con impuestos)
+  totalDescuentos    Decimal @default(0) @db.Decimal(12, 2)
+  totalValorVenta    Decimal @default(0) @db.Decimal(12, 2) // suma valores de venta
+  totalPrecioVenta   Decimal @default(0) @db.Decimal(12, 2) // importe total (con impuestos)
   leyendaMontoLetras String
 
   // Nota de credito / debito
-  motivoNota String? // descripcion del motivo
-  motivoNotaCodigo String? // catalogo 09 (NC) / 10 (ND)
+  motivoNota            String? // descripcion del motivo
+  motivoNotaCodigo      String? // catalogo 09 (NC) / 10 (ND)
   comprobanteAfectadoId Int? // comprobante base que modifica
-  comprobanteAfectado Comprobante? @relation("ComprobanteNotas", fields: [comprobanteAfectadoId], references: [id])
-  notas Comprobante[] @relation("ComprobanteNotas")
+  comprobanteAfectado   Comprobante?  @relation("ComprobanteNotas", fields: [comprobanteAfectadoId], references: [id])
+  notas                 Comprobante[] @relation("ComprobanteNotas")
 
   // Origen: proforma / order del sistema
   orderId Int?
-  order Order? @relation(fields: [orderId], references: [id])
+  order   Order? @relation(fields: [orderId], references: [id])
 
   serieRefId Int?
-  serieRef ComprobanteSerie? @relation(fields: [serieRefId], references: [id])
+  serieRef   ComprobanteSerie? @relation(fields: [serieRefId], references: [id])
 
   // Resumen diario que informa la boleta (envio asincrono)
   resumenDiarioId Int?
-  resumenDiario ResumenDiario? @relation(fields: [resumenDiarioId], references: [id])
+  resumenDiario   ResumenDiario? @relation(fields: [resumenDiarioId], references: [id])
 
   // Comunicacion de baja que anula el comprobante (facturas y notas)
   comunicacionBajaId Int?
-  comunicacionBaja ComunicacionBaja? @relation(fields: [comunicacionBajaId], references: [id])
-  motivoBaja String?
+  comunicacionBaja   ComunicacionBaja? @relation(fields: [comunicacionBajaId], references: [id])
+  motivoBaja         String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items ComprobanteItem[]
+  items      ComprobanteItem[]
   dispatches SunatDispatch[]
+  artifacts  SunatArtifact[]
 
+  @@unique([tenantId, nombreArchivo])
+  @@unique([tenantId, tipo, serie, numberingScope, numero])
+  @@unique([tenantId, idempotencyKey])
+  @@unique([id, tenantId])
   @@index([orderId])
   @@index([estado])
   @@index([tipo, fechaEmision])
@@ -760,24 +1897,28 @@ model Comprobante {
 model ComprobanteItem {
   id Int @id @default(autoincrement())
 
-  linea Int // numero de orden del item (1..n)
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  linea          Int // numero de orden del item (1..n)
   codigoProducto String? // codigo interno / sku
-  descripcion String
-  unidadMedida String @default("NIU") // catalogo 03
-  cantidad Decimal @db.Decimal(12, 3)
+  descripcion    String
+  unidadMedida   String  @default("NIU") // catalogo 03
+  cantidad       Decimal @db.Decimal(12, 3)
 
-  valorUnitario Decimal @db.Decimal(12, 6) // sin impuestos
+  valorUnitario  Decimal @db.Decimal(12, 6) // sin impuestos
   precioUnitario Decimal @db.Decimal(12, 6) // con impuestos (PriceType 01)
-  valorVenta Decimal @db.Decimal(12, 2) // cantidad * valorUnitario
-  descuento Decimal @default(0) @db.Decimal(12, 2)
+  valorVenta     Decimal @db.Decimal(12, 2) // cantidad * valorUnitario
+  descuento      Decimal @default(0) @db.Decimal(12, 2)
 
-  afectacionIgvCodigo String @default("10") // catalogo 07 (10=gravado, 20=exon, 30=inaf, ...)
-  igv Decimal @default(0) @db.Decimal(12, 2)
-  isc Decimal @default(0) @db.Decimal(12, 2)
+  afectacionIgvCodigo String  @default("10") // catalogo 07 (10=gravado, 20=exon, 30=inaf, ...)
+  igv                 Decimal @default(0) @db.Decimal(12, 2)
+  isc                 Decimal @default(0) @db.Decimal(12, 2)
 
   comprobanteId Int
-  comprobante Comprobante @relation(fields: [comprobanteId], references: [id], onDelete: Cascade)
+  comprobante   Comprobante @relation(fields: [comprobanteId], references: [id], onDelete: Cascade)
 
+  @@unique([id, tenantId])
   @@index([comprobanteId])
 }
 
@@ -785,32 +1926,40 @@ model ComprobanteItem {
 model SunatDispatch {
   id Int @id @default(autoincrement())
 
-  environment String @default("BETA") // BETA / PRODUCCION
-  endpoint String
-  fileName String // *.zip enviado
-  metodo String @default("sendBill") // sendBill / sendSummary
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  environment      String @default("BETA") // BETA / PRODUCCION
+  endpoint         String
+  fileName         String // *.zip enviado
+  metodo           String @default("sendBill") // sendBill / sendSummary
   documentTypeCode String
 
-  status SunatDispatchStatus
-  ticket String? // para envios asincronos (resumen/baja)
+  status         SunatDispatchStatus
+  idempotencyKey String?
+  requestSha256  String?             @db.Char(64)
+  ticket         String? // para envios asincronos (resumen/baja)
 
-  cdrCode String?
+  cdrCode        String?
   cdrDescription String?
-  cdrNotes String[] @default([])
+  cdrNotes       String[] @default([])
 
-  faultCode String?
+  faultCode   String?
   faultString String?
 
   // Payloads en base64 para auditoria / reintentos
-  xmlBase64 String? // XML firmado enviado
-  cdrZipBase64 String? // ZIP CDR recibido
+  xmlBase64      String? // XML firmado enviado
+  cdrZipBase64   String? // ZIP CDR recibido
   rawResponseXml String?
 
   sentAt DateTime @default(now())
 
-  comprobanteId Int
-  comprobante Comprobante @relation(fields: [comprobanteId], references: [id], onDelete: Cascade)
+  comprobanteId  Int
+  comprobante    Comprobante     @relation(fields: [comprobanteId], references: [id], onDelete: Cascade)
+  sunatArtifacts SunatArtifact[]
 
+  @@unique([id, tenantId])
+  @@unique([tenantId, idempotencyKey])
   @@index([comprobanteId])
   @@index([status])
 }
@@ -820,35 +1969,44 @@ model SunatDispatch {
 model ResumenDiario {
   id Int @id @default(autoincrement())
 
-  correlativo Int
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  correlativo     Int
   fechaReferencia DateTime @db.Date // fecha de emision de las boletas informadas
   fechaGeneracion DateTime @default(now())
-  fileName String @unique // RUC-RC-YYYYMMDD-N
+  fileName        String // RUC-RC-YYYYMMDD-N
+  idempotencyKey  String?
+  payloadSha256   String?  @db.Char(64)
 
   // false = adicion de boletas (estado 1); true = anulacion de boletas (estado 3)
   esAnulacion Boolean @default(false)
 
   environment String @default("BETA")
-  endpoint String
+  endpoint    String
 
   status SunatDispatchStatus @default(PENDING)
   ticket String? // devuelto por sendSummary
 
-  cdrCode String?
+  cdrCode        String?
   cdrDescription String?
-  cdrNotes String[] @default([])
-  faultCode String?
-  faultString String?
+  cdrNotes       String[] @default([])
+  faultCode      String?
+  faultString    String?
 
-  xmlBase64 String?
-  cdrZipBase64 String?
+  xmlBase64      String?
+  cdrZipBase64   String?
   rawResponseXml String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   comprobantes Comprobante[]
+  artifacts    SunatArtifact[]
 
+  @@unique([tenantId, fileName])
+  @@unique([tenantId, idempotencyKey])
+  @@unique([id, tenantId])
   @@index([status])
   @@index([fechaReferencia])
 }
@@ -859,67 +2017,152 @@ model ResumenDiario {
 model ComunicacionBaja {
   id Int @id @default(autoincrement())
 
-  correlativo Int
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  correlativo     Int
   fechaReferencia DateTime @db.Date // fecha de emision de los documentos a dar de baja
   fechaGeneracion DateTime @default(now())
-  fileName String @unique // RUC-RA-YYYYMMDD-N
+  fileName        String // RUC-RA-YYYYMMDD-N
+  idempotencyKey  String?
+  payloadSha256   String?  @db.Char(64)
 
   environment String @default("BETA")
-  endpoint String
+  endpoint    String
 
   status SunatDispatchStatus @default(PENDING)
   ticket String?
 
-  cdrCode String?
+  cdrCode        String?
   cdrDescription String?
-  cdrNotes String[] @default([])
-  faultCode String?
-  faultString String?
+  cdrNotes       String[] @default([])
+  faultCode      String?
+  faultString    String?
 
-  xmlBase64 String?
-  cdrZipBase64 String?
+  xmlBase64      String?
+  cdrZipBase64   String?
   rawResponseXml String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   comprobantes Comprobante[]
+  artifacts    SunatArtifact[]
 
+  @@unique([tenantId, fileName])
+  @@unique([tenantId, idempotencyKey])
+  @@unique([id, tenantId])
   @@index([status])
   @@index([fechaReferencia])
 }
 
-// Configuracion del emisor SUNAT: 1 fila por instalacion (caso multi-instalacion,
-// no multi-tenant). Los secretos (Clave SOL, .pfx y su password) se guardan
+// Configuracion del emisor SUNAT: 1 fila por empresa. Los secretos
+// (Clave SOL, .pfx y su password) se guardan
 // cifrados con AES-256-GCM; ver src/modules/sunat/config/sunat-crypto.ts.
 model SunatEmisorConfig {
   id Int @id @default(autoincrement())
 
+  tenantId String @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
   environment String @default("BETA") // BETA / PRODUCCION
 
-  ruc String @default("")
-  razonSocial String @default("")
+  ruc             String  @default("")
+  razonSocial     String  @default("")
   nombreComercial String?
-  ubigeo String @default("")
-  direccion String?
-  tipoOperacion String? // tipo de operacion / actividad
-  regimen String? // regimen tributario del emisor
+  ubigeo          String  @default("")
+  direccion       String?
+  tipoOperacion   String? // tipo de operacion / actividad
+  regimen         String? // regimen tributario del emisor
 
-  solUser String @default("") // usuario secundario Clave SOL
+  solUser        String  @default("") // usuario secundario Clave SOL
   solPasswordEnc String? // password Clave SOL (cifrado)
 
-  certP12Enc String? // bytes del .pfx (cifrados)
+  certP12Enc      String? // bytes del .pfx (cifrados)
   certPasswordEnc String? // password del .pfx (cifrado)
 
   // Metadatos del certificado en claro, solo para mostrar en el dashboard.
-  certSubjectCN String?
-  certNotAfter DateTime?
+  certSubjectCN          String?
+  certNotAfter           DateTime?
+  certificateValidatedAt DateTime?
+  credentialsVerifiedAt  DateTime?
 
   signatureId String @default("SignSUNAT")
 
   activo Boolean @default(false) // instalacion fresca arranca sin configurar
 
   updatedById Int? // usuario admin que hizo el ultimo cambio
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId])
+  @@unique([id, tenantId])
+}
+
+model SunatArtifact {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  ownerType      SunatArtifactOwnerType
+  logicalKey     String
+  type           SunatArtifactType
+  logicalVersion Int                    @default(1)
+
+  bucket        String
+  objectKey     String
+  objectVersion String?
+  sha256        String                     @db.Char(64)
+  sizeBytes     BigInt
+  mimeType      String
+  storageStatus SunatArtifactStorageStatus @default(PENDING)
+
+  comprobanteId      Int?
+  comprobante        Comprobante?      @relation(fields: [comprobanteId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  dispatchId         Int?
+  dispatch           SunatDispatch?    @relation(fields: [dispatchId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  resumenDiarioId    Int?
+  resumenDiario      ResumenDiario?    @relation(fields: [resumenDiarioId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  comunicacionBajaId Int?
+  comunicacionBaja   ComunicacionBaja? @relation(fields: [comunicacionBajaId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  verifiedAt     DateTime?
+  retentionUntil DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tenantId, logicalKey, type, logicalVersion])
+  @@unique([tenantId, objectKey, objectVersion])
+  @@unique([id, tenantId])
+  @@index([tenantId, ownerType, logicalKey])
+  @@index([tenantId, storageStatus, createdAt])
+}
+
+model SunatJob {
+  id String @id @default(uuid()) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  type           SunatJobType
+  status         SunatJobStatus @default(PENDING)
+  idempotencyKey String
+  correlationId  String
+  payload        Json
+  attempts       Int            @default(0)
+  maxAttempts    Int            @default(5)
+  nextRunAt      DateTime       @default(now())
+  lockedAt       DateTime?
+  lockedBy       String?
+  lastErrorCode  String?
+  lastErrorSafe  String?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([tenantId, type, idempotencyKey])
+  @@unique([id, tenantId])
+  @@index([status, nextRunAt])
+  @@index([tenantId, status, nextRunAt])
 }

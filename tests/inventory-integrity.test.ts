@@ -21,6 +21,8 @@ import { CreateInventoryMovementDto } from '../src/domain/dtos/create-inventory-
 import { CreateStockTransferDto } from '../src/domain/dtos/create-stock-transfer.dto';
 import { CreateReservationDto } from '../src/domain/dtos/create-reservation.dto';
 import { ensureInventoryIntegritySchema } from '../src/data/inventory-integrity-bootstrap';
+import { tenantService } from './helpers/tenant-service';
+import { ensureTenantTestUser } from './helpers/tenant-test-user';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -39,6 +41,7 @@ const createdTransferIds: number[] = [];
 const createdStoreIds: number[] = [];
 const createdRoleIds: number[] = [];
 const createdUserIds: number[] = [];
+const createdMembershipIds: string[] = [];
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -62,7 +65,7 @@ async function seedInventory(storeId: number, variantId: number, stock: number, 
   return prisma.inventory.create({ data: { storeId, variantId, stock, reservedStock: reserved } });
 }
 
-const svc = () => new InventoryService();
+const svc = () => tenantService(new InventoryService());
 const move = (storeId: number, variantId: number, type: InventoryMovementType, quantity: number) => {
   const [err, dto] = CreateInventoryMovementDto.create({ storeId, variantId, type, quantity });
   if (err || !dto) throw new Error(`DTO invalido: ${err}`);
@@ -103,19 +106,11 @@ beforeAll(async () => {
   );
   sizeId = size.id;
 
-  const existingUser = await prisma.user.findFirst();
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
-    const existingRole = await prisma.role.findFirst();
-    const role = existingRole ?? await prisma.role.create({ data: { name: `INV Role ${uniq}` } });
-    if (!existingRole) createdRoleIds.push(role.id);
-    const user = await prisma.user.create({
-      data: { firstName: 'INV', lastName: 'User', email: `inv-user-${uniq}@test.local`, password: 'x', roleId: role.id },
-    });
-    createdUserIds.push(user.id);
-    userId = user.id;
-  }
+  const testUser = await ensureTenantTestUser('INV');
+  userId = testUser.userId;
+  if (testUser.createdMembershipId) createdMembershipIds.push(testUser.createdMembershipId);
+  if (testUser.createdUserId) createdUserIds.push(testUser.createdUserId);
+  if (testUser.createdRoleId) createdRoleIds.push(testUser.createdRoleId);
 });
 
 afterAll(async () => {
@@ -130,6 +125,7 @@ afterAll(async () => {
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
     try { if (createdStoreIds.length) await prisma.store.deleteMany({ where: { id: { in: createdStoreIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
   }
@@ -195,29 +191,22 @@ describe('InventoryService.createMovement — matriz de tipos y guards', () => {
     expect(inv?.stock).toBe(1);
   }, 30_000);
 
-  it('RESERVED incrementa reservado hasta el disponible; UNRESERVED lo libera sin pasarse', async (ctx) => {
+  it('RESERVED y UNRESERVED no se aceptan como movimientos manuales sin ledger', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const variantId = await seedVariant();
-    await seedInventory(storeAId, variantId, 6);
-
-    // Reservar mas del disponible se rechaza.
-    await expect(move(storeAId, variantId, InventoryMovementType.RESERVED, 7)).rejects.toThrow(/disponible/i);
-
-    const r = await move(storeAId, variantId, InventoryMovementType.RESERVED, 4);
-    expect(r.inventory.reservedStock).toBe(4);
-    expect(r.inventory.availableStock).toBe(2);
-
-    // Liberar mas de lo reservado se rechaza.
-    await expect(move(storeAId, variantId, InventoryMovementType.UNRESERVED, 5)).rejects.toThrow(/reservado/i);
-
-    const u = await move(storeAId, variantId, InventoryMovementType.UNRESERVED, 4);
-    expect(u.inventory.reservedStock).toBe(0);
-    expect(u.inventory.availableStock).toBe(6);
+    const [reserveError] = CreateInventoryMovementDto.create({
+      storeId: storeAId, variantId, type: InventoryMovementType.RESERVED, quantity: 1,
+    });
+    const [unreserveError] = CreateInventoryMovementDto.create({
+      storeId: storeAId, variantId, type: InventoryMovementType.UNRESERVED, quantity: 1,
+    });
+    expect(reserveError).toMatch(/tipo de movimiento/i);
+    expect(unreserveError).toMatch(/tipo de movimiento/i);
   }, 30_000);
 });
 
 describe('Transferencias entre tiendas — sin deuda de stock', () => {
-  it('salida descuenta el disponible del origen y emite TRANSFER_OUT (estado PENDING)', async (ctx) => {
+  it('crear deja PENDING sin mover stock y despachar pasa a IN_TRANSIT con TRANSFER_OUT', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const variantId = await seedVariant();
     await seedInventory(storeAId, variantId, 10, 2); // disponible = 8
@@ -229,7 +218,13 @@ describe('Transferencias entre tiendas — sin deuda de stock', () => {
     createdTransferIds.push(transfer!.id);
     expect(transfer!.status).toBe('PENDING');
 
-    const src = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId: storeAId, variantId } } });
+    let src = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId: storeAId, variantId } } });
+    expect(src?.stock).toBe(10);
+    expect(await prisma.inventoryMovement.count({ where: { transferId: transfer!.id } })).toBe(0);
+
+    const dispatched = await svc().dispatchStockTransfer(transfer!.id, userId);
+    expect(dispatched?.status).toBe('IN_TRANSIT');
+    src = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId: storeAId, variantId } } });
     expect(src?.stock).toBe(4); // 10 - 6
     expect(src?.reservedStock).toBe(2); // reservado intacto
 
@@ -240,7 +235,7 @@ describe('Transferencias entre tiendas — sin deuda de stock', () => {
     expect(movements[0].newStock).toBe(4);
   }, 30_000);
 
-  it('rechaza transferir mas que el disponible del origen (reservado cuenta) sin efectos', async (ctx) => {
+  it('rechaza despachar mas que el disponible y mantiene PENDING sin efectos', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const variantId = await seedVariant();
     await seedInventory(storeAId, variantId, 5, 4); // disponible = 1
@@ -248,10 +243,14 @@ describe('Transferencias entre tiendas — sin deuda de stock', () => {
     const [, dto] = CreateStockTransferDto.create({
       fromStoreId: storeAId, toStoreId: storeBId, items: [{ variantId, quantity: 2 }],
     });
-    await expect(svc().createStockTransfer(dto!, userId)).rejects.toThrow(/insuficiente/i);
+    const transfer = await svc().createStockTransfer(dto!, userId);
+    createdTransferIds.push(transfer!.id);
+    await expect(svc().dispatchStockTransfer(transfer!.id, userId)).rejects.toThrow(/insuficiente/i);
 
     const src = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId: storeAId, variantId } } });
     expect(src?.stock).toBe(5); // rollback total: nada se movio
+    const pending = await prisma.stockTransfer.findUnique({ where: { id: transfer!.id } });
+    expect(pending?.status).toBe('PENDING');
   }, 30_000);
 
   it('recepcion repone en destino y el total sale igual (conservacion, no genera deuda)', async (ctx) => {
@@ -265,6 +264,7 @@ describe('Transferencias entre tiendas — sin deuda de stock', () => {
     });
     const transfer = await svc().createStockTransfer(dto!, userId);
     createdTransferIds.push(transfer!.id);
+    await svc().dispatchStockTransfer(transfer!.id, userId);
 
     const received = await svc().receiveStockTransfer(transfer!.id, userId);
     expect(received.transfer!.status).toBe('RECEIVED');

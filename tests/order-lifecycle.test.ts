@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/data/prisma';
 import { OrderService } from '../src/presentation/services/order.service';
 import { CreateOrderDto } from '../src/domain/dtos/create-order.dto';
+import { tenantService } from './helpers/tenant-service';
+import { ensureTenantTestUser } from './helpers/tenant-test-user';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -28,6 +30,7 @@ const createdProductIds: number[] = [];
 const createdStoreIds: number[] = [];
 const createdUserIds: number[] = [];
 const createdRoleIds: number[] = [];
+const createdMembershipIds: string[] = [];
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -76,17 +79,11 @@ beforeAll(async () => {
   const size = await firstOrCreate(() => prisma.size.findFirst(), () => prisma.size.create({ data: { name: `LC Size ${uniq}` } }));
   sizeId = size.id;
 
-  const existingUser = await prisma.user.findFirst();
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
-    const existingRole = await prisma.role.findFirst();
-    const role = existingRole ?? await prisma.role.create({ data: { name: `LC Role ${uniq}` } });
-    if (!existingRole) createdRoleIds.push(role.id);
-    const user = await prisma.user.create({ data: { firstName: 'LC', lastName: 'User', email: `lc-user-${uniq}@test.local`, password: 'x', roleId: role.id } });
-    createdUserIds.push(user.id);
-    userId = user.id;
-  }
+  const testUser = await ensureTenantTestUser('LC');
+  userId = testUser.userId;
+  if (testUser.createdMembershipId) createdMembershipIds.push(testUser.createdMembershipId);
+  if (testUser.createdUserId) createdUserIds.push(testUser.createdUserId);
+  if (testUser.createdRoleId) createdRoleIds.push(testUser.createdRoleId);
 });
 
 afterAll(async () => {
@@ -97,6 +94,7 @@ afterAll(async () => {
     try { await prisma.inventory.deleteMany({ where: { variantId: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
     try { if (createdStoreIds.length) await prisma.store.deleteMany({ where: { id: { in: createdStoreIds } } }); } catch { /* noop */ }
@@ -105,12 +103,13 @@ afterAll(async () => {
 });
 
 describe('Ciclo de vida: transiciones invalidas rechazadas sin efectos', () => {
-  const svc = () => new OrderService();
+  const svc = () => tenantService(new OrderService());
   // [estadoActual, objetivoIlegal]
   const illegal: Array<[string, string]> = [
     ['PENDING', 'READY'],        // salto
     ['PENDING', 'DELIVERED'],    // salto
     ['CONFIRMED', 'DELIVERED'],  // salto (falta PREPARING/READY)
+    ['PREPARING', 'READY'],      // READY solo se alcanza completando picking
     ['READY', 'PENDING'],        // retroceso
     ['DELIVERED', 'CANCELLED'],  // estado final
     ['DELIVERED', 'RETURN_PENDING'], // estado final
@@ -134,7 +133,7 @@ describe('Ciclo de vida: transiciones validas avanzan', () => {
   it('PENDING -> WAITING_STOCK', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const order = await seedOrder('PENDING');
-    await new OrderService().updateOrderStatus(order.id, { status: 'WAITING_STOCK' } as any, userId);
+    await tenantService(new OrderService()).updateOrderStatus(order.id, { status: 'WAITING_STOCK' } as any, userId);
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
     expect(fresh?.status).toBe('WAITING_STOCK');
   }, 30_000);
@@ -142,7 +141,7 @@ describe('Ciclo de vida: transiciones validas avanzan', () => {
   it('PENDING -> CANCELLED (sin unidades separadas cierra directo)', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const order = await seedOrder('PENDING');
-    await new OrderService().updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId);
+    await tenantService(new OrderService()).updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId);
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
     expect(fresh?.status).toBe('CANCELLED');
   }, 30_000);
@@ -161,7 +160,7 @@ describe('Idempotencia de createOrder', () => {
     });
     expect(err).toBeUndefined();
 
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const first: any = await svc.createOrder(dto!);
     createdOrderIds.push(first.id);
     const invAfterFirst = await prisma.inventory.findUnique({ where: { storeId_variantId: { storeId, variantId } } });
