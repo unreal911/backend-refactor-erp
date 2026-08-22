@@ -42,6 +42,7 @@ jobs:
       SEED_INCLUDE_DEMO_USERS: "false"
       SEED_INCLUDE_PRODUCTS: "true"
       SEED_ENDPOINT_ENABLED: "false"
+      OWNER_SIGNUP_ABUSE_PEPPER: tenant-isolation-owner-abuse-pepper-ci-2026
       SUNAT_DOCUMENT_STORAGE_ENABLED: "false"
 
     steps:
