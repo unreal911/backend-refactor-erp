@@ -17,18 +17,32 @@ import { registerAuthModuleRoutes } from "../modules/auth";
 import { registerInventoryModuleRoutes } from "../modules/inventory";
 import { registerOrdersModuleRoutes } from "../modules/orders";
 import { registerSunatModuleRoutes } from "../modules/sunat";
+import { registerTenantModuleRoutes } from "../modules/tenant";
+import { registerOwnerRegistrationRoutes } from "../modules/registration";
+import { registerTenantInvitationRoutes } from "../modules/invitations";
+import { registerTenantLifecycleRoutes } from "../modules/lifecycle";
+import { registerReportModuleRoutes } from "../modules/reports/routes";
+import { PublicTenantMiddleware } from "./public/tenant.middleware";
+import { customerRoute } from "./customer/router";
+import { registerSaasBillingRoutes } from "../modules/saas-billing";
 
 export class AppRouter {
     static get router(): Router {
         const router = Router();
 
         registerAuthModuleRoutes(router);
+        registerTenantModuleRoutes(router);
+        registerOwnerRegistrationRoutes(router);
+        registerTenantInvitationRoutes(router);
+        registerTenantLifecycleRoutes(router);
+        registerSaasBillingRoutes(router);
+        registerReportModuleRoutes(router);
 
         if (envs.SEED_ENDPOINT_ENABLED) {
             router.use("/api/seed", SeedRoute.router);
         }
 
-        router.use("/api/public", publicRoute.router);
+        router.use("/api/public", PublicTenantMiddleware.resolve, publicRoute.router);
 
         // Rutas protegidas - requieren autenticacion
         router.use("/api/categorie", AuthMiddleware.validateJWT, categoryRoute.router);
@@ -41,6 +55,7 @@ export class AppRouter {
         registerSunatModuleRoutes(router);
         router.use("/api/admin-events", AuthMiddleware.validateJWT, AdminEventsRoute.router);
         router.use("/api/payment-methods", AuthMiddleware.validateJWT, paymentMethodRoute.router);
+        router.use("/api/customers", AuthMiddleware.validateJWT, customerRoute.router);
         router.use("/api/system-config", AuthMiddleware.validateJWT, systemConfigRoute.router);
         router.use("/api/audit-logs", AuthMiddleware.validateJWT, auditLogRoute.router);
         router.use("/api/user-activities", AuthMiddleware.validateJWT, userActivityRoute.router);

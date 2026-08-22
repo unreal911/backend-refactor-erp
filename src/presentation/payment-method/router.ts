@@ -9,7 +9,7 @@ export class paymentMethodRoute {
         const paymentMethodService = new PaymentMethodService();
         const controller = new PaymentMethodController(paymentMethodService);
 
-        router.get('/active', controller.listActive);
+        router.get('/active', AuthMiddleware.requirePermission(['pos.view', 'orders.view', 'payment_methods.manage']), controller.listActive);
 
         router.get('/', AuthMiddleware.requirePermission('payment_methods.manage'), controller.list);
         router.post('/', AuthMiddleware.requirePermission('payment_methods.manage'), controller.create);

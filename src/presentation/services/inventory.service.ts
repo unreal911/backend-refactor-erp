@@ -1,9 +1,14 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CustomError } from "../../domain/errors/custom.error";
 import { CreateInventoryMovementDto } from "../../domain/dtos/create-inventory-movement.dto";
 import { CreateStockTransferDto } from "../../domain/dtos/create-stock-transfer.dto";
 import { CreateReservationDto } from "../../domain/dtos/create-reservation.dto";
 import { InventoryMovementType, TransferStatus, Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import {
+    LEGACY_TENANT_ID,
+    TenantDataContext,
+} from "../../modules/tenant/tenant-data-context";
 
 interface InventoryListOptions {
     skip?: number;
@@ -218,8 +223,8 @@ export class InventoryService {
 
     private async validateStore(storeId: number) {
         const store = await prisma.store.findUnique({ where: { id: storeId } });
-        if (!store) {
-            throw CustomError.badRequest(`La tienda con ID ${storeId} no existe`);
+        if (!store || !store.isActive) {
+            throw CustomError.badRequest(`La tienda con ID ${storeId} no existe o está inactiva`);
         }
     }
 
@@ -248,72 +253,65 @@ export class InventoryService {
     async createMovement(dto: CreateInventoryMovementDto, userId?: number | undefined) {
         await this.validateStore(dto.storeId);
         await this.validateVariant(dto.variantId);
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
 
-        let inventory = await this.findInventory(dto.storeId, dto.variantId);
+        return prisma.$transaction(async (tx) => {
+            const inbound = dto.type === InventoryMovementType.IN
+                || dto.type === InventoryMovementType.TRANSFER_IN;
+            if (inbound) {
+                await tx.inventory.upsert({
+                    where: { storeId_variantId: { storeId: dto.storeId, variantId: dto.variantId } },
+                    create: { storeId: dto.storeId, variantId: dto.variantId, stock: 0, reservedStock: 0 },
+                    update: {},
+                });
+            }
 
-        if (!inventory && dto.type === InventoryMovementType.IN || !inventory && dto.type === InventoryMovementType.TRANSFER_IN) {
-            inventory = await this.createInventory(dto.storeId, dto.variantId);
-        }
+            const locked = await tx.$queryRaw<Array<{ id: number; stock: number; reservedStock: number }>>(
+                Prisma.sql`
+                    SELECT "id", "stock", "reservedStock"
+                    FROM "Inventory"
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND "storeId" = ${dto.storeId}
+                      AND "variantId" = ${dto.variantId}
+                    FOR UPDATE
+                `,
+            );
+            const inventory = locked[0];
+            if (!inventory) {
+                throw CustomError.badRequest('Inventario no encontrado para la operacion solicitada');
+            }
 
-        if (!inventory) {
-            throw CustomError.badRequest('Inventario no encontrado para la operación solicitada');
-        }
+            const stockBefore = Number(inventory.stock);
+            const reservedBefore = Number(inventory.reservedStock);
+            let stockAfter = stockBefore;
 
-        const stockBefore = inventory.stock;
-        const reservedBefore = inventory.reservedStock;
-        let stockAfter = stockBefore;
-        let reservedAfter = reservedBefore;
+            switch (dto.type) {
+                case InventoryMovementType.IN:
+                case InventoryMovementType.TRANSFER_IN:
+                    stockAfter += dto.quantity;
+                    break;
+                case InventoryMovementType.OUT:
+                case InventoryMovementType.TRANSFER_OUT:
+                    if (stockBefore - reservedBefore < dto.quantity) {
+                        throw CustomError.badRequest('Stock disponible insuficiente para la salida');
+                    }
+                    stockAfter -= dto.quantity;
+                    break;
+                case InventoryMovementType.ADJUSTMENT:
+                    stockAfter += dto.quantity;
+                    if (stockAfter < reservedBefore) {
+                        throw CustomError.badRequest('El ajuste no puede dejar stock negativo ni menor al reservado');
+                    }
+                    break;
+                default:
+                    throw CustomError.badRequest('Tipo de movimiento no valido para registro manual');
+            }
 
-        switch (dto.type) {
-            case InventoryMovementType.IN:
-                stockAfter += dto.quantity;
-                break;
-            case InventoryMovementType.OUT:
-                if (stockBefore - reservedBefore < dto.quantity) {
-                    throw CustomError.badRequest('Stock insuficiente para la salida');
-                }
-                stockAfter -= dto.quantity;
-                break;
-            case InventoryMovementType.ADJUSTMENT:
-                stockAfter += dto.quantity;
-                if (stockAfter < 0) {
-                    throw CustomError.badRequest('El ajuste no puede dejar stock negativo');
-                }
-                break;
-            case InventoryMovementType.TRANSFER_OUT:
-                if (stockBefore - reservedBefore < dto.quantity) {
-                    throw CustomError.badRequest('Stock insuficiente para la transferencia de salida');
-                }
-                stockAfter -= dto.quantity;
-                break;
-            case InventoryMovementType.TRANSFER_IN:
-                stockAfter += dto.quantity;
-                break;
-            case InventoryMovementType.RESERVED:
-                if (stockBefore - reservedBefore < dto.quantity) {
-                    throw CustomError.badRequest('No hay suficiente stock disponible para reservar');
-                }
-                reservedAfter += dto.quantity;
-                break;
-            case InventoryMovementType.UNRESERVED:
-                if (reservedBefore < dto.quantity) {
-                    throw CustomError.badRequest('No hay suficiente stock reservado para liberar');
-                }
-                reservedAfter -= dto.quantity;
-                break;
-            default:
-                throw CustomError.badRequest('Tipo de movimiento no válido');
-        }
-
-        const [updatedInventory, movement] = await prisma.$transaction([
-            prisma.inventory.update({
+            const updatedInventory = await tx.inventory.update({
                 where: { id: inventory.id },
-                data: {
-                    stock: stockAfter,
-                    reservedStock: reservedAfter,
-                },
-            }),
-            prisma.inventoryMovement.create({
+                data: { stock: stockAfter },
+            });
+            const movement = await tx.inventoryMovement.create({
                 data: {
                     type: dto.type,
                     quantity: dto.quantity,
@@ -325,13 +323,16 @@ export class InventoryService {
                     transferId: dto.transferId ?? null,
                     reservationId: dto.reservationId ?? null,
                 },
-            }),
-        ]);
+            });
 
-        return {
-            inventory: { ...updatedInventory, availableStock: updatedInventory.stock - updatedInventory.reservedStock },
-            movement,
-        };
+            return {
+                inventory: {
+                    ...updatedInventory,
+                    availableStock: updatedInventory.stock - updatedInventory.reservedStock,
+                },
+                movement,
+            };
+        });
     }
 
     async createStockTransfer(dto: CreateStockTransferDto, userId?: number | undefined) {
@@ -346,7 +347,7 @@ export class InventoryService {
             await this.validateVariant(item.variantId);
         }
 
-        const transferCode = `TR-${Date.now()}`;
+        const transferCode = `TR-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 
         const transfer = await prisma.$transaction(async (tx) => {
             const createdTransfer = await tx.stockTransfer.create({
@@ -368,41 +369,6 @@ export class InventoryService {
                     items: true,
                 },
             });
-
-            for (const item of dto.items) {
-                const inventory = await tx.inventory.findUnique({
-                    where: { storeId_variantId: { storeId: dto.fromStoreId, variantId: item.variantId } },
-                });
-
-                if (!inventory) {
-                    throw CustomError.badRequest(`No existe inventario para la variante ${item.variantId} en la tienda de origen`);
-                }
-
-                const availableStock = inventory.stock - inventory.reservedStock;
-                if (availableStock < item.quantity) {
-                    throw CustomError.badRequest(`Stock insuficiente para la variante ${item.variantId} en la tienda de origen`);
-                }
-
-                const updatedInventory = await tx.inventory.update({
-                    where: { id: inventory.id },
-                    data: {
-                        stock: { decrement: item.quantity },
-                    },
-                });
-
-                await tx.inventoryMovement.create({
-                    data: {
-                        type: InventoryMovementType.TRANSFER_OUT,
-                        quantity: item.quantity,
-                        previousStock: inventory.stock,
-                        newStock: updatedInventory.stock,
-                        note: dto.note ?? null,
-                        responsibleUserId: userId ?? null,
-                        inventoryId: inventory.id,
-                        transferId: createdTransfer.id,
-                    },
-                });
-            }
 
             return createdTransfer;
         });
@@ -428,6 +394,80 @@ export class InventoryService {
         });
     }
 
+    async dispatchStockTransfer(transferId: number, userId?: number | undefined) {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+
+        await prisma.$transaction(async (tx) => {
+            const claimed = await tx.stockTransfer.updateMany({
+                where: { id: transferId, status: TransferStatus.PENDING },
+                data: { status: TransferStatus.IN_TRANSIT },
+            });
+            if (claimed.count !== 1) {
+                throw CustomError.badRequest('Solo una transferencia pendiente puede despacharse');
+            }
+
+            const transfer = await tx.stockTransfer.findUnique({
+                where: { id: transferId },
+                include: { items: true },
+            });
+            if (!transfer) throw CustomError.notFound('La transferencia no existe');
+
+            const variantIds = [...new Set(transfer.items.map((item) => item.variantId))];
+            const inventories = await tx.$queryRaw<Array<{
+                id: number;
+                variantId: number;
+                stock: number;
+                reservedStock: number;
+            }>>(
+                Prisma.sql`
+                    SELECT "id", "variantId", "stock", "reservedStock"
+                    FROM "Inventory"
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND "storeId" = ${transfer.fromStoreId}
+                      AND "variantId" IN (${Prisma.join(variantIds)})
+                    ORDER BY "id"
+                    FOR UPDATE
+                `,
+            );
+            const inventoryByVariant = new Map(inventories.map((item) => [item.variantId, item]));
+
+            for (const item of transfer.items) {
+                const inventory = inventoryByVariant.get(item.variantId);
+                if (!inventory) {
+                    throw CustomError.badRequest(`No existe inventario para la variante ${item.variantId} en la tienda de origen`);
+                }
+                if (inventory.stock - inventory.reservedStock < item.quantity) {
+                    throw CustomError.badRequest(`Stock disponible insuficiente para la variante ${item.variantId}`);
+                }
+
+                const updated = await tx.inventory.update({
+                    where: { id: inventory.id },
+                    data: { stock: { decrement: item.quantity } },
+                });
+                await tx.inventoryMovement.create({
+                    data: {
+                        type: InventoryMovementType.TRANSFER_OUT,
+                        quantity: item.quantity,
+                        previousStock: inventory.stock,
+                        newStock: updated.stock,
+                        note: transfer.note ?? null,
+                        responsibleUserId: userId ?? null,
+                        inventoryId: inventory.id,
+                        transferId,
+                    },
+                });
+            }
+        });
+
+        return prisma.stockTransfer.findUnique({
+            where: { id: transferId },
+            include: {
+                fromStore: true, toStore: true, createdBy: true, receivedBy: true,
+                items: { include: { variant: { include: { product: true, color: true, size: true } } } },
+            },
+        });
+    }
+
     async receiveStockTransfer(transferId: number, userId?: number | undefined) {
         const transfer = await prisma.stockTransfer.findUnique({
             where: { id: transferId },
@@ -440,14 +480,28 @@ export class InventoryService {
         if (transfer.status === TransferStatus.RECEIVED) {
             throw CustomError.badRequest('La transferencia ya fue recibida');
         }
+        if (transfer.status === TransferStatus.CANCELLED) {
+            throw CustomError.badRequest('La transferencia fue cancelada');
+        }
 
         const receivedTransfer = await prisma.$transaction(async (tx) => {
-            const updatedTransfer = await tx.stockTransfer.update({
-                where: { id: transferId },
+            const claimed = await tx.stockTransfer.updateMany({
+                where: {
+                    id: transferId,
+                    status: TransferStatus.IN_TRANSIT,
+                },
                 data: {
                     status: TransferStatus.RECEIVED,
                     receivedById: userId ?? null,
                 },
+            });
+            if (claimed.count !== 1) {
+                throw CustomError.badRequest(
+                    'Solo una transferencia en transito puede recibirse',
+                );
+            }
+            const updatedTransfer = await tx.stockTransfer.findUniqueOrThrow({
+                where: { id: transferId },
             });
 
             const inventories = [] as Array<any>;
@@ -520,7 +574,102 @@ export class InventoryService {
         };
     }
 
+    async cancelStockTransfer(transferId: number, userId?: number | undefined) {
+        const transfer = await prisma.stockTransfer.findUnique({
+            where: { id: transferId },
+            include: { items: true },
+        });
+
+        if (!transfer) {
+            throw CustomError.notFound('La transferencia no existe');
+        }
+        if (transfer.status === TransferStatus.CANCELLED) {
+            throw CustomError.badRequest('La transferencia ya fue cancelada');
+        }
+        if (transfer.status === TransferStatus.RECEIVED) {
+            throw CustomError.badRequest(
+                'Una transferencia recibida no puede cancelarse',
+            );
+        }
+
+        await prisma.$transaction(async (tx) => {
+            const statusAtCancellation = transfer.status;
+            const claimed = await tx.stockTransfer.updateMany({
+                where: {
+                    id: transferId,
+                    status: statusAtCancellation,
+                },
+                data: { status: TransferStatus.CANCELLED },
+            });
+            if (claimed.count !== 1) {
+                throw CustomError.badRequest(
+                    'La transferencia ya fue recibida o cancelada',
+                );
+            }
+
+            // PENDING aun no movio stock. IN_TRANSIT debe retornar lo despachado
+            // al origen antes de cerrar la transferencia.
+            if (statusAtCancellation !== TransferStatus.IN_TRANSIT) return;
+
+            for (const item of transfer.items) {
+                const inventory = await tx.inventory.findUnique({
+                    where: {
+                        storeId_variantId: {
+                            storeId: transfer.fromStoreId,
+                            variantId: item.variantId,
+                        },
+                    },
+                });
+                if (!inventory) {
+                    throw CustomError.badRequest(
+                        `No existe inventario de origen para la variante ${item.variantId}`,
+                    );
+                }
+                const updatedInventory = await tx.inventory.update({
+                    where: { id: inventory.id },
+                    data: { stock: { increment: item.quantity } },
+                });
+                await tx.inventoryMovement.create({
+                    data: {
+                        type: InventoryMovementType.TRANSFER_IN,
+                        quantity: item.quantity,
+                        previousStock: inventory.stock,
+                        newStock: updatedInventory.stock,
+                        note: transfer.note
+                            ? `Cancelación de transferencia: ${transfer.note}`
+                            : 'Cancelación de transferencia',
+                        responsibleUserId: userId ?? null,
+                        inventoryId: inventory.id,
+                        transferId,
+                    },
+                });
+            }
+        });
+
+        return prisma.stockTransfer.findUnique({
+            where: { id: transferId },
+            include: {
+                fromStore: true,
+                toStore: true,
+                createdBy: true,
+                receivedBy: true,
+                items: {
+                    include: {
+                        variant: {
+                            include: {
+                                product: true,
+                                color: true,
+                                size: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
     async createReservation(dto: CreateReservationDto, userId?: number | undefined) {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const inventory = await prisma.inventory.findUnique({ where: { id: dto.inventoryId } });
 
         if (!inventory) {
@@ -535,6 +684,7 @@ export class InventoryService {
                 UPDATE "Inventory"
                 SET "reservedStock" = "reservedStock" + ${dto.quantity}
                 WHERE "id" = ${inventory.id}
+                  AND "tenantId" = ${tenantId}::uuid
                   AND "stock" - "reservedStock" >= ${dto.quantity}
             `;
             if (reserved === 0) {
@@ -582,6 +732,7 @@ export class InventoryService {
     }
 
     async reconcileReservedStock(inventoryIds: number[] = [], userId?: number | undefined) {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const normalizedIds = Array.from(
             new Set(
                 (Array.isArray(inventoryIds) ? inventoryIds : [])
@@ -601,10 +752,23 @@ export class InventoryService {
             // incremento recien aplicado.
             if (normalizedIds.length > 0) {
                 await tx.$executeRaw(
-                    Prisma.sql`SELECT "id" FROM "Inventory" WHERE "id" IN (${Prisma.join(normalizedIds)}) FOR UPDATE`,
+                    Prisma.sql`
+                        SELECT "id"
+                        FROM "Inventory"
+                        WHERE "tenantId" = ${tenantId}::uuid
+                          AND "id" IN (${Prisma.join(normalizedIds)})
+                        FOR UPDATE
+                    `,
                 );
             } else {
-                await tx.$executeRaw(Prisma.sql`SELECT "id" FROM "Inventory" FOR UPDATE`);
+                await tx.$executeRaw(
+                    Prisma.sql`
+                        SELECT "id"
+                        FROM "Inventory"
+                        WHERE "tenantId" = ${tenantId}::uuid
+                        FOR UPDATE
+                    `,
+                );
             }
 
             const inventories = await tx.inventory.findMany({
@@ -712,6 +876,7 @@ export class InventoryService {
      * No corrige nada; para corregir usar `reconcileReservedStock`.
      */
     async auditReservedStock() {
+        const tenantId = TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
         const rows = await prisma.$queryRaw<Array<{
             id: number;
             storeId: number;
@@ -738,13 +903,17 @@ export class InventoryService {
                 LEFT JOIN (
                     SELECT "inventoryId", SUM("quantity") AS "activeReserved"
                     FROM "Reservation"
-                    WHERE "status" = 'ACTIVE'
+                    WHERE "tenantId" = ${tenantId}::uuid
+                      AND "status" = 'ACTIVE'
                     GROUP BY "inventoryId"
                 ) r ON r."inventoryId" = i."id"
-                WHERE i."stock" < 0
-                   OR i."reservedStock" < 0
-                   OR i."reservedStock" > i."stock"
-                   OR i."reservedStock" <> COALESCE(r."activeReserved", 0)
+                WHERE i."tenantId" = ${tenantId}::uuid
+                  AND (
+                       i."stock" < 0
+                    OR i."reservedStock" < 0
+                    OR i."reservedStock" > i."stock"
+                    OR i."reservedStock" <> COALESCE(r."activeReserved", 0)
+                  )
                 ORDER BY i."id" ASC
             `,
         );

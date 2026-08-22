@@ -1,21 +1,31 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { envs } from '../../config/envs';
+import { PublicTenantRequest } from './tenant.middleware';
 
-export interface MarketplaceAuthRequest extends Request {
+export interface MarketplaceAuthRequest extends PublicTenantRequest {
     marketplaceCustomer?: {
         id: number;
         email: string;
+        tenantId: string;
     };
 }
 
 type MarketplaceTokenPayload = {
     customerId: number;
     email: string;
+    tenantId: string;
     tokenType: 'MARKETPLACE_CUSTOMER';
 };
 
 export class MarketplaceAuthMiddleware {
+    static optionalJWT(req: MarketplaceAuthRequest, res: Response, next: NextFunction) {
+        if (!req.header('Authorization')) {
+            return next();
+        }
+        return MarketplaceAuthMiddleware.validateJWT(req, res, next);
+    }
+
     static validateJWT(req: MarketplaceAuthRequest, res: Response, next: NextFunction) {
         const token = req.header('Authorization')?.replace('Bearer ', '');
         if (!token) {
@@ -25,13 +35,19 @@ export class MarketplaceAuthMiddleware {
         try {
             const decoded = jwt.verify(token, envs.JWT_SECRET) as MarketplaceTokenPayload;
 
-            if (!decoded || decoded.tokenType !== 'MARKETPLACE_CUSTOMER') {
+            if (
+                !decoded
+                || decoded.tokenType !== 'MARKETPLACE_CUSTOMER'
+                || !decoded.tenantId
+                || decoded.tenantId !== req.publicTenant?.id
+            ) {
                 return res.status(401).json({ message: 'Token de cliente invalido' });
             }
 
             req.marketplaceCustomer = {
                 id: Number(decoded.customerId),
                 email: String(decoded.email || ''),
+                tenantId: decoded.tenantId,
             };
             next();
         } catch (error: unknown) {
@@ -42,4 +58,3 @@ export class MarketplaceAuthMiddleware {
         }
     }
 }
-

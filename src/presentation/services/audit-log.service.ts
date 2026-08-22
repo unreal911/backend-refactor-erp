@@ -1,9 +1,15 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../data/prisma';
+import { platformPrisma } from '../../data/platform-prisma';
+import { tenantPrisma } from '../../data/tenant-prisma';
 import { ListAuditLogDto } from '../../domain/dtos/list-audit-log.dto';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
+import { sanitizeAuditValue } from '../audit-log/sanitize-audit-value';
 
 type AuditLogRow = {
     id: number;
+    correlationId: string;
+    tenantId: string | null;
+    dataScope: 'TENANT' | 'PLATFORM' | 'QUARANTINE';
     actorUserId: number | null;
     actorEmail: string | null;
     actorRole: string | null;
@@ -20,6 +26,8 @@ type AuditLogRow = {
 };
 
 type AuditLogInsertInput = {
+    correlationId?: string | null;
+    tenantId?: string | null;
     actorUserId?: number | null;
     actorEmail?: string | null;
     actorRole?: string | null;
@@ -36,6 +44,7 @@ type AuditLogInsertInput = {
 
 type AuditLogResponse = {
     id: number;
+    correlationId: string;
     createdAt: Date;
     actor: {
         id: number | null;
@@ -55,6 +64,7 @@ type AuditLogResponse = {
         isError: boolean;
     };
     context: {
+        tenantId: string | null;
         ipAddress: string | null;
         userAgent: string | null;
     };
@@ -104,6 +114,7 @@ export class AuditLogService {
 
         return {
             id: Number(row.id),
+            correlationId: String(row.correlationId),
             createdAt: new Date(row.createdAt),
             actor: {
                 id: row.actorUserId === null ? null : Number(row.actorUserId),
@@ -123,6 +134,7 @@ export class AuditLogService {
                 isError: statusCode >= 400,
             },
             context: {
+                tenantId: row.tenantId ? String(row.tenantId) : null,
                 ipAddress: row.ipAddress ? String(row.ipAddress) : null,
                 userAgent: row.userAgent ? String(row.userAgent) : null,
             },
@@ -135,14 +147,29 @@ export class AuditLogService {
         const statusCode = Number.isInteger(input.statusCode) ? Number(input.statusCode) : 0;
         const durationMs = Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0;
 
-        const requestQuery = this.stringifyJson(input.requestQuery ?? {}, '{}');
-        const requestParams = this.stringifyJson(input.requestParams ?? {}, '{}');
-        const requestBody = this.stringifyJson(input.requestBody ?? null, 'null');
+        const requestQuery = this.stringifyJson(
+            sanitizeAuditValue(input.requestQuery ?? {}),
+            '{}',
+        );
+        const requestParams = this.stringifyJson(
+            sanitizeAuditValue(input.requestParams ?? {}),
+            '{}',
+        );
+        const requestBody = this.stringifyJson(
+            sanitizeAuditValue(input.requestBody ?? null),
+            'null',
+        );
+        const tenantId = input.tenantId ?? TenantDataContext.currentTenantId();
+        const dataScope = tenantId ? 'TENANT' : 'QUARANTINE';
+        const prisma = tenantId ? tenantPrisma : platformPrisma;
 
         try {
             await prisma.$executeRaw(
                 Prisma.sql`
                     INSERT INTO "AuditLog" (
+                        "correlationId",
+                        "tenantId",
+                        "dataScope",
                         "actorUserId",
                         "actorEmail",
                         "actorRole",
@@ -157,6 +184,9 @@ export class AuditLogService {
                         "requestBody"
                     )
                     VALUES (
+                        COALESCE(${input.correlationId ?? null}::uuid, gen_random_uuid()),
+                        ${tenantId}::uuid,
+                        ${dataScope},
                         ${input.actorUserId ?? null},
                         ${input.actorEmail ?? null},
                         ${input.actorRole ?? null},
@@ -173,12 +203,25 @@ export class AuditLogService {
                 `,
             );
         } catch (error) {
+            if (
+                process.env.ROLLBACK_CONFIRM === 'READ_ONLY_SOURCE'
+                && error instanceof Prisma.PrismaClientKnownRequestError
+                && error.code === 'P2010'
+                && JSON.stringify(error).includes('25006')
+            ) {
+                return;
+            }
             console.error('Audit log insert warning:', error);
         }
     }
 
     async list(dto: ListAuditLogDto) {
-        const where: Prisma.Sql[] = [];
+        const tenantId = TenantDataContext.requireTenantId();
+        const prisma = tenantPrisma;
+        const where: Prisma.Sql[] = [
+            Prisma.sql`"tenantId" = ${tenantId}::uuid`,
+            Prisma.sql`"dataScope" = 'TENANT'`,
+        ];
 
         if (dto.search) {
             const like = `%${dto.search}%`;
@@ -229,6 +272,9 @@ export class AuditLogService {
             Prisma.sql`
                 SELECT
                     "id",
+                    "correlationId",
+                    "tenantId",
+                    "dataScope",
                     "actorUserId",
                     "actorEmail",
                     "actorRole",

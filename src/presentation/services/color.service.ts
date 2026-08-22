@@ -1,6 +1,6 @@
 import { ColorDto } from "../../domain/dtos/create-color.dto";
 import { UpdateColorDto } from "../../domain/dtos/update-color.dto";
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CustomError } from '../../domain/errors/custom.error';
 import { ColorEntity } from "../../domain/entities/color.entity";
 import { ListColorDto } from '../../domain/dtos/list-color.dto';

@@ -1,0 +1,98 @@
+{
+  "migration": "20260729230000_tenant_scope_sunat",
+  "tenantId": "00000000-0000-4000-8000-000000000001",
+  "tables": [
+    {
+      "table": "ComprobanteSerie",
+      "rowCount": 3,
+      "ids": [
+        1,
+        2,
+        3
+      ],
+      "total": "17",
+      "fingerprint": "3816b95a054867d404c33a744b4b7670ec9bdefa9b088f5c4961043ba29a798b"
+    },
+    {
+      "table": "Comprobante",
+      "rowCount": 10,
+      "ids": [
+        1,
+        2,
+        3,
+        4,
+        12,
+        13,
+        15,
+        16,
+        17,
+        18
+      ],
+      "total": "49",
+      "fingerprint": "73f98914bc802caa8d7156f21ffc5c589d1ea47f4b79519716b4c34b4ab2daaf"
+    },
+    {
+      "table": "ComprobanteItem",
+      "rowCount": 10,
+      "ids": [
+        1,
+        2,
+        3,
+        4,
+        12,
+        13,
+        15,
+        16,
+        17,
+        18
+      ],
+      "total": "14.000",
+      "fingerprint": "079aa20a54d48ccce9c929219629fa87e9f983201ce3704deee3b10f260ff921"
+    },
+    {
+      "table": "SunatDispatch",
+      "rowCount": 6,
+      "ids": [
+        1,
+        2,
+        3,
+        4,
+        10,
+        11
+      ],
+      "total": "0",
+      "fingerprint": "b72a5c6eabf7750c95a353532185723a84c10a595ad89f944722fe2d568d8a42"
+    },
+    {
+      "table": "ResumenDiario",
+      "rowCount": 2,
+      "ids": [
+        1,
+        2
+      ],
+      "total": "3",
+      "fingerprint": "adbc35dfd2b9c1d59a6d29e8732025dc8c58fe07129cc7148561532d2a1bcf8f"
+    },
+    {
+      "table": "ComunicacionBaja",
+      "rowCount": 1,
+      "ids": [
+        1
+      ],
+      "total": "1",
+      "fingerprint": "64764627b5a69ac74589c0109e5247dc8b72a2f80022e0955ea258eb8a8b4198"
+    },
+    {
+      "table": "SunatEmisorConfig",
+      "rowCount": 0,
+      "ids": [],
+      "total": "0",
+      "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "tenantColumnsNotNull": 7,
+  "validatedConstraints": 16,
+  "requiredIndexes": 6,
+  "crossTenantReferences": 0,
+  "duplicateFiscalKeys": 0
+}

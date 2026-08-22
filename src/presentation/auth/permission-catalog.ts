@@ -11,6 +11,11 @@ const WILDCARD_PERMISSION = '*';
 
 export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'dashboard.view', name: 'Ver dashboard', module: 'dashboard', description: 'Permite ver panel principal' },
+    { code: 'reports.view', name: 'Ver reportes', module: 'reports', description: 'Permite crear y consultar reportes personalizados' },
+    { code: 'reports.export', name: 'Exportar reportes', module: 'reports', description: 'Permite exportar reportes personalizados a Excel' },
+    { code: 'tenant.data.export', name: 'Exportar datos de empresa', module: 'tenant', description: 'Permite descargar una exportacion logica verificable sin secretos' },
+    { code: 'subscription.view', name: 'Ver suscripción', module: 'subscription', description: 'Permite consultar plan, vigencia y solicitudes de pago' },
+    { code: 'subscription.request', name: 'Solicitar plan', module: 'subscription', description: 'Permite solicitar una contratación o renovación manual' },
 
     { code: 'users.view', name: 'Ver usuarios', module: 'users', description: 'Permite listar usuarios' },
     { code: 'users.create', name: 'Crear usuarios', module: 'users', description: 'Permite crear usuarios' },
@@ -41,6 +46,8 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'inventory.movement.create', name: 'Registrar movimientos', module: 'inventory', description: 'Permite registrar movimientos de inventario' },
     { code: 'inventory.adjustment.create', name: 'Registrar ajustes', module: 'inventory', description: 'Permite ajustar inventario' },
     { code: 'inventory.history.view', name: 'Ver historial de inventario', module: 'inventory', description: 'Permite consultar historial de inventario' },
+    { code: 'inventory.reservation.manage', name: 'Gestionar reservas', module: 'inventory', description: 'Permite crear y liberar reservas manuales de inventario' },
+    { code: 'inventory.reconcile', name: 'Conciliar inventario', module: 'inventory', description: 'Permite auditar y corregir inconsistencias de stock reservado' },
 
     { code: 'transfers.view', name: 'Ver transferencias', module: 'transfers', description: 'Permite listar transferencias' },
     { code: 'transfers.create', name: 'Crear transferencias', module: 'transfers', description: 'Permite crear transferencias' },
@@ -50,9 +57,16 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
 
     { code: 'orders.view', name: 'Ver ordenes', module: 'orders', description: 'Permite listar ordenes' },
     { code: 'orders.detail.view', name: 'Ver detalle de ordenes', module: 'orders', description: 'Permite ver detalle de ordenes' },
+    { code: 'orders.create', name: 'Crear ordenes', module: 'orders', description: 'Permite registrar pedidos fuera del POS' },
     { code: 'orders.status.update', name: 'Actualizar estado de ordenes', module: 'orders', description: 'Permite cambiar estado de ordenes' },
+    { code: 'orders.assign', name: 'Asignar responsables', module: 'orders', description: 'Permite asignar y delegar responsables de pedidos' },
+    { code: 'orders.fulfillment.manage', name: 'Gestionar abastecimiento', module: 'orders', description: 'Permite reservar, liberar y modificar lineas durante el abastecimiento' },
+    { code: 'orders.return.manage', name: 'Gestionar devoluciones', module: 'orders', description: 'Permite registrar devoluciones y administrar su responsabilidad' },
     { code: 'orders.cancel', name: 'Cancelar ordenes', module: 'orders', description: 'Permite cancelar ordenes' },
     { code: 'orders.print', name: 'Imprimir ordenes', module: 'orders', description: 'Permite imprimir ordenes' },
+
+    { code: 'customers.view', name: 'Ver clientes', module: 'customers', description: 'Permite buscar y consultar clientes' },
+    { code: 'customers.manage', name: 'Gestionar clientes', module: 'customers', description: 'Permite crear y editar clientes' },
 
     { code: 'pos.view', name: 'Ver POS', module: 'pos', description: 'Permite abrir POS' },
     { code: 'pos.sell', name: 'Vender en POS', module: 'pos', description: 'Permite registrar ventas' },
@@ -68,13 +82,19 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'payment_methods.manage', name: 'Gestionar metodos de pago', module: 'payment_methods', description: 'Permite crear, editar y activar metodos de pago' },
     { code: 'settings.manage', name: 'Gestionar configuraciones', module: 'settings', description: 'Permite activar o desactivar reglas operativas globales' },
 
-    { code: 'sunat.config', name: 'Configurar emisor SUNAT', module: 'sunat', description: 'Permite ver y editar la configuracion del emisor, credenciales y certificado SUNAT' }
+    { code: 'sunat.config', name: 'Configurar emisor SUNAT', module: 'sunat', description: 'Permite ver y editar la configuracion del emisor, credenciales y certificado SUNAT' },
+    { code: 'sunat.documents.view', name: 'Ver documentos SUNAT', module: 'sunat', description: 'Permite consultar comprobantes, pendientes e informes SUNAT' },
+    { code: 'sunat.documents.issue', name: 'Emitir documentos SUNAT', module: 'sunat', description: 'Permite emitir comprobantes, notas y resumenes diarios' },
+    { code: 'sunat.documents.cancel', name: 'Anular documentos SUNAT', module: 'sunat', description: 'Permite generar anulaciones y comunicaciones de baja' },
+    { code: 'sunat.documents.download', name: 'Descargar documentos SUNAT', module: 'sunat', description: 'Permite descargar XML, CDR y PDF mediante URL temporal' }
 ];
 
 export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
     ADMIN: [WILDCARD_PERMISSION],
     MANAGER: [
         'dashboard.view',
+        'reports.view',
+        'reports.export',
         'users.view',
         'users.create',
         'users.update',
@@ -95,6 +115,8 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'inventory.history.view',
         'inventory.movement.create',
         'inventory.adjustment.create',
+        'inventory.reservation.manage',
+        'inventory.reconcile',
         'transfers.view',
         'transfers.create',
         'transfers.dispatch',
@@ -102,9 +124,15 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'transfers.cancel',
         'orders.view',
         'orders.detail.view',
+        'orders.create',
         'orders.status.update',
+        'orders.assign',
+        'orders.fulfillment.manage',
+        'orders.return.manage',
         'orders.cancel',
         'orders.print',
+        'customers.view',
+        'customers.manage',
         'pos.view',
         'pos.sell',
         'pos.charge',
@@ -115,14 +143,23 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'picking.update',
         'picking.complete',
         'payment_methods.manage',
-        'settings.manage'
+        'settings.manage',
+        'sunat.documents.view',
+        'sunat.documents.issue',
+        'sunat.documents.cancel',
+        'sunat.documents.download'
     ],
     SELLER: [
         'dashboard.view',
+        'reports.view',
+        'reports.export',
         'products.view',
+        'stores.view',
         'orders.view',
         'orders.detail.view',
         'orders.print',
+        'customers.view',
+        'customers.manage',
         'pos.view',
         'pos.sell',
         'pos.charge',
@@ -131,12 +168,15 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
     ],
     WAREHOUSE: [
         'dashboard.view',
+        'reports.view',
+        'reports.export',
         'products.view',
         'stores.view',
         'inventory.view',
         'inventory.history.view',
         'inventory.movement.create',
         'inventory.adjustment.create',
+        'inventory.reservation.manage',
         'transfers.view',
         'transfers.create',
         'transfers.dispatch',
@@ -144,6 +184,7 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'transfers.cancel',
         'orders.view',
         'orders.detail.view',
+        'orders.fulfillment.manage',
         'picking.view',
         'picking.start',
         'picking.update',

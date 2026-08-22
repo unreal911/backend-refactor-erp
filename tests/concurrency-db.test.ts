@@ -17,10 +17,14 @@ import { isReturnResponsibilityManagementEnabled } from '../src/presentation/ser
 import { DelegateOrderReturnDto } from '../src/domain/dtos/delegate-order-return.dto';
 import { InventoryService } from '../src/presentation/services/inventory.service';
 import { ensureInventoryIntegritySchema } from '../src/data/inventory-integrity-bootstrap';
+import { tenantService } from './helpers/tenant-service';
 
 let dbReady = false;
 const uniq = Date.now();
 let seq = 0;
+
+const orderService = () => tenantService(new OrderService());
+const inventoryService = () => tenantService(new InventoryService());
 
 // Lookups compartidos (se reutilizan si ya existen en la BD sembrada).
 let storeId = 0;
@@ -37,6 +41,29 @@ const createdProductIds: number[] = [];
 const createdPickingSessionIds: number[] = [];
 const createdRoleIds: number[] = [];
 const createdUserIds: number[] = [];
+const createdMembershipIds: string[] = [];
+const LEGACY_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+async function ensureLegacyMembership(targetUserId: number): Promise<void> {
+  const existing = await prisma.tenantMembership.findFirst({
+    where: {
+      tenantId: LEGACY_TENANT_ID,
+      userId: targetUserId,
+    },
+  });
+  if (existing) return;
+
+  const membership = await prisma.tenantMembership.create({
+    data: {
+      tenantId: LEGACY_TENANT_ID,
+      userId: targetUserId,
+      role: 'SELLER',
+      status: 'ACTIVE',
+      activatedAt: new Date(),
+    },
+  });
+  createdMembershipIds.push(membership.id);
+}
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -95,27 +122,23 @@ beforeAll(async () => {
   );
   sizeId = size.id;
 
-  // Usuario responsable: cancelar exige un cancelledById valido (FK a User).
-  // Reutiliza uno existente (dev suele tener admin) o crea rol+user aislados.
-  const existingUser = await prisma.user.findFirst();
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
-    const existingRole = await prisma.role.findFirst();
-    const role = existingRole ?? await prisma.role.create({ data: { name: `IT Role ${uniq}` } });
-    if (!existingRole) createdRoleIds.push(role.id);
-    const user = await prisma.user.create({
-      data: {
-        firstName: 'IT',
-        lastName: 'Responsable',
-        email: `it-user-${uniq}@test.local`,
-        password: 'x',
-        roleId: role.id,
-      },
-    });
-    createdUserIds.push(user.id);
-    userId = user.id;
-  }
+  // Usuario dedicado: evita que otra suite paralela elimine o modifique la
+  // membresia del responsable mientras corren las pruebas de concurrencia.
+  const existingRole = await prisma.role.findFirst();
+  const role = existingRole ?? await prisma.role.create({ data: { name: `IT Role ${uniq}` } });
+  if (!existingRole) createdRoleIds.push(role.id);
+  const user = await prisma.user.create({
+    data: {
+      firstName: 'IT',
+      lastName: 'Responsable',
+      email: `it-user-${uniq}@test.local`,
+      password: 'x',
+      roleId: role.id,
+    },
+  });
+  createdUserIds.push(user.id);
+  userId = user.id;
+  await ensureLegacyMembership(userId);
 });
 
 // Siembra un pedido pickeable con sesion de picking IN_PROGRESS y una linea ya
@@ -186,6 +209,7 @@ async function createExtraUser(label: string): Promise<number> {
     },
   });
   createdUserIds.push(user.id);
+  await ensureLegacyMembership(user.id);
   return user.id;
 }
 
@@ -241,6 +265,7 @@ afterAll(async () => {
     try { if (createdInventoryIds.length) await prisma.inventory.deleteMany({ where: { id: { in: createdInventoryIds } } }); } catch { /* noop */ }
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
   }
@@ -270,7 +295,7 @@ describe('Concurrencia real contra Postgres', () => {
     createdOrderIds.push(order.id);
     const [itemA, itemB] = order.items;
 
-    const svc = new OrderService();
+    const svc = orderService();
     // allowPartial=true: cada una reserva lo que pueda. La suma NO puede pasar de 6.
     const results = await Promise.allSettled([
       svc.reserveRemoteStock(order.id, storeId, variant.id, 4, null, itemA.id, true),
@@ -298,7 +323,7 @@ describe('Concurrencia real contra Postgres', () => {
     expect(Number(activeAgg._sum.quantity || 0)).toBe(6);
 
     // La auditoria no debe reportar este inventario como inconsistente.
-    const audit = await new InventoryService().auditReservedStock();
+    const audit = await inventoryService().auditReservedStock();
     expect(audit.items.some((i) => i.inventoryId === inventory.id)).toBe(false);
   }, 30_000);
 
@@ -333,7 +358,7 @@ describe('Concurrencia real contra Postgres', () => {
       },
     });
 
-    const svc = new OrderService();
+    const svc = orderService();
     // Dos "Entregar" simultaneos. Solo uno debe consumir el stock.
     const results = await Promise.allSettled([
       svc.updateOrderStatus(order.id, { status: 'DELIVERED' } as any),
@@ -369,7 +394,7 @@ describe('Concurrencia real contra Postgres', () => {
     // READY un pedido que la cancelacion concurrente ya movio.
     const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 5 });
 
-    const svc = new OrderService();
+    const svc = orderService();
     const results = await Promise.allSettled([
       svc.completeOrderPicking(order.id, userId),
       svc.updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId),
@@ -399,7 +424,7 @@ describe('Concurrencia real contra Postgres', () => {
     // CANCELLED con unidades fisicamente separadas.
     const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 0 });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await Promise.allSettled([
       svc.pickAllAvailableForOrder(order.id, userId),
       svc.updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId),
@@ -455,7 +480,7 @@ describe('Concurrencia real contra Postgres', () => {
       },
     });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await expect(
       svc.updateOrderStatus(order.id, { status: 'DELIVERED' } as any, userId),
     ).rejects.toThrow(/sin reservar/i);
@@ -492,7 +517,7 @@ describe('Concurrencia real contra Postgres', () => {
     createdOrderIds.push(order.id);
     const lineId = order.items[0].id;
 
-    const svc = new OrderService();
+    const svc = orderService();
 
     // Devuelve 2 de 5.
     await svc.registerOrderReturn(order.id, { reason: 'defecto', items: [{ orderItemId: lineId, quantity: 2 }] }, userId);
@@ -549,7 +574,7 @@ describe('Concurrencia real contra Postgres', () => {
     createdOrderIds.push(order.id);
     const lineId = order.items[0].id;
 
-    const svc = new OrderService();
+    const svc = orderService();
 
     // Devuelve 2 como MERMA (restock:false): stock intacto, pero cuenta como devuelta.
     await svc.registerOrderReturn(order.id, { reason: 'roto', restock: false, items: [{ orderItemId: lineId, quantity: 2 }] }, userId);
@@ -580,7 +605,7 @@ describe('Concurrencia real contra Postgres', () => {
 
     // Pedido CONFIRMED (no entregado) -> devolver debe rechazarse.
     const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 0 });
-    const svc = new OrderService();
+    const svc = orderService();
     await expect(
       svc.registerOrderReturn(order.id, { reason: 'x', items: [{ orderItemId: order.items[0].id, quantity: 1 }] }, userId),
     ).rejects.toThrow(/entregado/i);
@@ -594,7 +619,7 @@ describe('Concurrencia real contra Postgres', () => {
     // debe rechazarlo. Asi no se marca `picked` sobre un pedido terminado.
     const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 0 });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await svc.updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId);
 
     await expect(svc.pickAllAvailableForOrder(order.id, userId)).rejects.toThrow(/no permite|cambio de estado/i);
@@ -620,7 +645,7 @@ describe('Concurrencia real contra Postgres', () => {
     // como hay unidades separadas, va a RETURN_PENDING y (con el flujo activo) se
     // asigna al cancelador como responsable de la devolucion, ACCEPTED.
     const { inventory, order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 5 });
-    const svc = new OrderService();
+    const svc = orderService();
 
     await svc.updateOrderStatus(order.id, { status: 'CANCELLED' } as any, userId);
 
@@ -660,7 +685,7 @@ describe('Concurrencia real contra Postgres', () => {
     // Pedido asignado a `userId` (responsable actual y cancelador).
     const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'ACCEPTED' });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await svc.delegateReturnResponsibility(order.id, delegateDto(target), userId);
 
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
@@ -679,7 +704,7 @@ describe('Concurrencia real contra Postgres', () => {
     // El cancelador se toma la devolucion para si mismo (target === actor).
     const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'PENDING' });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await svc.delegateReturnResponsibility(order.id, delegateDto(userId), userId);
 
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
@@ -694,7 +719,7 @@ describe('Concurrencia real contra Postgres', () => {
 
     const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'ACCEPTED' });
 
-    const svc = new OrderService();
+    const svc = orderService();
     // actor = id inexistente distinto del responsable/cancelador -> forbidden.
     await expect(
       svc.delegateReturnResponsibility(order.id, delegateDto(userId), userId + 100000),
@@ -711,7 +736,7 @@ describe('Concurrencia real contra Postgres', () => {
     // seedPickingOrder deja el pedido en CONFIRMED.
     const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 5 });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await expect(
       svc.delegateReturnResponsibility(order.id, delegateDto(userId), userId),
     ).rejects.toThrow(/devolucion pendiente/i);
@@ -723,7 +748,7 @@ describe('Concurrencia real contra Postgres', () => {
 
     const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'ACCEPTED' });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await expect(
       svc.delegateReturnResponsibility(order.id, delegateDto(userId + 100000), userId),
     ).rejects.toThrow(/no existe/i);
@@ -737,7 +762,7 @@ describe('Concurrencia real contra Postgres', () => {
     const target = await createExtraUser('acc-target');
     const { order } = await seedReturnPendingOrder({ responsibleUserId: target, status: 'PENDING' });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await svc.acceptReturnResponsibility(order.id, target);
 
     const fresh = await prisma.order.findUnique({ where: { id: order.id } });
@@ -753,7 +778,7 @@ describe('Concurrencia real contra Postgres', () => {
 
     const { order } = await seedReturnPendingOrder({ responsibleUserId: userId, status: 'PENDING' });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await expect(
       svc.acceptReturnResponsibility(order.id, userId + 100000),
     ).rejects.toThrow(/responsable/i);
@@ -768,7 +793,7 @@ describe('Concurrencia real contra Postgres', () => {
 
     const { order } = await seedPickingOrder({ stock: 5, quantity: 5, picked: 5 });
 
-    const svc = new OrderService();
+    const svc = orderService();
     await expect(
       svc.acceptReturnResponsibility(order.id, userId),
     ).rejects.toThrow(/devolucion pendiente/i);

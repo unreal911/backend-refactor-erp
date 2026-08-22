@@ -17,6 +17,16 @@ export const authRateLimiter = rateLimit({
     message: jsonMessage('Demasiados intentos. Espera unos minutos e intenta de nuevo.'),
 });
 
+// Primera barrera local; EMP-002 agrega contadores PostgreSQL compartidos para
+// que el límite efectivo no dependa de una sola instancia serverless.
+export const ownerSignupEdgeRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: jsonMessage('Demasiados intentos. Espera unos minutos e intenta de nuevo.'),
+});
+
 // Escritura pública (crear pedidos): frena spam/DoS de proformas.
 export const publicWriteRateLimiter = rateLimit({
     windowMs: 60 * 1000,

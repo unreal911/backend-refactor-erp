@@ -1,14 +1,18 @@
-import { prisma } from "../../data/prisma";
+import { tenantPrisma as prisma } from "../../data/tenant-prisma";
 import { CreateStoreDto } from "../../domain/dtos/create-store.dto";
 import { UpdateStoreDto } from "../../domain/dtos/update-store.dto";
 import { ListStoreDto } from "../../domain/dtos/list-store.dto";
 import { CustomError } from "../../domain/errors/custom.error";
+import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
 
 export class StoreService {
     constructor() { }
 
     async createStore(createStoreDto: CreateStoreDto) {
-        const existing = await prisma.store.findUnique({
+        if (createStoreDto.isActive) {
+            await TenantQuotaService.assertAvailable("stores");
+        }
+        const existing = await prisma.store.findFirst({
             where: { code: createStoreDto.code }
         });
 
@@ -61,10 +65,14 @@ export class StoreService {
         }
 
         if (updateStoreDto.code && updateStoreDto.code !== existing.code) {
-            const codeInUse = await prisma.store.findUnique({ where: { code: updateStoreDto.code } });
+            const codeInUse = await prisma.store.findFirst({ where: { code: updateStoreDto.code } });
             if (codeInUse) {
                 throw CustomError.badRequest(`El código ${updateStoreDto.code} ya está en uso`);
             }
+        }
+
+        if (updateStoreDto.isActive === true && !existing.isActive) {
+            await TenantQuotaService.assertAvailable("stores");
         }
 
         const updateData: any = {};

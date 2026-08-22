@@ -6,8 +6,6 @@ const validTypes: InventoryMovementType[] = [
     InventoryMovementType.ADJUSTMENT,
     InventoryMovementType.TRANSFER_OUT,
     InventoryMovementType.TRANSFER_IN,
-    InventoryMovementType.RESERVED,
-    InventoryMovementType.UNRESERVED,
 ];
 
 export class CreateInventoryMovementDto {

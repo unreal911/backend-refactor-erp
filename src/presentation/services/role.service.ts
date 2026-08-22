@@ -1,5 +1,6 @@
-import { prisma } from '../../data/prisma';
+import { platformPrisma as prisma } from '../../data/platform-prisma';
 import { CreateRoleDto, UpdateRoleDto } from '../../domain/dtos/role.dto';
+import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
 import { PermissionCatalogItem, PermissionService } from './permission.service';
 
 type RoleFilters = {
@@ -9,6 +10,14 @@ type RoleFilters = {
 
 export class RoleService {
     private static readonly PROTECTED_ROLE_NAMES = new Set(['ADMIN']);
+
+    private static assertGlobalCatalogMutationAllowed(): void {
+        if (TenantDataContext.currentTenantId()) {
+            throw new Error(
+                'El catálogo RBAC global no se puede modificar desde una empresa; edita la membresía del usuario',
+            );
+        }
+    }
 
     private static normalizeName(name: string): string {
         return PermissionService.normalizeRole(name);
@@ -35,16 +44,16 @@ export class RoleService {
     }
 
     private static async findExistingRole(id: number) {
+        const tenantId = TenantDataContext.currentTenantId();
         return prisma.role.findUnique({
             where: { id },
             include: {
                 users: {
+                    ...(tenantId ? {
+                        where: { tenantMemberships: { some: { tenantId } } },
+                    } : {}),
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -59,6 +68,7 @@ export class RoleService {
     }
 
     static async create(createRoleDto: CreateRoleDto) {
+        this.assertGlobalCatalogMutationAllowed();
         const normalizedName = this.normalizeName(createRoleDto.name);
         const description = this.toNullableDescription(createRoleDto.description);
         const isActive = createRoleDto.isActive;
@@ -93,6 +103,7 @@ export class RoleService {
     }
 
     static async findAll(filters?: RoleFilters) {
+        const tenantId = TenantDataContext.currentTenantId();
         const where: {
             name?: {
                 contains: string;
@@ -120,12 +131,11 @@ export class RoleService {
             },
             include: {
                 users: {
+                    ...(tenantId ? {
+                        where: { tenantMemberships: { some: { tenantId } } },
+                    } : {}),
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -142,6 +152,7 @@ export class RoleService {
     }
 
     static async update(id: number, updateRoleDto: UpdateRoleDto) {
+        this.assertGlobalCatalogMutationAllowed();
         const role = await this.findExistingRole(id);
         if (!role) {
             throw new Error('Rol no encontrado');
@@ -182,10 +193,6 @@ export class RoleService {
                 users: {
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -193,6 +200,7 @@ export class RoleService {
     }
 
     static async updateStatus(id: number, isActive: boolean) {
+        this.assertGlobalCatalogMutationAllowed();
         const role = await this.findExistingRole(id);
         if (!role) {
             throw new Error('Rol no encontrado');
@@ -209,10 +217,6 @@ export class RoleService {
                 users: {
                     select: {
                         id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        isActive: true
                     }
                 }
             }
@@ -220,6 +224,7 @@ export class RoleService {
     }
 
     static async delete(id: number) {
+        this.assertGlobalCatalogMutationAllowed();
         const role = await this.findExistingRole(id);
         if (!role) {
             throw new Error('Rol no encontrado');
@@ -261,6 +266,7 @@ export class RoleService {
     }
 
     static async setRolePermissions(id: number, permissionCodes: string[]): Promise<string[]> {
+        this.assertGlobalCatalogMutationAllowed();
         const role = await prisma.role.findUnique({
             where: { id },
             select: { id: true, name: true }

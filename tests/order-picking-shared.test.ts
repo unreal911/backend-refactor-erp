@@ -22,6 +22,7 @@ import { RequestPickingUnpickActionDto } from '../src/domain/dtos/request-pickin
 import { ResolvePickingUnpickActionDto } from '../src/domain/dtos/resolve-picking-unpick-action.dto';
 import { PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY } from '../src/data/system-config-keys';
 import { ensurePickingResponsibilitySchema } from '../src/data/picking-responsibility-bootstrap';
+import { tenantService } from './helpers/tenant-service';
 
 let dbReady = false;
 const uniq = Date.now();
@@ -42,6 +43,8 @@ const createdPickingSessionIds: number[] = [];
 const createdStoreIds: number[] = [];
 const createdUserIds: number[] = [];
 const createdRoleIds: number[] = [];
+const createdMembershipIds: string[] = [];
+const LEGACY_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   const found = await find();
@@ -51,9 +54,13 @@ async function firstOrCreate<T>(find: () => Promise<T | null>, create: () => Pro
 async function setFlag(value: string) {
   await prisma.$executeRaw(
     Prisma.sql`
-      INSERT INTO "SystemSetting" ("key", "value")
-      VALUES (${PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY}, ${value})
-      ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value"
+      INSERT INTO "SystemSetting" ("tenantId", "key", "value")
+      VALUES (
+        ${LEGACY_TENANT_ID}::uuid,
+        ${PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY},
+        ${value}
+      )
+      ON CONFLICT ("tenantId", "key") DO UPDATE SET "value" = EXCLUDED."value"
     `,
   );
 }
@@ -154,7 +161,13 @@ beforeAll(async () => {
 
   // Guarda el valor actual del flag y lo activa para estos tests.
   const rows = await prisma.$queryRaw<Array<{ value: string }>>(
-    Prisma.sql`SELECT "value" FROM "SystemSetting" WHERE "key" = ${PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY} LIMIT 1`,
+    Prisma.sql`
+      SELECT "value"
+      FROM "SystemSetting"
+      WHERE "tenantId" = ${LEGACY_TENANT_ID}::uuid
+        AND "key" = ${PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY}
+      LIMIT 1
+    `,
   );
   previousFlag = rows?.[0]?.value ?? null;
   await setFlag('true');
@@ -178,6 +191,27 @@ beforeAll(async () => {
   const userA = await prisma.user.create({ data: { firstName: 'PS', lastName: 'Primary', email: `ps-a-${uniq}@test.local`, password: 'x', roleId: role.id } });
   const userB = await prisma.user.create({ data: { firstName: 'PS', lastName: 'Second', email: `ps-b-${uniq}@test.local`, password: 'x', roleId: role.id } });
   createdUserIds.push(userA.id, userB.id);
+  const memberships = await Promise.all([
+    prisma.tenantMembership.create({
+      data: {
+        tenantId: LEGACY_TENANT_ID,
+        userId: userA.id,
+        role: 'SELLER',
+        status: 'ACTIVE',
+        activatedAt: new Date(),
+      },
+    }),
+    prisma.tenantMembership.create({
+      data: {
+        tenantId: LEGACY_TENANT_ID,
+        userId: userB.id,
+        role: 'SELLER',
+        status: 'ACTIVE',
+        activatedAt: new Date(),
+      },
+    }),
+  ]);
+  createdMembershipIds.push(...memberships.map((membership) => membership.id));
   userAId = userA.id;
   userBId = userB.id;
 });
@@ -187,7 +221,13 @@ afterAll(async () => {
     // Restaura el flag original (o lo borra si no existia).
     try {
       if (previousFlag === null) {
-        await prisma.$executeRaw(Prisma.sql`DELETE FROM "SystemSetting" WHERE "key" = ${PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY}`);
+        await prisma.$executeRaw(
+          Prisma.sql`
+            DELETE FROM "SystemSetting"
+            WHERE "tenantId" = ${LEGACY_TENANT_ID}::uuid
+              AND "key" = ${PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY}
+          `,
+        );
       } else {
         await setFlag(previousFlag);
       }
@@ -207,6 +247,7 @@ afterAll(async () => {
     try { await prisma.inventory.deleteMany({ where: { variantId: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdVariantIds.length) await prisma.productVariant.deleteMany({ where: { id: { in: createdVariantIds } } }); } catch { /* noop */ }
     try { if (createdProductIds.length) await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } }); } catch { /* noop */ }
+    try { if (createdMembershipIds.length) await prisma.tenantMembership.deleteMany({ where: { id: { in: createdMembershipIds } } }); } catch { /* noop */ }
     try { if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }); } catch { /* noop */ }
     try { if (createdRoleIds.length) await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } }); } catch { /* noop */ }
     try { if (createdStoreIds.length) await prisma.store.deleteMany({ where: { id: { in: createdStoreIds } } }); } catch { /* noop */ }
@@ -218,7 +259,7 @@ describe('Picking compartido: autorizacion basica', () => {
   it('el responsable principal puede separar', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const { order, itemId } = await seedPickingOrder(userAId, 5);
-    await new OrderService().updatePickingOrderItem(order.id, itemId, 3, userAId);
+    await tenantService(new OrderService()).updatePickingOrderItem(order.id, itemId, 3, userAId);
     expect(await pickedOf(itemId)).toBe(3);
   }, 30_000);
 
@@ -226,7 +267,7 @@ describe('Picking compartido: autorizacion basica', () => {
     if (!dbReady) return ctx.skip();
     const { order, itemId } = await seedPickingOrder(userAId, 5);
     await expect(
-      new OrderService().updatePickingOrderItem(order.id, itemId, 1, userBId),
+      tenantService(new OrderService()).updatePickingOrderItem(order.id, itemId, 1, userBId),
     ).rejects.toThrow(/responsabilidad/i);
     expect(await pickedOf(itemId)).toBe(0);
   }, 30_000);
@@ -238,7 +279,7 @@ describe('Picking compartido: delegacion', () => {
   // fallback 'TRANSFER' devolvia TRANSFER para 'SHARED'; ahora reconoce el literal.
   it('delegar con mode SHARED comparte: B habilitado y A sigue principal', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
 
     const [, dto] = DelegatePickingResponsibilityDto.create({ userId: userBId, mode: 'SHARED' });
@@ -254,7 +295,7 @@ describe('Picking compartido: delegacion', () => {
 
   it('TRANSFER mueve el responsable principal; el anterior pierde el acceso', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
 
     const [, dto] = DelegatePickingResponsibilityDto.create({ userId: userBId, mode: 'TRANSFER' });
@@ -275,7 +316,7 @@ describe('Picking compartido: delegacion', () => {
 describe('Picking compartido: solicitud y resolucion', () => {
   it('aprobar la solicitud agrega a B como compartido y mantiene a A como principal', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
 
     await grantSharedToB(svc, order.id);
@@ -291,7 +332,7 @@ describe('Picking compartido: solicitud y resolucion', () => {
 
   it('RECHAZAR la solicitud deja al usuario sin acceso; APROBAR se lo concede', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
 
     // B solicita responsabilidad compartida; A la RECHAZA.
@@ -313,7 +354,7 @@ describe('Picking compartido: solicitud y resolucion', () => {
 describe('Picking compartido: trazabilidad al restar y concurrencia', () => {
   it('un responsable solo puede restar las unidades que separo el mismo', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
     await grantSharedToB(svc, order.id);
 
@@ -332,7 +373,7 @@ describe('Picking compartido: trazabilidad al restar y concurrencia', () => {
 
   it('dos separaciones concurrentes de la misma linea NO exceden lo pedido', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
     await grantSharedToB(svc, order.id);
 
@@ -362,7 +403,7 @@ describe('Picking compartido: solicitud de unpick (retirar unidades de otro)', (
 
   it('solicitar + APROBAR retira las unidades de otro y baja el separado', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId, pickingItemId } = await seedMixedPicking(svc);
 
     // B solicita retirar 3 (las de A). maxRequestable = 5 - contribucionB(2) = 3.
@@ -377,7 +418,7 @@ describe('Picking compartido: solicitud de unpick (retirar unidades de otro)', (
 
   it('RECHAZAR la solicitud deja el separado intacto', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId, pickingItemId } = await seedMixedPicking(svc);
 
     const [, reqDto] = RequestPickingUnpickActionDto.create({ quantity: 3 });
@@ -390,7 +431,7 @@ describe('Picking compartido: solicitud de unpick (retirar unidades de otro)', (
 
   it('no se puede resolver la propia solicitud', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, pickingItemId } = await seedMixedPicking(svc);
 
     const [, reqDto] = RequestPickingUnpickActionDto.create({ quantity: 3 });
@@ -404,7 +445,7 @@ describe('Picking compartido: solicitud de unpick (retirar unidades de otro)', (
 
   it('no hay solicitud si el item solo tiene unidades propias', async (ctx) => {
     if (!dbReady) return ctx.skip();
-    const svc = new OrderService();
+    const svc = tenantService(new OrderService());
     const { order, itemId } = await seedPickingOrder(userAId, 5);
     await svc.updatePickingOrderItem(order.id, itemId, 3, userAId); // solo A separo
     const pickingItemId = await pickingItemIdOf(order.id);

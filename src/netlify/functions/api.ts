@@ -7,13 +7,20 @@ import { createExpressApp } from '../../presentation/server';
 const app = createExpressApp({
     routes: AppRouter.router,
     public_path: envs.PUBLIC_PATH,
+    cors_origins: envs.CORS_ORIGINS,
+    service_name: 'tenant-api',
+    capture_tenant_audit: true,
+    serve_static: true,
 });
 
 const expressHandler = serverless(app);
 let startupPromise: Promise<void> | undefined;
 
 function ensureStartup() {
-    startupPromise ??= runStartupBootstraps(envs.DATABASE_URL);
+    startupPromise ??= runStartupBootstraps(
+        envs.DATABASE_URL,
+        process.env,
+    );
     return startupPromise;
 }
 
