@@ -8,10 +8,10 @@ import { createExpressApp } from "../presentation/server";
 
 type JsonObject = Record<string, any>;
 
-async function readJson(response: Response): Promise<JsonObject> {
+async function readJson(label: string, response: Response): Promise<JsonObject> {
     const body = await response.json() as JsonObject;
     if (!response.ok) {
-        throw new Error(`${response.status} ${JSON.stringify(body)}`);
+        throw new Error(`${label}: ${response.status} ${JSON.stringify(body)}`);
     }
     return body;
 }
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     }
 
     const tag = Date.now().toString(36);
-    const blockedTenantIds: string[] = [];
+    const temporaryTenantIds: string[] = [];
     const admin = await platformPrisma.user.findUnique({
         where: { email: "admin@example.com" },
         select: { id: true },
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
                 status: fixture.tenantStatus,
             },
         });
-        blockedTenantIds.push(tenant.id);
+        temporaryTenantIds.push(tenant.id);
         await platformPrisma.tenantMembership.create({
             data: {
                 tenantId: tenant.id,
@@ -69,6 +69,21 @@ async function main(): Promise<void> {
         });
     }
 
+    // El tenant legado usa STARTER y ese plan no incluye marketplace. La ruta
+    // pública se prueba con una empresa temporal cuyo plan sí habilita la
+    // característica, sin alterar el plan real de legacy-main.
+    const marketplaceSlug = `http-marketplace-${tag}`;
+    const marketplaceTenant = await platformPrisma.tenant.create({
+        data: {
+            slug: marketplaceSlug,
+            marketplaceSlug,
+            name: `HTTP marketplace ${tag}`,
+            status: "ACTIVE",
+            planCode: "GROWTH",
+        },
+    });
+    temporaryTenantIds.push(marketplaceTenant.id);
+
     const app = createExpressApp({ routes: AppRouter.router });
     const server = app.listen(0, "127.0.0.1");
     await new Promise<void>((resolve, reject) => {
@@ -80,8 +95,8 @@ async function main(): Promise<void> {
         const address = server.address() as AddressInfo;
         const baseUrl = `http://127.0.0.1:${address.port}`;
 
-        const health = await readJson(await fetch(`${baseUrl}/api/health`));
-        const login = await readJson(await fetch(`${baseUrl}/api/auth/login`, {
+        const health = await readJson("health", await fetch(`${baseUrl}/api/health`));
+        const login = await readJson("auth/login", await fetch(`${baseUrl}/api/auth/login`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -93,23 +108,23 @@ async function main(): Promise<void> {
         const authorization = `Bearer ${String(login.token || "")}`;
         if (!login.token) throw new Error("El login no devolvio token");
 
-        const [context, products, stores, users, publicProducts] = await Promise.all([
-            readJson(await fetch(`${baseUrl}/api/tenant/context`, {
-                headers: { authorization },
-            })),
-            readJson(await fetch(`${baseUrl}/api/products?skip=1&take=5`, {
-                headers: { authorization },
-            })),
-            readJson(await fetch(`${baseUrl}/api/stores?skip=1&take=5`, {
-                headers: { authorization },
-            })),
-            readJson(await fetch(`${baseUrl}/api/users?skip=1&take=3`, {
-                headers: { authorization },
-            })),
-            readJson(await fetch(`${baseUrl}/api/public/products?skip=1&take=3`, {
-                headers: { "x-tenant-slug": "legacy-main" },
-            })),
-        ]);
+        // Las peticiones son secuenciales para que cada error identifique su
+        // endpoint y no quede oculto por el rechazo agregado de Promise.all.
+        const context = await readJson("tenant/context", await fetch(`${baseUrl}/api/tenant/context`, {
+            headers: { authorization },
+        }));
+        const products = await readJson("products", await fetch(`${baseUrl}/api/products?skip=1&take=5`, {
+            headers: { authorization },
+        }));
+        const stores = await readJson("stores", await fetch(`${baseUrl}/api/stores?skip=1&take=5`, {
+            headers: { authorization },
+        }));
+        const users = await readJson("users", await fetch(`${baseUrl}/api/users?skip=1&take=3`, {
+            headers: { authorization },
+        }));
+        const publicProducts = await readJson("public/products", await fetch(`${baseUrl}/api/public/products?skip=1&take=3`, {
+            headers: { "x-tenant-slug": marketplaceSlug },
+        }));
 
         const wrongTenant = await fetch(`${baseUrl}/api/products?skip=1&take=1`, {
             headers: {
@@ -122,18 +137,21 @@ async function main(): Promise<void> {
                 "x-tenant-slug": "otra-empresa",
             },
         });
-        const blockedLogins = await Promise.all([
+        const blockedLogins: Response[] = [];
+        for (const tenantSlug of [
             `http-suspended-${tag}`,
             `http-inactive-${tag}`,
-        ].map((tenantSlug) => fetch(`${baseUrl}/api/auth/login`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-                email: "admin@example.com",
-                password: envs.SEED_DEMO_PASSWORD,
-                tenantSlug,
-            }),
-        })));
+        ]) {
+            blockedLogins.push(await fetch(`${baseUrl}/api/auth/login`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    email: "admin@example.com",
+                    password: envs.SEED_DEMO_PASSWORD,
+                    tenantSlug,
+                }),
+            }));
+        }
 
         if (context.tenant?.slug !== "legacy-main") {
             throw new Error("El contexto HTTP no resolvio legacy-main");
@@ -166,10 +184,10 @@ async function main(): Promise<void> {
         });
         await new Promise((resolve) => setTimeout(resolve, 100));
         await platformPrisma.tenantMembership.deleteMany({
-            where: { tenantId: { in: blockedTenantIds } },
+            where: { tenantId: { in: temporaryTenantIds } },
         }).catch(() => undefined);
         await platformPrisma.tenant.deleteMany({
-            where: { id: { in: blockedTenantIds } },
+            where: { id: { in: temporaryTenantIds } },
         }).catch(() => undefined);
     }
 }
