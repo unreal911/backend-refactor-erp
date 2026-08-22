@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 
 $backendRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $backendRoot
+$superadminBackendRoot = Join-Path $workspaceRoot 'backend-superadmin'
 $adminRoot = Join-Path $workspaceRoot 'frontend-next'
 $marketplaceRoot = Join-Path $workspaceRoot 'frontend-marketplace-next'
 $platformRoot = Join-Path $workspaceRoot 'frontend-platform-next'
@@ -103,6 +104,7 @@ try {
 }
 
 Start-NpmService -Name 'api' -WorkingDirectory $backendRoot -NpmScript 'dev' -Port 3000
+Start-NpmService -Name 'platform-api' -WorkingDirectory $superadminBackendRoot -NpmScript 'dev' -Port 3006
 Start-NpmService -Name 'worker' -WorkingDirectory $backendRoot -NpmScript 'worker' -ProcessPattern 'sunat-worker\.ts'
 Start-NpmService -Name 'admin' -WorkingDirectory $adminRoot -NpmScript 'dev' -Port 3001
 Start-NpmService -Name 'marketplace' -WorkingDirectory $marketplaceRoot -NpmScript 'dev' -Port 3003
@@ -112,6 +114,8 @@ Start-NpmService -Name 'web' -WorkingDirectory $webRoot -NpmScript 'dev' -Port 3
 $checks = @(
     @{ Name = 'API health'; Url = 'http://127.0.0.1:3000/api/health' },
     @{ Name = 'API ready'; Url = 'http://127.0.0.1:3000/api/ready' },
+    @{ Name = 'Platform API health'; Url = 'http://127.0.0.1:3006/api/health' },
+    @{ Name = 'Platform API ready'; Url = 'http://127.0.0.1:3006/api/ready' },
     @{ Name = 'Administracion'; Url = 'http://127.0.0.1:3001/login' },
     @{ Name = 'Marketplace'; Url = 'http://127.0.0.1:3003/marketplace' },
     @{ Name = 'Plataforma'; Url = 'http://127.0.0.1:3004/login' },
@@ -132,7 +136,7 @@ foreach ($check in $checks) {
     Write-Host "[local] OK: $($check.Name) ($url)"
 }
 
-Push-Location $backendRoot
+Push-Location $superadminBackendRoot
 try {
     & $npm run scheduler
     if ($LASTEXITCODE -ne 0) {
@@ -147,6 +151,7 @@ Write-Host 'Entorno local listo:'
 Write-Host '  Administracion: http://localhost:3001/login'
 Write-Host '  Marketplace:    http://localhost:3003/marketplace'
 Write-Host '  Plataforma:     http://localhost:3004/login'
+Write-Host '  API plataforma: http://localhost:3006/api'
 Write-Host '  Web comercial:  http://localhost:3005'
 Write-Host '  Mailpit:         http://localhost:8025'
 Write-Host '  Usuario demo:    admin@example.com / password123'

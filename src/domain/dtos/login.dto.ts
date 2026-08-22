@@ -3,12 +3,10 @@ export class LoginDto {
         public readonly email: string,
         public readonly password: string,
         public readonly tenantSlug?: string,
-        public readonly mfaCode?: string,
-        public readonly recoveryCode?: string,
     ) { }
 
     static create(object: { [key: string]: any }): [string | undefined, LoginDto | undefined] {
-        const { email, password, tenantSlug, mfaCode, recoveryCode } = object;
+        const { email, password, tenantSlug } = object;
 
         if (!email) {
             return ['El correo electrónico es obligatorio', undefined];
@@ -36,14 +34,10 @@ export class LoginDto {
             return ['La empresa seleccionada no es válida', undefined];
         }
 
-        if (mfaCode !== undefined && typeof mfaCode !== 'string') return ['El código MFA no es válido', undefined];
-        if (recoveryCode !== undefined && typeof recoveryCode !== 'string') return ['El código de recuperación no es válido', undefined];
         return [undefined, new LoginDto(
             email,
             password,
             normalizedTenantSlug || undefined,
-            typeof mfaCode === 'string' ? mfaCode.trim() : undefined,
-            typeof recoveryCode === 'string' ? recoveryCode.trim() : undefined,
         )];
     }
 }

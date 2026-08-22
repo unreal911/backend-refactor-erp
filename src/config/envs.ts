@@ -24,10 +24,7 @@ export const envs = {
     CLOUDINARY_API_KEY: env.get("CLOUDINARY_API_KEY").required().asString(),
     CLOUDINARY_API_SECRET: env.get("CLOUDINARY_API_SECRET").required().asString(),
     JWT_SECRET,
-    PLATFORM_MFA_REQUIRED: env.get("PLATFORM_MFA_REQUIRED").default(isProduction ? "true" : "false").asBool(),
-    PLATFORM_MFA_ENC_KEY: env.get("PLATFORM_MFA_ENC_KEY").default("").asString(),
     PAYMENT_PROOF_ENC_KEY: env.get("PAYMENT_PROOF_ENC_KEY").default("").asString(),
-    PLATFORM_MFA_ISSUER: env.get("PLATFORM_MFA_ISSUER").default("Tienda ERP Plataforma").asString(),
     PUBLIC_PATH: env.get("PUBLIC_PATH").required().asString(),
 
     // EMP-001: el registro queda cerrado hasta configurar entrega de correo.

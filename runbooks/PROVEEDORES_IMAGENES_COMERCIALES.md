@@ -14,7 +14,7 @@
 1. Provisionar credenciales fuera del dashboard.
 2. Registrar un perfil inactivo con ambiente, región, bucket/carpeta y CDN.
 3. Ejecutar la prueba aislada. Debe completar carga, lectura y borrado.
-4. Iniciar sesión con MFA, escribir el nombre exacto y el motivo.
+4. Iniciar sesión como administrador autorizado, escribir el nombre exacto y el motivo.
 5. Activar el perfil y observar errores/consumo.
 6. Si falla, reactivar el perfil anterior; no migrar ni duplicar objetos.
 

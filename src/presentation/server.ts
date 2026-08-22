@@ -13,12 +13,23 @@ interface Options {
     port: number;
     routes: Router;
     public_path?: string;
+    cors_origins?: string;
+    service_name?: string;
+    capture_tenant_audit?: boolean;
+    serve_static?: boolean;
 }
 
 type CreateAppOptions = Omit<Options, 'port'>;
 
 export function createExpressApp(options: CreateAppOptions) {
-    const { routes, public_path = 'public' } = options;
+    const {
+        routes,
+        public_path = 'public',
+        cors_origins = envs.CORS_ORIGINS,
+        service_name = 'tenant-api',
+        capture_tenant_audit = true,
+        serve_static = true,
+    } = options;
     const app = express();
     const requestBodyLimit = '2mb';
 
@@ -27,8 +38,8 @@ export function createExpressApp(options: CreateAppOptions) {
     app.set('trust proxy', 1);
 
     app.use((req, _res, next) => {
-        const netlifyFunctionPrefix = '/.netlify/functions/api';
-        if (req.url.startsWith(netlifyFunctionPrefix)) {
+        const netlifyFunctionPrefix = req.url.match(/^\/\.netlify\/functions\/[^/]+/)?.[0];
+        if (netlifyFunctionPrefix) {
             req.url = req.url.slice(netlifyFunctionPrefix.length) || '/';
         }
         next();
@@ -39,7 +50,7 @@ export function createExpressApp(options: CreateAppOptions) {
 
     // CORS: si CORS_ORIGINS esta definido, restringe a esa allowlist; si esta
     // vacio, permite todos los origenes (comportamiento previo, no rompe deploy).
-    const corsAllowlist = envs.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
+    const corsAllowlist = cors_origins.split(',').map((origin) => origin.trim()).filter(Boolean);
     app.use(cors({
         exposedHeaders: ['x-access-token', 'x-correlation-id', 'x-export-sha256', 'x-export-rows'],
         origin: corsAllowlist.length === 0
@@ -79,15 +90,19 @@ export function createExpressApp(options: CreateAppOptions) {
 
         return next(err);
     });
-    app.use(AuditLogMiddleware.capture(new AuditLogService()));
+    if (capture_tenant_audit) {
+        app.use(AuditLogMiddleware.capture(new AuditLogService()));
+    }
 
     const publicDir = path.isAbsolute(public_path)
         ? public_path
         : path.join(__dirname, '..', public_path);
 
-    app.use(express.static(publicDir));
+    if (serve_static) {
+        app.use(express.static(publicDir));
+    }
     app.get('/api/health', (_req, res) => {
-        res.status(200).json({ status: 'ok' });
+        res.status(200).json({ status: 'ok', service: service_name });
     });
     app.get('/api/ready', async (_req, res) => {
         try {
@@ -100,10 +115,21 @@ export function createExpressApp(options: CreateAppOptions) {
 
     app.use(routes);
 
-    app.get(/(.*)/, (_req, res) => {
-        const indexPath = path.join(publicDir, 'index.html');
-        res.sendFile(indexPath);
+    // Un endpoint API no registrado nunca debe caer al index.html de la SPA.
+    app.use('/api', (_req, res) => {
+        res.status(404).json({ message: 'Ruta API no encontrada' });
     });
+
+    if (serve_static) {
+        app.get(/(.*)/, (_req, res) => {
+            const indexPath = path.join(publicDir, 'index.html');
+            res.sendFile(indexPath);
+        });
+    } else {
+        app.use((_req, res) => {
+            res.status(404).json({ message: 'Ruta no encontrada' });
+        });
+    }
 
     // Debe instalarse después de todas las rutas para capturar errores no manejados.
     setupExpressSentryErrorHandler(app);

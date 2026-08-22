@@ -7,8 +7,11 @@ Esta guia levanta y prueba la plataforma completa sin depender de servicios clou
 | Servicio | URL o puerto |
 | --- | --- |
 | API | http://localhost:3000/api |
+| API privada de plataforma | http://localhost:3006/api |
 | Administracion | http://localhost:3001/login |
 | Marketplace | http://localhost:3003/marketplace |
+| Superadmin | http://localhost:3004/login |
+| Web comercial | http://localhost:3005 |
 | Mailpit | http://localhost:8025 |
 | PostgreSQL | localhost:5432 |
 | Moto (S3/KMS local) | http://localhost:5000 |
@@ -62,13 +65,19 @@ npm run worker
 ```
 
 ```powershell
-# Terminal 3: administracion
+# Terminal 3: API privada de plataforma
+Set-Location backend-superadmin
+npm run dev
+```
+
+```powershell
+# Terminal 4: administracion
 Set-Location frontend-next
 npm run dev
 ```
 
 ```powershell
-# Terminal 4: marketplace
+# Terminal 5: marketplace
 Set-Location frontend-marketplace-next
 npm run dev
 ```
@@ -76,7 +85,7 @@ npm run dev
 El scheduler se ejecuta una vez cuando se necesite disparar los trabajos programados:
 
 ```powershell
-Set-Location backend-refactorizado
+Set-Location backend-superadmin
 npm run scheduler
 ```
 
@@ -102,6 +111,8 @@ Con la aplicacion levantada:
 ```powershell
 Invoke-WebRequest http://localhost:3000/api/health -UseBasicParsing
 Invoke-WebRequest http://localhost:3000/api/ready -UseBasicParsing
+Invoke-WebRequest http://localhost:3006/api/health -UseBasicParsing
+Invoke-WebRequest http://localhost:3006/api/ready -UseBasicParsing
 Invoke-WebRequest http://localhost:3001/login -UseBasicParsing
 Invoke-WebRequest http://localhost:3003/marketplace -UseBasicParsing
 Invoke-WebRequest http://localhost:8025/api/v1/info -UseBasicParsing

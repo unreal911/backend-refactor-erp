@@ -96,7 +96,9 @@ export function validateSunatDocumentInfrastructureAtStartup(
     loadSunatInfrastructureConfig(source);
 }
 
-export function validateProductionRuntime(source: EnvironmentSource = process.env): void {
+export function validateProductionRuntime(
+    source: EnvironmentSource = process.env,
+): void {
     if (String(source.NODE_ENV ?? "").toLowerCase() !== "production") return;
     const corsOrigins = String(source.CORS_ORIGINS ?? "")
         .split(",").map((value) => value.trim()).filter(Boolean);
@@ -105,10 +107,6 @@ export function validateProductionRuntime(source: EnvironmentSource = process.en
     }
     if (!String(source.DIRECT_DATABASE_URL ?? "").trim()) {
         throw new Error("Producción exige DIRECT_DATABASE_URL separada para migraciones");
-    }
-    const mfaKey = String(source.PLATFORM_MFA_ENC_KEY ?? "").trim();
-    if (Buffer.from(mfaKey, "base64").length !== 32) {
-        throw new Error("Producción exige PLATFORM_MFA_ENC_KEY Base64 de 32 bytes");
     }
     if (String(source.CLOUD_MODE ?? "").toLowerCase() !== "aws") {
         throw new Error("Producción exige CLOUD_MODE=aws");

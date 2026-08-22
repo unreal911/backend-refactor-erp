@@ -57,7 +57,6 @@ registerOwnerRegistrationRoutes(
     router,
     registrationService,
     abuseGuard,
-    undefined,
     trialService,
 );
 const app = express();

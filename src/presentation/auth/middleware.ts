@@ -24,24 +24,6 @@ export interface AuthRequest extends Request {
         permissions?: string[];
     };
     tenant?: TenantRequestContext;
-    platform?: {
-        platformAdminId: string;
-        role: string;
-        permissions: string[];
-        mfaVerifiedAt: number | null;
-        mfaStatus: string;
-    };
-}
-
-function isPlatformMfaEnrollmentRoute(req: Request): boolean {
-    const path = (String(req.originalUrl || req.path).split('?')[0] || '')
-        .replace(/^\/\.netlify\/functions\/api/, '');
-    return [
-        '/api/platform/security/mfa',
-        '/api/platform/security/mfa/enroll',
-        '/api/platform/security/mfa/confirm',
-        '/api/auth/platform/logout',
-    ].includes(path.replace(/\/$/, ''));
 }
 
 function isFiscalSafeMutation(req: Request): boolean {
@@ -164,111 +146,6 @@ export class AuthMiddleware {
             }
             return res.status(401).json({ message: 'Token invalido' });
         }
-    }
-
-    static async validatePlatformJWT(req: AuthRequest, res: Response, next: NextFunction) {
-        const token = req.header('Authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return res.status(401).json({ message: 'Token no proporcionado' });
-        }
-
-        try {
-            const decoded = jwt.verify(token, envs.JWT_SECRET) as {
-                scope?: string;
-                id: number;
-                email: string;
-                role: string;
-                platformAdminId?: string;
-                authVersion?: number;
-                mfaAt?: number;
-            };
-            if (
-                decoded.scope !== 'platform'
-                || decoded.role !== 'PLATFORM_ADMIN'
-                || !decoded.platformAdminId
-            ) {
-                return res.status(401).json({ message: 'Token de plataforma inválido' });
-            }
-
-            const platformAdmin = await platformPrisma.platformAdmin.findFirst({
-                where: {
-                    id: decoded.platformAdminId,
-                    userId: decoded.id,
-                    isActive: true,
-                    user: {
-                        isActive: true,
-                    },
-                },
-                select: {
-                    id: true,
-                    mfaStatus: true,
-                    role: {
-                        select: {
-                            code: true,
-                            isActive: true,
-                            permissions: { select: { permissionCode: true } },
-                        },
-                    },
-                    user: { select: { authVersion: true } },
-                },
-            });
-            if (
-                !platformAdmin
-                || !platformAdmin.role.isActive
-                || platformAdmin.user.authVersion !== (decoded.authVersion ?? 0)
-            ) {
-                return res.status(403).json({ message: 'Acceso de plataforma revocado' });
-            }
-
-            const mfaEnrolled = platformAdmin.mfaStatus === 'ENABLED'
-                || platformAdmin.mfaStatus === 'LOCKED';
-            if (envs.PLATFORM_MFA_REQUIRED && !mfaEnrolled && !isPlatformMfaEnrollmentRoute(req)) {
-                return res.status(428).json({
-                    message: 'Debes configurar MFA antes de usar la plataforma',
-                    code: 'PLATFORM_MFA_ENROLLMENT_REQUIRED',
-                });
-            }
-
-            req.user = {
-                id: decoded.id,
-                email: decoded.email,
-                role: 'PLATFORM_ADMIN',
-            };
-            req.platform = {
-                platformAdminId: platformAdmin.id,
-                role: platformAdmin.role.code,
-                permissions: platformAdmin.role.permissions.map((item) => item.permissionCode),
-                mfaVerifiedAt: typeof decoded.mfaAt === 'number' ? decoded.mfaAt : null,
-                mfaStatus: platformAdmin.mfaStatus,
-            };
-            return next();
-        } catch (error: unknown) {
-            if (error instanceof jwt.TokenExpiredError) {
-                return res.status(401).json({ message: 'Token expirado' });
-            }
-            return res.status(401).json({ message: 'Token de plataforma invalido' });
-        }
-    }
-
-    static requirePlatformPermission(permission: string) {
-        return (req: AuthRequest, res: Response, next: NextFunction) => {
-            if (!req.platform?.permissions.includes(permission)) {
-                return res.status(403).json({ message: 'No tienes permiso para esta operación' });
-            }
-            return next();
-        };
-    }
-
-    static requireRecentPlatformMfa(req: AuthRequest, res: Response, next: NextFunction) {
-        const verifiedAt = req.platform?.mfaVerifiedAt;
-        const recent = typeof verifiedAt === 'number' && Math.floor(Date.now() / 1000) - verifiedAt <= 10 * 60;
-        if (!recent) {
-            return res.status(428).json({
-                message: 'Esta operación requiere una sesión iniciada con MFA durante los últimos 10 minutos',
-                code: 'PLATFORM_MFA_RECENT_REQUIRED',
-            });
-        }
-        return next();
     }
 
     static requireTenantContext(req: AuthRequest, res: Response, next: NextFunction) {
