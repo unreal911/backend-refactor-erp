@@ -340,6 +340,9 @@ export class PermissionService {
                 })),
                 skipDuplicates: true
             });
+        }, {
+            maxWait: 10_000,
+            timeout: 30_000
         });
 
         return this.getRolePermissions(roleId);
@@ -372,6 +375,9 @@ export class PermissionService {
                     skipDuplicates: true
                 });
             }
+        }, {
+            maxWait: 10_000,
+            timeout: 30_000
         });
     }
 
