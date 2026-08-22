@@ -208,6 +208,12 @@ enum TenantStatus {
   PURGED
 }
 
+enum TenantKind {
+  TRIAL
+  CUSTOMER
+  INTERNAL
+}
+
 enum TenantDatabaseMode {
   SHARED
   DEDICATED
@@ -269,6 +275,8 @@ model Tenant {
   name      String
   legalName String?
 
+  kind TenantKind @default(CUSTOMER)
+
   ruc            String?   @db.VarChar(11)
   rucConfirmedAt DateTime?
   address        String?
@@ -286,6 +294,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   memberships          TenantMembership[]
+  trialRegistration    OwnerRegistration? @relation("ProvisionedTrialTenant")
   migrationCheckpoints TenantMigrationCheckpoint[]
   migrationQuarantines TenantMigrationQuarantine[]
   categories           Category[]
@@ -365,6 +374,11 @@ model OwnerRegistration {
   trialProvisioningTokenHash      String?   @unique @db.Char(64)
   trialProvisioningTokenExpiresAt DateTime?
   consumedAt                      DateTime?
+
+  provisionedTenantId String?  @unique @db.Uuid
+  provisionedTenant   Tenant?  @relation("ProvisionedTrialTenant", fields: [provisionedTenantId], references: [id], onDelete: Restrict)
+  provisionedUserId   Int?     @unique
+  provisionedUser     User?    @relation("ProvisionedTrialUser", fields: [provisionedUserId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -534,6 +548,7 @@ model User {
 
   tenantMemberships TenantMembership[]
   platformAdmin     PlatformAdmin?
+  trialRegistration OwnerRegistration? @relation("ProvisionedTrialUser")
 
   inventoryMovements InventoryMovement[]
 
