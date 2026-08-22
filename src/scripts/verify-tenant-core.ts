@@ -1,4 +1,4 @@
-import { Prisma, TenantMembershipRole, TenantMembershipStatus, TenantStatus } from "@prisma/client";
+import { Prisma, TenantKind, TenantMembershipRole, TenantMembershipStatus, TenantStatus } from "@prisma/client";
 import { runStartupBootstraps } from "../bootstrap/startup";
 import { envs } from "../config/envs";
 import { prisma } from "../data/prisma";
@@ -40,10 +40,20 @@ async function expectConstraintProbe(
 async function main(): Promise<void> {
     await runStartupBootstraps(envs.DATABASE_URL);
 
-    const [legacyTenant, users, memberships, checkpoints, tenantAuditRows] = await Promise.all([
+    const [
+        legacyTenant,
+        users,
+        memberships,
+        usersWithoutMembership,
+        checkpoints,
+        tenantAuditRows,
+    ] = await Promise.all([
         prisma.tenant.findUnique({ where: { id: LEGACY_TENANT_ID } }),
         prisma.user.count(),
-        prisma.tenantMembership.count({ where: { tenantId: LEGACY_TENANT_ID } }),
+        prisma.tenantMembership.count(),
+        prisma.user.count({
+            where: { tenantMemberships: { none: {} } },
+        }),
         prisma.tenantMigrationCheckpoint.count({ where: { tenantId: LEGACY_TENANT_ID } }),
         prisma.$queryRaw<Array<{ count: bigint }>>(
             Prisma.sql`
@@ -56,8 +66,10 @@ async function main(): Promise<void> {
     if (!legacyTenant || legacyTenant.slug !== "legacy-main") {
         throw new Error("No existe el tenant heredado estable");
     }
-    if (memberships !== users) {
-        throw new Error(`Membresías heredadas incompletas: usuarios=${users}, membresías=${memberships}`);
+    if (usersWithoutMembership !== 0 || memberships < users) {
+        throw new Error(
+            `Usuarios sin empresa: usuarios=${users}, membresías=${memberships}, sinMembresía=${usersWithoutMembership}`,
+        );
     }
     if (checkpoints !== 9) {
         throw new Error(`Se esperaban 9 checkpoints MIG-003..MIG-011 y existen ${checkpoints}`);
@@ -82,6 +94,7 @@ async function main(): Promise<void> {
             data: {
                 slug: trialSlug,
                 name: "Verificación trial",
+                kind: TenantKind.TRIAL,
                 status: TenantStatus.TRIAL,
                 databaseMode: "SHARED",
                 trialStartedAt: new Date(),
@@ -98,7 +111,12 @@ async function main(): Promise<void> {
                 rucConfirmedAt: new Date(),
             },
         });
-        if (trial.ruc !== null || active.databaseMode !== "SHARED") {
+        if (
+            trial.kind !== TenantKind.TRIAL
+            || trial.ruc !== null
+            || active.kind !== TenantKind.CUSTOMER
+            || active.databaseMode !== "SHARED"
+        ) {
             throw new Error("Los defaults de tenant no coinciden");
         }
     });
@@ -136,6 +154,7 @@ async function main(): Promise<void> {
                 data: {
                     slug: `${trialSlug}-immutable`,
                     name: "ID inmutable",
+                    kind: TenantKind.TRIAL,
                     status: TenantStatus.TRIAL,
                 },
             });
@@ -157,6 +176,7 @@ async function main(): Promise<void> {
                 data: {
                     slug: `${trialSlug}-owner`,
                     name: "Owner protegido",
+                    kind: TenantKind.TRIAL,
                     status: TenantStatus.TRIAL,
                 },
             });

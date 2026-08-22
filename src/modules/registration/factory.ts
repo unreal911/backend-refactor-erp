@@ -1,6 +1,8 @@
 import { envs } from "../../config/envs";
 import { OwnerRegistrationService } from "./owner-registration.service";
 import { SmtpOwnerVerificationEmailSender } from "./smtp-owner-verification-email";
+import { OwnerSignupAbuseService } from "./owner-signup-abuse.service";
+import { TurnstileOwnerSignupCaptcha } from "./turnstile-owner-signup-captcha";
 
 function requireSignupSetting(name: string, value: string): string {
     const normalized = value.trim();
@@ -55,5 +57,55 @@ OwnerRegistrationService | null {
         verificationTtlMinutes: envs.OWNER_SIGNUP_TOKEN_TTL_MINUTES,
         trialProvisioningTtlMinutes: envs.OWNER_TRIAL_TOKEN_TTL_MINUTES,
         termsVersion,
+    });
+}
+
+export function createOwnerSignupAbuseServiceFromEnvironment():
+OwnerSignupAbuseService | null {
+    if (!envs.OWNER_SIGNUP_ENABLED) return null;
+
+    const fingerprintPepper = requireSignupSetting(
+        "OWNER_SIGNUP_ABUSE_PEPPER",
+        envs.OWNER_SIGNUP_ABUSE_PEPPER,
+    );
+    if (fingerprintPepper.length < 32) {
+        throw new Error("OWNER_SIGNUP_ABUSE_PEPPER debe tener al menos 32 caracteres");
+    }
+    if (fingerprintPepper === envs.OWNER_SIGNUP_TOKEN_PEPPER.trim()) {
+        throw new Error("OWNER_SIGNUP_ABUSE_PEPPER debe ser distinta de OWNER_SIGNUP_TOKEN_PEPPER");
+    }
+
+    const expectedAction = requireSignupSetting(
+        "TURNSTILE_EXPECTED_ACTION",
+        envs.TURNSTILE_EXPECTED_ACTION,
+    );
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(expectedAction)) {
+        throw new Error("TURNSTILE_EXPECTED_ACTION no es válida");
+    }
+    const expectedHostnames = envs.TURNSTILE_EXPECTED_HOSTNAMES
+        .split(",")
+        .map((hostname) => hostname.trim().toLowerCase())
+        .filter(Boolean);
+    if (expectedHostnames.some((hostname) => !/^[a-z0-9.-]+$/.test(hostname))) {
+        throw new Error("TURNSTILE_EXPECTED_HOSTNAMES contiene un hostname no válido");
+    }
+    if (envs.IS_PRODUCTION && expectedHostnames.length === 0) {
+        throw new Error("OWNER_SIGNUP_ENABLED requiere TURNSTILE_EXPECTED_HOSTNAMES en producción");
+    }
+
+    const captcha = new TurnstileOwnerSignupCaptcha({
+        secretKey: requireSignupSetting("TURNSTILE_SECRET_KEY", envs.TURNSTILE_SECRET_KEY),
+        expectedAction,
+        expectedHostnames,
+        timeoutMs: envs.TURNSTILE_TIMEOUT_MS,
+    });
+    return new OwnerSignupAbuseService(captcha, {
+        fingerprintPepper,
+        ipLimit: envs.OWNER_SIGNUP_IP_LIMIT,
+        ipWindowMinutes: envs.OWNER_SIGNUP_IP_WINDOW_MINUTES,
+        emailLimit: envs.OWNER_SIGNUP_EMAIL_LIMIT,
+        emailWindowMinutes: envs.OWNER_SIGNUP_EMAIL_WINDOW_MINUTES,
+        deviceLimit: envs.OWNER_SIGNUP_DEVICE_LIMIT,
+        deviceWindowMinutes: envs.OWNER_SIGNUP_DEVICE_WINDOW_MINUTES,
     });
 }

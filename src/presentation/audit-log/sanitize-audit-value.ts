@@ -26,6 +26,10 @@ const REDACTED_KEY_PATTERNS = [
     "document",
     "dni",
     "ruc",
+    "firstname",
+    "lastname",
+    "businessname",
+    "deviceid",
 ];
 
 function isRedactedKey(key: string): boolean {

@@ -54,7 +54,19 @@ export async function ensureSystemConfigSchema(): Promise<void> {
 export async function seedDefaultSystemSettingsForTenant(
     tenantId: string,
     dbClient: Pick<typeof prisma, '$executeRawUnsafe'> = prisma,
+    company: {
+        name?: string;
+        legalName?: string | null;
+        ruc?: string | null;
+        email?: string | null;
+    } = {},
 ): Promise<void> {
+    const tenantValues: Record<string, string | undefined> = {
+        [COMPANY_NAME_KEY]: company.name,
+        [COMPANY_LEGAL_NAME_KEY]: company.legalName ?? undefined,
+        [COMPANY_RUC_KEY]: company.ruc ?? undefined,
+        [COMPANY_EMAIL_KEY]: company.email ?? undefined,
+    };
     for (const setting of DEFAULT_SYSTEM_SETTINGS) {
         await dbClient.$executeRawUnsafe(
             `INSERT INTO "SystemSetting" ("tenantId", "key", "value")
@@ -62,7 +74,7 @@ export async function seedDefaultSystemSettingsForTenant(
              ON CONFLICT ("tenantId", "key") DO NOTHING`,
             tenantId,
             setting.key,
-            setting.value,
+            tenantValues[setting.key] ?? setting.value,
         );
     }
 }

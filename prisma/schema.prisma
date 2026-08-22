@@ -208,6 +208,12 @@ enum TenantStatus {
   PURGED
 }
 
+enum TenantKind {
+  TRIAL
+  CUSTOMER
+  INTERNAL
+}
+
 enum TenantDatabaseMode {
   SHARED
   DEDICATED
@@ -233,6 +239,27 @@ enum OwnerRegistrationStatus {
   CANCELLED
 }
 
+enum SignupRateLimitDimension {
+  IP
+  EMAIL
+  DEVICE
+}
+
+enum SignupAbuseReason {
+  CAPTCHA_FAILED
+  CAPTCHA_UNAVAILABLE
+  IP_RATE_LIMIT
+  EMAIL_RATE_LIMIT
+  DEVICE_RATE_LIMIT
+  ACTIVE_TRIAL_LIMIT
+}
+
+enum SignupAbuseReviewStatus {
+  UNREVIEWED
+  FALSE_POSITIVE
+  CONFIRMED_ABUSE
+}
+
 enum TenantMigrationStatus {
   PENDING
   RUNNING
@@ -247,6 +274,8 @@ model Tenant {
   slug      String  @unique
   name      String
   legalName String?
+
+  kind TenantKind @default(CUSTOMER)
 
   ruc            String?   @db.VarChar(11)
   rucConfirmedAt DateTime?
@@ -265,6 +294,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   memberships          TenantMembership[]
+  trialRegistration    OwnerRegistration? @relation("ProvisionedTrialTenant")
   migrationCheckpoints TenantMigrationCheckpoint[]
   migrationQuarantines TenantMigrationQuarantine[]
   categories           Category[]
@@ -328,6 +358,10 @@ model OwnerRegistration {
   passwordHash String
   businessName String @db.VarChar(120)
 
+  signupEmailFingerprint  String? @db.Char(64)
+  signupIpFingerprint     String? @db.Char(64)
+  signupDeviceFingerprint String? @db.Char(64)
+
   status          OwnerRegistrationStatus @default(EMAIL_PENDING)
   termsAcceptedAt DateTime
   termsVersion    String                  @db.VarChar(50)
@@ -341,11 +375,63 @@ model OwnerRegistration {
   trialProvisioningTokenExpiresAt DateTime?
   consumedAt                      DateTime?
 
+  provisionedTenantId String?  @unique @db.Uuid
+  provisionedTenant   Tenant?  @relation("ProvisionedTrialTenant", fields: [provisionedTenantId], references: [id], onDelete: Restrict)
+  provisionedUserId   Int?     @unique
+  provisionedUser     User?    @relation("ProvisionedTrialUser", fields: [provisionedUserId], references: [id], onDelete: Restrict)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status, verificationTokenExpiresAt])
   @@index([status, trialProvisioningTokenExpiresAt])
+  @@index([signupEmailFingerprint, signupDeviceFingerprint])
+}
+
+model SignupRateLimitBucket {
+  id String @id @default(uuid()) @db.Uuid
+
+  dimension       SignupRateLimitDimension
+  fingerprint     String                   @db.Char(64)
+  windowStartedAt DateTime
+  windowEndsAt    DateTime
+  attempts        Int                      @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dimension, fingerprint, windowStartedAt])
+  @@index([windowEndsAt])
+}
+
+model SignupAbuseEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  reason            SignupAbuseReason
+  aggregationKey    String            @db.Char(64)
+  emailFingerprint  String            @db.Char(64)
+  ipFingerprint     String            @db.Char(64)
+  deviceFingerprint String            @db.Char(64)
+  captchaVerified   Boolean           @default(false)
+  bucketStartedAt   DateTime
+  firstOccurredAt   DateTime          @default(now())
+  lastOccurredAt    DateTime          @default(now())
+  occurrences       Int               @default(1)
+
+  reviewStatus  SignupAbuseReviewStatus @default(UNREVIEWED)
+  reviewNote    String?                 @db.VarChar(500)
+  reviewedAt    DateTime?
+  overrideUntil DateTime?
+
+  reviewedByPlatformAdminId String?        @db.Uuid
+  reviewedByPlatformAdmin   PlatformAdmin? @relation(fields: [reviewedByPlatformAdminId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reason, aggregationKey, bucketStartedAt])
+  @@index([reviewStatus, lastOccurredAt])
+  @@index([emailFingerprint, deviceFingerprint, overrideUntil])
 }
 
 model TenantMigrationCheckpoint {
@@ -394,6 +480,8 @@ model PlatformAdmin {
 
   userId Int  @unique
   user   User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  signupAbuseReviews SignupAbuseEvent[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -460,6 +548,7 @@ model User {
 
   tenantMemberships TenantMembership[]
   platformAdmin     PlatformAdmin?
+  trialRegistration OwnerRegistration? @relation("ProvisionedTrialUser")
 
   inventoryMovements InventoryMovement[]
 
