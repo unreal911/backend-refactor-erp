@@ -9,9 +9,7 @@ import {
     TenantRequestContext,
 } from '../../modules/tenant/tenant-context.service';
 import { PlanAccessService } from '../../modules/plans/plan-access.service';
-import { PlatformMfaStatus, TenantPlanCode } from '@prisma/client';
-import { PlatformMfaService } from '../../modules/platform-admin/platform-mfa.service';
-import { PlatformAuditService } from '../../modules/platform-admin/platform-audit.service';
+import { TenantPlanCode } from '@prisma/client';
 
 type AuthUserPayload = {
     id: number;
@@ -209,87 +207,6 @@ export class AuthService {
                     code: planSnapshot.planCode,
                     features: planFeatures,
                 },
-            },
-        };
-    }
-
-    static async loginPlatform(loginDto: LoginDto) {
-        const user = await prisma.user.findUnique({
-            where: { email: loginDto.email },
-            select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                password: true,
-                isActive: true,
-                authVersion: true,
-                platformAdmin: {
-                    select: {
-                        id: true,
-                        isActive: true,
-                        mfaStatus: true,
-                        role: {
-                            select: {
-                                code: true,
-                                isActive: true,
-                                permissions: { select: { permissionCode: true } },
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        if (!user || !user.isActive || !user.platformAdmin?.isActive || !user.platformAdmin.role.isActive) {
-            throw new Error('Credenciales de plataforma invalidas');
-        }
-        const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-        if (!isPasswordValid) {
-            throw new Error('Credenciales de plataforma invalidas');
-        }
-
-        const enrolled = user.platformAdmin.mfaStatus === PlatformMfaStatus.ENABLED
-            || user.platformAdmin.mfaStatus === PlatformMfaStatus.LOCKED;
-        if (enrolled && !loginDto.mfaCode && !loginDto.recoveryCode) {
-            await PlatformAuditService.record({ actorPlatformAdminId: user.platformAdmin.id, action: 'PLATFORM_LOGIN_MFA_REQUIRED', entityType: 'PlatformAdmin', entityId: user.platformAdmin.id });
-            return { mfaRequired: true };
-        }
-        const mfa = enrolled
-            ? await PlatformMfaService.verifyForLogin(user.platformAdmin.id, loginDto.mfaCode, loginDto.recoveryCode)
-            : { required: envs.PLATFORM_MFA_REQUIRED };
-        const permissions = user.platformAdmin.role.permissions.map((item) => item.permissionCode).sort();
-
-        const token = jwt.sign(
-            {
-                scope: 'platform',
-                id: user.id,
-                email: user.email,
-                role: 'PLATFORM_ADMIN',
-                platformAdminId: user.platformAdmin.id,
-                authVersion: user.authVersion,
-                platformRole: user.platformAdmin.role.code,
-                permissions,
-                ...(mfa.verifiedAt ? { mfaAt: mfa.verifiedAt } : {}),
-            },
-            envs.JWT_SECRET,
-            { expiresIn: '30m' },
-        );
-
-        await PlatformAuditService.record({ actorPlatformAdminId: user.platformAdmin.id, action: 'PLATFORM_LOGIN_SUCCEEDED', entityType: 'PlatformAdmin', entityId: user.platformAdmin.id, after: { role: user.platformAdmin.role.code, mfa: Boolean(mfa.verifiedAt) } });
-
-        return {
-            token,
-            user: {
-                id: user.id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                email: user.email,
-                role: 'PLATFORM_ADMIN',
-                platformRole: user.platformAdmin.role.code,
-                permissions,
-                scope: 'platform',
-                mfaEnrollmentRequired: mfa.required && !enrolled,
             },
         };
     }

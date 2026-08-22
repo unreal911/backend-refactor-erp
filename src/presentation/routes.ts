@@ -21,11 +21,10 @@ import { registerTenantModuleRoutes } from "../modules/tenant";
 import { registerOwnerRegistrationRoutes } from "../modules/registration";
 import { registerTenantInvitationRoutes } from "../modules/invitations";
 import { registerTenantLifecycleRoutes } from "../modules/lifecycle";
-import { registerOperationsRoutes } from "../modules/operations";
 import { registerReportModuleRoutes } from "../modules/reports/routes";
 import { PublicTenantMiddleware } from "./public/tenant.middleware";
 import { customerRoute } from "./customer/router";
-import { registerPlatformAdminRoutes } from "../modules/platform-admin/routes";
+import { registerSaasBillingRoutes } from "../modules/saas-billing";
 
 export class AppRouter {
     static get router(): Router {
@@ -36,8 +35,7 @@ export class AppRouter {
         registerOwnerRegistrationRoutes(router);
         registerTenantInvitationRoutes(router);
         registerTenantLifecycleRoutes(router);
-        registerOperationsRoutes(router);
-        registerPlatformAdminRoutes(router);
+        registerSaasBillingRoutes(router);
         registerReportModuleRoutes(router);
 
         if (envs.SEED_ENDPOINT_ENABLED) {

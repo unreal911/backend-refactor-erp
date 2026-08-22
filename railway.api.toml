@@ -1,8 +1,12 @@
+# Railway: servicio persistente HTTP.
+# Root Directory: /backend-refactorizado
+# Variables: .env.railway.example (cargar valores en el Dashboard).
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Solo la API ejecuta migraciones/bootstrap antes de desplegar.
 preDeployCommand = "npm run release"
 startCommand = "npm start"
 healthcheckPath = "/api/health"

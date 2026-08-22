@@ -1,4 +1,6 @@
-export { registerOwnerRegistrationRoutes } from "./routes";
+export {
+    registerOwnerRegistrationRoutes,
+} from "./routes";
 export { TrialProvisioningService } from "./trial-provisioning.service";
 export * from "./owner-registration.dto";
 export * from "./owner-registration.service";

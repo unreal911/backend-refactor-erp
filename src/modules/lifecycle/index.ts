@@ -1,4 +1,6 @@
-export { registerTenantLifecycleRoutes } from "./routes";
+export {
+    registerTenantLifecycleRoutes,
+} from "./routes";
 export {
     isValidPeruvianRuc,
     TenantLifecycleService,

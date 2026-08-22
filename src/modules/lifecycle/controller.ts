@@ -78,34 +78,6 @@ export class TenantLifecycleController {
         }
     };
 
-    expireTrials = async (_req: AuthRequest, res: Response) => {
-        try {
-            return res.json(await TenantLifecycleService.expireDueTrials());
-        } catch (caught) {
-            return handle(caught, res);
-        }
-    };
-
-    purgeTrials = async (_req: AuthRequest, res: Response) => {
-        try {
-            return res.json(await TenantLifecycleService.purgeDueTrials());
-        } catch (caught) {
-            return handle(caught, res);
-        }
-    };
-
-    approveProduction = async (req: AuthRequest, res: Response) => {
-        if (!req.user) return res.status(401).json({ message: "Usuario no autenticado" });
-        try {
-            const tenant = await TenantLifecycleService.approveProduction(
-                String(req.params.tenantId || ""),
-                req.user.id,
-            );
-            return res.json({ tenant });
-        } catch (caught) {
-            return handle(caught, res);
-        }
-    };
 }
 
 export class BillingWebhookController {

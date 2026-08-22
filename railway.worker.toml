@@ -1,3 +1,6 @@
+# Railway: worker SUNAT persistente, sin dominio público.
+# Root Directory: /backend-refactorizado
+# No configurar Cron Schedule: este proceso permanece escuchando la cola.
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"

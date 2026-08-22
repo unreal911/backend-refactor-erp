@@ -23,6 +23,11 @@ const queue = new SunatJobQueue();
 const service = new ComprobanteService();
 const workerId = `${process.env.RAILWAY_REPLICA_ID ?? "local"}:${process.pid}:${randomUUID()}`;
 const once = process.argv.includes("--once");
+const drain = process.argv.includes("--drain");
+const configuredDrainMaxJobs = Number(process.env.WORKER_DRAIN_MAX_JOBS ?? 50);
+const drainMaxJobs = Number.isFinite(configuredDrainMaxJobs)
+    ? Math.min(500, Math.max(1, Math.trunc(configuredDrainMaxJobs)))
+    : 50;
 const configuredPollMs = Number(process.env.WORKER_POLL_MS ?? 2000);
 const pollMs = Number.isFinite(configuredPollMs)
     ? Math.min(60_000, Math.max(250, configuredPollMs))
@@ -176,9 +181,14 @@ async function runOne(): Promise<boolean> {
 
 async function main(): Promise<void> {
     await queue.recoverStaleLocks();
+    let processed = 0;
     do {
         const worked = await runOne();
         if (once) return;
+        if (drain) {
+            if (!worked || ++processed >= drainMaxJobs) return;
+            continue;
+        }
         if (!worked) await new Promise((resolve) => setTimeout(resolve, pollMs));
     } while (!stopping);
 }
