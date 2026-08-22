@@ -4,6 +4,7 @@ import { OwnerRegistrationStatus, Prisma } from "@prisma/client";
 import { platformPrisma } from "../../data/platform-prisma";
 import { OwnerSignupDto } from "./owner-registration.dto";
 import { OwnerVerificationEmailSender } from "./ports/owner-verification-email.port";
+import type { OwnerSignupAbuseIdentity } from "./owner-signup-abuse.service";
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
 
@@ -12,6 +13,14 @@ export class OwnerRegistrationTokenError extends Error {
 
     constructor() {
         super("La credencial de registro es inválida o venció");
+    }
+}
+
+export class OwnerRegistrationTrialLimitError extends Error {
+    readonly statusCode = 409;
+
+    constructor() {
+        super("La identidad ya tiene una prueba activa");
     }
 }
 
@@ -25,6 +34,15 @@ export type VerifiedOwnerIdentity = {
     termsAcceptedAt: Date;
     termsVersion: string;
     emailVerifiedAt: Date;
+    signupEmailFingerprint: string | null;
+    signupIpFingerprint: string | null;
+    signupDeviceFingerprint: string | null;
+};
+
+export type ConsumedOwnerIdentity = {
+    id: string;
+    provisionedTenantId: string;
+    provisionedUserId: number;
 };
 
 export type OwnerRegistrationServiceOptions = {
@@ -62,7 +80,10 @@ export class OwnerRegistrationService {
         return new Date(now.getTime() + minutes * 60_000);
     }
 
-    async signup(dto: OwnerSignupDto): Promise<void> {
+    async signup(
+        dto: OwnerSignupDto,
+        abuseIdentity?: OwnerSignupAbuseIdentity,
+    ): Promise<void> {
         // Se calcula siempre, incluso si el correo ya existe, para reducir la
         // diferencia observable entre respuestas y no enumerar identidades.
         const passwordHash = await bcrypt.hash(dto.password, this.bcryptRounds);
@@ -75,8 +96,10 @@ export class OwnerRegistrationService {
         );
 
         const delivery = await platformPrisma.$transaction(async (tx) => {
-            const existingUser = await tx.user.findUnique({
-                where: { email: dto.email },
+            const existingUser = await tx.user.findFirst({
+                where: {
+                    email: { equals: dto.email, mode: "insensitive" },
+                },
                 select: { id: true },
             });
             if (existingUser) return null;
@@ -88,6 +111,9 @@ export class OwnerRegistrationService {
                     email: dto.email,
                     passwordHash,
                     businessName: dto.businessName,
+                    signupEmailFingerprint: abuseIdentity?.emailFingerprint ?? null,
+                    signupIpFingerprint: abuseIdentity?.ipFingerprint ?? null,
+                    signupDeviceFingerprint: abuseIdentity?.deviceFingerprint ?? null,
                     status: OwnerRegistrationStatus.EMAIL_PENDING,
                     termsAcceptedAt: now,
                     termsVersion: this.options.termsVersion,
@@ -210,6 +236,10 @@ export class OwnerRegistrationService {
             identity: VerifiedOwnerIdentity,
             tx: Prisma.TransactionClient,
         ) => Promise<T>,
+        replay?: (
+            registration: ConsumedOwnerIdentity,
+            tx: Prisma.TransactionClient,
+        ) => Promise<T>,
     ): Promise<T> {
         const trialProvisioningTokenHash = this.hashToken(trialToken);
         const now = this.now();
@@ -219,6 +249,21 @@ export class OwnerRegistrationService {
                 where: { trialProvisioningTokenHash },
             });
             if (
+                replay
+                && registration?.status === OwnerRegistrationStatus.CONSUMED
+                && registration.consumedAt
+                && registration.provisionedTenantId
+                && registration.provisionedUserId
+                && registration.trialProvisioningTokenExpiresAt
+                && registration.trialProvisioningTokenExpiresAt > now
+            ) {
+                return replay({
+                    id: registration.id,
+                    provisionedTenantId: registration.provisionedTenantId,
+                    provisionedUserId: registration.provisionedUserId,
+                }, tx);
+            }
+            if (
                 !registration
                 || registration.status !== OwnerRegistrationStatus.EMAIL_VERIFIED
                 || !registration.emailVerifiedAt
@@ -227,6 +272,26 @@ export class OwnerRegistrationService {
                 || registration.consumedAt
             ) {
                 throw new OwnerRegistrationTokenError();
+            }
+
+            const activeTrial = await tx.tenantMembership.findFirst({
+                where: {
+                    status: "ACTIVE",
+                    user: {
+                        email: { equals: registration.email, mode: "insensitive" },
+                    },
+                    tenant: {
+                        status: "TRIAL",
+                        OR: [
+                            { trialEndsAt: null },
+                            { trialEndsAt: { gt: now } },
+                        ],
+                    },
+                },
+                select: { id: true },
+            });
+            if (activeTrial) {
+                throw new OwnerRegistrationTrialLimitError();
             }
 
             const claimed = await tx.ownerRegistration.updateMany({
@@ -240,11 +305,29 @@ export class OwnerRegistrationService {
                 data: {
                     status: OwnerRegistrationStatus.CONSUMED,
                     consumedAt: now,
-                    trialProvisioningTokenHash: null,
-                    trialProvisioningTokenExpiresAt: null,
                 },
             });
             if (claimed.count !== 1) {
+                const concurrentlyConsumed = replay
+                    ? await tx.ownerRegistration.findUnique({
+                        where: { trialProvisioningTokenHash },
+                    })
+                    : null;
+                if (
+                    replay
+                    && concurrentlyConsumed?.status === OwnerRegistrationStatus.CONSUMED
+                    && concurrentlyConsumed.consumedAt
+                    && concurrentlyConsumed.provisionedTenantId
+                    && concurrentlyConsumed.provisionedUserId
+                    && concurrentlyConsumed.trialProvisioningTokenExpiresAt
+                    && concurrentlyConsumed.trialProvisioningTokenExpiresAt > now
+                ) {
+                    return replay({
+                        id: concurrentlyConsumed.id,
+                        provisionedTenantId: concurrentlyConsumed.provisionedTenantId,
+                        provisionedUserId: concurrentlyConsumed.provisionedUserId,
+                    }, tx);
+                }
                 throw new OwnerRegistrationTokenError();
             }
 
@@ -258,7 +341,13 @@ export class OwnerRegistrationService {
                 termsAcceptedAt: registration.termsAcceptedAt,
                 termsVersion: registration.termsVersion,
                 emailVerifiedAt: registration.emailVerifiedAt,
+                signupEmailFingerprint: registration.signupEmailFingerprint,
+                signupIpFingerprint: registration.signupIpFingerprint,
+                signupDeviceFingerprint: registration.signupDeviceFingerprint,
             }, tx);
+        }, {
+            maxWait: 10_000,
+            timeout: 30_000,
         });
     }
 }
