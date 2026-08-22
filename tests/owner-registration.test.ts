@@ -210,7 +210,9 @@ describe("EMP-001 registro de propietario", () => {
         });
         expect(consumed.status).toBe("CONSUMED");
         expect(consumed.consumedAt).toEqual(currentTime);
-        expect(consumed.trialProvisioningTokenHash).toBeNull();
+        expect(consumed.trialProvisioningTokenHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(consumed.trialProvisioningTokenHash).not.toBe(verified.trialToken);
+        expect(consumed.trialProvisioningTokenExpiresAt).toBeInstanceOf(Date);
     });
 
     it("mantiene la idempotencia ante solicitudes simultáneas", async () => {
