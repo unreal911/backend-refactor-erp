@@ -1,4 +1,10 @@
 import { envs } from "../../config/envs";
+import {
+    assertGmailSmtpTransport,
+    assertSmtpAuthPair,
+    normalizeSmtpPassword,
+    normalizeSmtpUser,
+} from "../../config/smtp";
 import { PasswordResetService } from "./password-reset.service";
 import { SmtpPasswordResetEmailSender } from "./smtp-password-reset-email";
 
@@ -23,13 +29,19 @@ export function createPasswordResetServiceFromEnvironment(): PasswordResetServic
         throw new Error("PASSWORD_RESET_URL debe usar HTTPS en producción");
     }
 
-    const smtpUser = envs.SMTP_USER.trim();
-    const smtpPassword = envs.SMTP_PASSWORD.trim();
-    if (Boolean(smtpUser) !== Boolean(smtpPassword)) {
-        throw new Error("SMTP_USER y SMTP_PASSWORD deben configurarse juntos");
-    }
+    const smtpHost = requireSetting("SMTP_HOST", envs.SMTP_HOST);
+    const smtpUser = normalizeSmtpUser(envs.SMTP_USER);
+    const smtpPassword = normalizeSmtpPassword(smtpHost, envs.SMTP_PASSWORD);
+    assertSmtpAuthPair(smtpUser, smtpPassword);
+    assertGmailSmtpTransport({
+        host: smtpHost,
+        port: envs.SMTP_PORT,
+        secure: envs.SMTP_SECURE,
+        user: smtpUser,
+        password: smtpPassword,
+    });
     const sender = new SmtpPasswordResetEmailSender({
-        host: requireSetting("SMTP_HOST", envs.SMTP_HOST),
+        host: smtpHost,
         port: envs.SMTP_PORT,
         secure: envs.SMTP_SECURE,
         ...(smtpUser ? { user: smtpUser, password: smtpPassword } : {}),
