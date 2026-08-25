@@ -1,4 +1,10 @@
 import { envs } from "../../config/envs";
+import {
+    assertGmailSmtpTransport,
+    assertSmtpAuthPair,
+    normalizeSmtpPassword,
+    normalizeSmtpUser,
+} from "../../config/smtp";
 import { SmtpTenantInvitationEmailSender } from "./smtp-tenant-invitation-email";
 import { TenantInvitationService } from "./tenant-invitation.service";
 
@@ -35,13 +41,19 @@ TenantInvitationService | null {
         throw new Error("TENANT_INVITATION_ACCEPT_URL debe usar HTTPS en producci\u00f3n");
     }
 
-    const smtpUser = envs.SMTP_USER.trim();
-    const smtpPassword = envs.SMTP_PASSWORD.trim();
-    if (Boolean(smtpUser) !== Boolean(smtpPassword)) {
-        throw new Error("SMTP_USER y SMTP_PASSWORD deben configurarse juntos");
-    }
+    const smtpHost = requireInvitationSetting("SMTP_HOST", envs.SMTP_HOST);
+    const smtpUser = normalizeSmtpUser(envs.SMTP_USER);
+    const smtpPassword = normalizeSmtpPassword(smtpHost, envs.SMTP_PASSWORD);
+    assertSmtpAuthPair(smtpUser, smtpPassword);
+    assertGmailSmtpTransport({
+        host: smtpHost,
+        port: envs.SMTP_PORT,
+        secure: envs.SMTP_SECURE,
+        user: smtpUser,
+        password: smtpPassword,
+    });
     const sender = new SmtpTenantInvitationEmailSender({
-        host: requireInvitationSetting("SMTP_HOST", envs.SMTP_HOST),
+        host: smtpHost,
         port: envs.SMTP_PORT,
         secure: envs.SMTP_SECURE,
         ...(smtpUser ? { user: smtpUser, password: smtpPassword } : {}),
