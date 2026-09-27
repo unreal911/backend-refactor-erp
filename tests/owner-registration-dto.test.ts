@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    normalizeOwnerPhone,
     OwnerSignupDto,
     VerifyOwnerEmailDto,
 } from "../src/modules/registration/owner-registration.dto";
@@ -30,6 +31,28 @@ describe("EMP-001 DTO de registro", () => {
             businessName: "Mi Tienda",
             termsAccepted: true,
         });
+    });
+
+    it("normaliza un número internacional para WhatsApp", () => {
+        const [error, dto] = OwnerSignupDto.create({
+            ...validSignup,
+            email: undefined,
+            phone: " 00 51 (999) 888-777 ",
+        }, { emailEnabled: false });
+
+        expect(error).toBeUndefined();
+        expect(dto).toMatchObject({
+            email: null,
+            phone: "+51999888777",
+        });
+        expect(normalizeOwnerPhone("999888777")).toBe("+51999888777");
+        expect(normalizeOwnerPhone("+14155552671")).toBeNull();
+    });
+
+    it("bloquea correo cuando el canal está deshabilitado", () => {
+        const [error, dto] = OwnerSignupDto.create(validSignup, { emailEnabled: false });
+        expect(error).toMatch(/correo.*deshabilitado/i);
+        expect(dto).toBeUndefined();
     });
 
     it.each([
@@ -64,6 +87,15 @@ describe("EMP-001 DTO de registro", () => {
         const token = "a".repeat(43);
         expect(VerifyOwnerEmailDto.create({ token })[0]).toBeUndefined();
         expect(VerifyOwnerEmailDto.create({ token: "token con espacios" })[0])
-            .toMatch(/inválido/i);
+            .toMatch(/inválid[ao]/i);
+    });
+
+    it("acepta un OTP sólo cuando está ligado al número que lo recibió", () => {
+        expect(VerifyOwnerEmailDto.create({
+            token: "428193",
+            identifier: "999 888 777",
+        })[1]).toMatchObject({ token: "428193", identifier: "+51999888777" });
+        expect(VerifyOwnerEmailDto.create({ token: "428193" })[0])
+            .toMatch(/número de WhatsApp/i);
     });
 });

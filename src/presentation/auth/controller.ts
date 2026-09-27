@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import {
     AccountActivationRequiredError,
     AuthService,
+    AuthChannelDisabledError,
 } from '../../modules/auth/services/auth.service';
 import { LoginDto } from '../../domain/dtos/login.dto';
 import { AuthRequest } from './middleware';
@@ -27,6 +28,9 @@ export class AuthController {
                     code: error.code,
                     action: 'RESEND_VERIFICATION',
                 });
+            }
+            if (error instanceof AuthChannelDisabledError) {
+                return res.status(error.statusCode).json({ message: error.message });
             }
             if (error instanceof TenantSelectionRequiredError) {
                 return res.status(error.statusCode).json({

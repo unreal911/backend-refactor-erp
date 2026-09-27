@@ -29,6 +29,8 @@
     "seed:build": "npm run build && npm run seed:prod",
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
     "bootstrap:admin:prod": "node dist/scripts/bootstrap-admin.js",
+    "smtp:check": "tsx src/scripts/check-smtp.ts",
+    "whatsapp:check": "tsx src/scripts/check-whatsapp.ts",
     "db:clean:keep-users": "tsx src/data/clean-db-keep-users.ts",
     "sunat:smoke": "tsx src/scripts/sunat-beta-smoke.ts",
     "sunat:http-smoke": "tsx src/scripts/sunat-http-smoke.ts",

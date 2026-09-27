@@ -7,8 +7,11 @@ import {
 } from "../../config/smtp";
 import { OwnerRegistrationService } from "./owner-registration.service";
 import { SmtpOwnerVerificationEmailSender } from "./smtp-owner-verification-email";
+import { WhatsAppOwnerVerificationMessageSender } from "./whatsapp-owner-verification-message";
+import { OwnerVerificationChannelSender } from "./owner-verification-channel-sender";
 import { OwnerSignupAbuseService } from "./owner-signup-abuse.service";
 import { TurnstileOwnerSignupCaptcha } from "./turnstile-owner-signup-captcha";
+import { isWhatsAppCloudApiConfigured } from "../../config/whatsapp";
 
 const TURNSTILE_ALWAYS_PASS_TEST_SECRET = "1x0000000000000000000000000000000AA";
 
@@ -45,30 +48,63 @@ OwnerRegistrationService | null {
         throw new Error("OWNER_SIGNUP_VERIFY_URL debe usar HTTPS en producción");
     }
 
-    const smtpHost = requireSignupSetting("SMTP_HOST", envs.SMTP_HOST);
-    const smtpUser = normalizeSmtpUser(envs.SMTP_USER);
-    const smtpPassword = normalizeSmtpPassword(smtpHost, envs.SMTP_PASSWORD);
-    assertSmtpAuthPair(smtpUser, smtpPassword);
-    assertGmailSmtpTransport({
-        host: smtpHost,
-        port: envs.SMTP_PORT,
-        secure: envs.SMTP_SECURE,
-        user: smtpUser,
-        password: smtpPassword,
-    });
+    // La política del Super Admin decide qué canal está habilitado. El entorno
+    // únicamente indica qué transportes están provisionados con credenciales.
+    const smtpProvisioned = [envs.SMTP_HOST, envs.SMTP_USER, envs.SMTP_PASSWORD, envs.SMTP_FROM]
+        .some((value) => String(value ?? "").trim().length > 0);
+    const whatsappProvisioned = isWhatsAppCloudApiConfigured();
+    const emailSender = smtpProvisioned
+        ? (() => {
+            const smtpHost = requireSignupSetting("SMTP_HOST", envs.SMTP_HOST);
+            const smtpUser = normalizeSmtpUser(envs.SMTP_USER);
+            const smtpPassword = normalizeSmtpPassword(smtpHost, envs.SMTP_PASSWORD);
+            assertSmtpAuthPair(smtpUser, smtpPassword);
+            assertGmailSmtpTransport({
+                host: smtpHost,
+                port: envs.SMTP_PORT,
+                secure: envs.SMTP_SECURE,
+                user: smtpUser,
+                password: smtpPassword,
+            });
+            return new SmtpOwnerVerificationEmailSender({
+                host: smtpHost,
+                port: envs.SMTP_PORT,
+                secure: envs.SMTP_SECURE,
+                ...(smtpUser ? { user: smtpUser, password: smtpPassword } : {}),
+                from: requireSignupSetting("SMTP_FROM", envs.SMTP_FROM),
+                verificationUrl: parsedVerificationUrl.toString(),
+            });
+        })()
+        : null;
 
-    const sender = new SmtpOwnerVerificationEmailSender({
-        host: smtpHost,
-        port: envs.SMTP_PORT,
-        secure: envs.SMTP_SECURE,
-        ...(smtpUser ? { user: smtpUser, password: smtpPassword } : {}),
-        from: requireSignupSetting("SMTP_FROM", envs.SMTP_FROM),
-        verificationUrl: parsedVerificationUrl.toString(),
-    });
+    const whatsappSender = whatsappProvisioned
+        ? new WhatsAppOwnerVerificationMessageSender({
+            apiVersion: requireSignupSetting("WHATSAPP_API_VERSION", envs.WHATSAPP_API_VERSION),
+            accessToken: requireSignupSetting("WHATSAPP_ACCESS_TOKEN", envs.WHATSAPP_ACCESS_TOKEN),
+            phoneNumberId: requireSignupSetting("WHATSAPP_PHONE_NUMBER_ID", envs.WHATSAPP_PHONE_NUMBER_ID),
+            templateName: requireSignupSetting(
+                "WHATSAPP_VERIFICATION_TEMPLATE_NAME",
+                envs.WHATSAPP_VERIFICATION_TEMPLATE_NAME,
+            ),
+            templateLanguage: requireSignupSetting(
+                "WHATSAPP_VERIFICATION_TEMPLATE_LANGUAGE",
+                envs.WHATSAPP_VERIFICATION_TEMPLATE_LANGUAGE,
+            ),
+            timeoutMs: envs.WHATSAPP_TIMEOUT_MS,
+        })
+        : null;
+
+    if (!emailSender && !whatsappSender) {
+        throw new Error("OWNER_SIGNUP_ENABLED requiere SMTP_HOST/SMTP_FROM o credenciales de WhatsApp");
+    }
+
+    const sender = new OwnerVerificationChannelSender(emailSender, whatsappSender);
 
     return new OwnerRegistrationService(sender, {
         tokenPepper,
         verificationTtlMinutes: envs.OWNER_SIGNUP_TOKEN_TTL_MINUTES,
+        whatsappOtpTtlMinutes: envs.WHATSAPP_AUTH_CODE_TTL_MINUTES,
+        whatsappOtpMaxAttempts: envs.WHATSAPP_AUTH_CODE_MAX_ATTEMPTS,
         trialProvisioningTtlMinutes: envs.OWNER_TRIAL_TOKEN_TTL_MINUTES,
         termsVersion,
     });

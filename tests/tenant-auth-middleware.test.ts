@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     platformAdminFindFirst: vi.fn(),
     userFindUnique: vi.fn(),
     runTenantDatabaseTransaction: vi.fn(),
+    assertPlanFeature: vi.fn(),
 }));
 
 vi.mock("jsonwebtoken", () => ({
@@ -36,6 +37,7 @@ vi.mock("../src/modules/auth/services/permission.service", () => ({
     PermissionService: {
         normalizeRole: (value: string) => value.toUpperCase(),
         resolvePermissionsForTenantRole: mocks.resolvePermissionsForTenantRole,
+        resolvePermissionsForMembership: mocks.resolvePermissionsForTenantRole,
     },
 }));
 
@@ -60,9 +62,16 @@ vi.mock("../src/config/envs", () => ({
     },
 }));
 
+vi.mock("../src/modules/plans/plan-access.service", () => ({
+    PlanAccessService: {
+        assert: mocks.assertPlanFeature,
+    },
+}));
+
 import { AuthMiddleware, AuthRequest } from "../src/presentation/auth/middleware";
 import { TenantContextService } from "../src/modules/tenant/tenant-context.service";
 import { TenantMembershipRole } from "@prisma/client";
+import { CustomError } from "../src/domain/errors/custom.error";
 
 const context = {
     tenant: {
@@ -122,6 +131,7 @@ describe("AuthMiddleware tenant-aware", () => {
             async (_tenantId: string, callback: () => Promise<unknown>) =>
                 callback(),
         );
+        mocks.assertPlanFeature.mockResolvedValue(undefined);
     });
 
     it("resuelve contexto desde la membresía firmada y renueva el token", async () => {
@@ -201,6 +211,54 @@ describe("AuthMiddleware tenant-aware", () => {
         await AuthMiddleware.requirePermission("sunat.documents.cancel")(req, res as never, next);
 
         expect(next).toHaveBeenCalledOnce();
+    });
+
+    it("exige simultaneamente capacidad del plan y permiso RBAC para operar picking", async () => {
+        const req = requestDouble();
+        req.user = { id: 7, email: "picker@tienda.test", role: "PICKER" };
+        req.tenant = { ...context, rbacRole: "PICKER" } as AuthRequest["tenant"];
+        const res = responseDouble();
+        const planNext = vi.fn();
+
+        await AuthMiddleware.requirePlanFeature("picking.basic")(req, res as never, planNext);
+        expect(planNext).toHaveBeenCalledOnce();
+
+        mocks.resolvePermissionsForTenantRole.mockResolvedValue(["picking.view"]);
+        const permissionNext = vi.fn();
+        await AuthMiddleware.requirePermission("picking.update")(req, res as never, permissionNext);
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(permissionNext).not.toHaveBeenCalled();
+    });
+
+    it("devuelve una causa estable cuando el plan no incluye picking colaborativo", async () => {
+        const req = requestDouble();
+        req.user = { id: 7, email: "manager@tienda.test", role: "MANAGER" };
+        req.tenant = context as AuthRequest["tenant"];
+        const res = responseDouble();
+        const next = vi.fn();
+        mocks.assertPlanFeature.mockRejectedValue(new CustomError("La función no está incluida en el plan actual", 403));
+
+        await AuthMiddleware.requirePlanFeature("picking.collaborative")(req, res as never, next);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            reason: "PLAN_FEATURE_NOT_INCLUDED",
+            feature: "picking.collaborative",
+        }));
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it("no permite validar limites de plan sin contexto tenant", async () => {
+        const req = requestDouble();
+        req.user = { id: 7, email: "picker@tienda.test", role: "PICKER" };
+        const res = responseDouble();
+        const next = vi.fn();
+
+        await AuthMiddleware.requirePlanFeature("picking.basic")(req, res as never, next);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(mocks.assertPlanFeature).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
     });
 
     it("reserva operaciones sensibles de empresa para OWNER", () => {

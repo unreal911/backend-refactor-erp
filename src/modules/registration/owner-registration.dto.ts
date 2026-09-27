@@ -1,3 +1,5 @@
+import { normalizePeruPhone } from "../../shared/phone";
+
 type UnknownBody = { [key: string]: unknown };
 
 function requestBody(value: unknown): UnknownBody {
@@ -25,29 +27,45 @@ function normalizedEmail(value: unknown): string | null {
     return email;
 }
 
+export const normalizeOwnerPhone = normalizePeruPhone;
+
 export class OwnerSignupDto {
     private constructor(
         public readonly firstName: string,
         public readonly lastName: string,
-        public readonly email: string,
+        public readonly email: string | null,
+        public readonly phone: string | null,
         public readonly password: string,
         public readonly businessName: string,
         public readonly termsAccepted: true,
     ) {}
 
-    static create(value: unknown): [string | undefined, OwnerSignupDto | undefined] {
+    static create(
+        value: unknown,
+        options: { emailEnabled?: boolean; whatsappEnabled?: boolean } = {},
+    ): [string | undefined, OwnerSignupDto | undefined] {
         const body = requestBody(value);
+        const emailEnabled = options.emailEnabled ?? true;
+        const whatsappEnabled = options.whatsappEnabled ?? true;
         const firstName = normalizedText(body.firstName, 100);
         const lastName = normalizedText(body.lastName, 100);
         const businessName = normalizedText(body.businessName, 120);
         const email = normalizedEmail(body.email);
+        const phone = normalizeOwnerPhone(body.phone);
 
         if (!firstName) return ["El nombre del propietario no es válido", undefined];
         if (!lastName) return ["El apellido del propietario no es válido", undefined];
         if (!businessName || businessName.length < 2) {
             return ["El nombre comercial no es válido", undefined];
         }
-        if (!email) return ["El correo electrónico no es válido", undefined];
+        if (email && phone) return ["Elige correo o WhatsApp, no ambos", undefined];
+        if (!email && !phone) {
+            return [emailEnabled
+                ? "Ingresa un correo o un número de WhatsApp válido"
+                : "El número de WhatsApp es obligatorio", undefined];
+        }
+        if (email && !emailEnabled) return ["El registro por correo está deshabilitado", undefined];
+        if (phone && !whatsappEnabled) return ["El registro por WhatsApp está deshabilitado", undefined];
         if (typeof body.password !== "string") {
             return ["La contraseña es obligatoria", undefined];
         }
@@ -73,6 +91,7 @@ export class OwnerSignupDto {
             firstName,
             lastName,
             email,
+            phone,
             body.password,
             businessName,
             true,
@@ -81,18 +100,24 @@ export class OwnerSignupDto {
 }
 
 export class VerifyOwnerEmailDto {
-    private constructor(public readonly token: string) {}
+    private constructor(
+        public readonly token: string,
+        public readonly identifier: string | null,
+    ) {}
 
     static create(value: unknown): [string | undefined, VerifyOwnerEmailDto | undefined] {
         const body = requestBody(value);
-        if (
-            typeof body.token !== "string"
-            || body.token.length < 32
-            || body.token.length > 256
-            || !/^[A-Za-z0-9_-]+$/.test(body.token)
-        ) {
-            return ["El enlace de verificación es inválido o venció", undefined];
+        const token = typeof body.token === "string" ? body.token.trim() : "";
+        if (/^\d{6}$/.test(token)) {
+            const identifier = normalizeOwnerPhone(body.identifier);
+            if (!identifier) {
+                return ["Ingresa el número de WhatsApp que recibió el código", undefined];
+            }
+            return [undefined, new VerifyOwnerEmailDto(token, identifier)];
         }
-        return [undefined, new VerifyOwnerEmailDto(body.token)];
+        if (token.length < 32 || token.length > 256 || !/^[A-Za-z0-9_-]+$/.test(token)) {
+            return ["La credencial de verificación es inválida o venció", undefined];
+        }
+        return [undefined, new VerifyOwnerEmailDto(token, null)];
     }
 }

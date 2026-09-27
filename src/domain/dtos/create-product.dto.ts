@@ -3,6 +3,8 @@ import { sanitizeProductDescriptionHtml } from '../sanitization/product-descript
 type ProductVariantMode = 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY';
 
 type CreateVariantInput = {
+    sku?: string;
+    barcode?: string;
     colorId?: number;
     sizeId?: number;
     price: number;
@@ -17,17 +19,24 @@ type MarketplaceColorImageInput = {
     imageFile?: { filename: string; data: string };
 };
 
+type OrderedProductImageInput = {
+    url?: string;
+    imageFile?: { filename: string; data: string };
+};
+
 export class CreateProductDto {
     private constructor(
         public readonly name: string,
         public readonly categoryId: number,
         public readonly description: string | undefined,
+        public readonly isActive: boolean,
         public readonly afectacionIgv: string,
         public readonly variantMode: ProductVariantMode,
         public readonly colorIds: number[] = [],
         public readonly sizeIds: number[] = [],
         public readonly imageUrls: string[] = [],
         public readonly imageFiles: Array<{ filename: string; data: string }> = [],
+        public readonly orderedImages: OrderedProductImageInput[] = [],
         public readonly variants: CreateVariantInput[] = [],
         public readonly marketplaceColorImages: MarketplaceColorImageInput[] = [],
     ) { }
@@ -41,6 +50,7 @@ export class CreateProductDto {
             sizeIds = [],
             imageUrls = [],
             imageFiles = [],
+            orderedImages = [],
             variants = [],
             marketplaceColorImages = [],
         } = object;
@@ -62,6 +72,11 @@ export class CreateProductDto {
 
         if (description !== undefined && typeof description !== 'string') {
             return ['La descripcion debe ser una cadena valida', undefined];
+        }
+
+        const isActive = object.isActive === undefined ? true : object.isActive;
+        if (typeof isActive !== 'boolean') {
+            return ['isActive debe ser un booleano', undefined];
         }
 
         // Afectacion IGV (catalogo SUNAT 07). Opcional; default gravado (10).
@@ -115,6 +130,21 @@ export class CreateProductDto {
             return ['Cada archivo debe incluir filename y data en base64', undefined];
         }
 
+        if (!Array.isArray(orderedImages)) {
+            return ['orderedImages debe ser un array', undefined];
+        }
+        for (const image of orderedImages as OrderedProductImageInput[]) {
+            const hasUrl = typeof image?.url === 'string' && image.url.trim().length > 0;
+            const hasFile = Boolean(
+                image?.imageFile
+                && typeof image.imageFile.filename === 'string'
+                && typeof image.imageFile.data === 'string',
+            );
+            if (!hasUrl && !hasFile) {
+                return ['Cada imagen ordenada debe incluir una URL o un archivo valido', undefined];
+            }
+        }
+
         if (!Array.isArray(marketplaceColorImages)) {
             return ['marketplaceColorImages debe ser un array', undefined];
         }
@@ -164,6 +194,14 @@ export class CreateProductDto {
                 return ['Cada variante debe tener un precio mayor a 0', undefined];
             }
 
+            if (variant.sku !== undefined && (typeof variant.sku !== 'string' || variant.sku.trim().length > 64)) {
+                return ['El SKU de cada variante debe ser texto de hasta 64 caracteres', undefined];
+            }
+
+            if (variant.barcode !== undefined && (typeof variant.barcode !== 'string' || variant.barcode.trim().length > 128)) {
+                return ['El codigo de barras de cada variante debe ser texto de hasta 128 caracteres', undefined];
+            }
+
             if (variant.isActive !== undefined && typeof variant.isActive !== 'boolean') {
                 return ['isActive de la variante debe ser booleano', undefined];
             }
@@ -187,16 +225,32 @@ export class CreateProductDto {
             }
         }
 
+        const requestedSkus = (variants as CreateVariantInput[])
+            .map((variant) => String(variant.sku || '').trim().toUpperCase())
+            .filter(Boolean);
+        if (new Set(requestedSkus).size !== requestedSkus.length) {
+            return ['No puede haber variantes con el mismo SKU', undefined];
+        }
+
+        const requestedBarcodes = (variants as CreateVariantInput[])
+            .map((variant) => String(variant.barcode || '').trim())
+            .filter(Boolean);
+        if (new Set(requestedBarcodes).size !== requestedBarcodes.length) {
+            return ['No puede haber variantes con el mismo codigo de barras', undefined];
+        }
+
         return [undefined, new CreateProductDto(
             name.trim(),
             categoryId,
             description === undefined ? undefined : sanitizeProductDescriptionHtml(description),
+            isActive,
             afectacionIgv,
             variantMode,
             colorIds,
             sizeIds,
             imageUrls,
             imageFiles,
+            orderedImages as OrderedProductImageInput[],
             variants as CreateVariantInput[],
             marketplaceColorImages as MarketplaceColorImageInput[],
         )];

@@ -14,11 +14,18 @@ import { TrialProvisioningService } from "./trial-provisioning.service";
 
 export function registerOwnerRegistrationRoutes(
     router: Router,
-    service: OwnerRegistrationService | null = createOwnerRegistrationServiceFromEnvironment(),
+    service?: OwnerRegistrationService | null,
     abuseService: OwnerSignupAbuseGuard | null = createOwnerSignupAbuseServiceFromEnvironment(),
-    trialService?: TrialProvisioningService | null,
+        trialService?: TrialProvisioningService | null,
 ): void {
-    const controller = new OwnerRegistrationController(service, abuseService, trialService);
+    const registrationService = service === undefined
+        ? createOwnerRegistrationServiceFromEnvironment()
+        : service;
+    const controller = new OwnerRegistrationController(
+        registrationService,
+        abuseService,
+        trialService,
+    );
     router.post("/api/public/signup", ownerSignupEdgeRateLimiter, controller.signup);
     router.post("/api/public/signup/resend", authRateLimiter, controller.resendVerification);
     router.post("/api/public/signup/verify", authRateLimiter, controller.verifyEmail);

@@ -7,6 +7,7 @@ export class customerRoute {
         const router = Router();
         const controller = new CustomerController();
         router.get('/', AuthMiddleware.requirePermission('customers.view'), controller.list);
+        router.get('/:id', AuthMiddleware.requirePermission('customers.view'), controller.getById);
         router.post('/', AuthMiddleware.requirePermission('customers.manage'), controller.create);
         router.put('/:id', AuthMiddleware.requirePermission('customers.manage'), controller.update);
         router.patch('/:id', AuthMiddleware.requirePermission('customers.manage'), controller.update);

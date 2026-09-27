@@ -1,4 +1,5 @@
 import { TenantMembershipRole } from "@prisma/client";
+import { normalizePeruPhone } from "../../shared/phone";
 
 type UnknownBody = { [key: string]: unknown };
 
@@ -65,19 +66,22 @@ const INVITABLE_ROLES = new Set<TenantMembershipRole>([
 
 export class CreateTenantInvitationDto {
     private constructor(
-        public readonly email: string,
+        public readonly email: string | null,
+        public readonly phone: string | null,
         public readonly role: TenantMembershipRole,
     ) {}
 
     static create(value: unknown): [string | undefined, CreateTenantInvitationDto | undefined] {
         const body = bodyOf(value);
         const email = normalizeEmail(body.email);
+        const phone = normalizePeruPhone(body.phone);
         const role = String(body.role || "").trim().toUpperCase() as TenantMembershipRole;
-        if (!email) return ["El correo electr\u00f3nico no es v\u00e1lido", undefined];
+        if (email && phone) return ["Elige correo o WhatsApp, no ambos", undefined];
+        if (!email && !phone) return ["Ingresa un correo o un número de WhatsApp válido", undefined];
         if (!INVITABLE_ROLES.has(role)) {
             return ["El rol debe ser ADMIN, MANAGER, SELLER, WAREHOUSE, PICKER o VIEWER", undefined];
         }
-        return [undefined, new CreateTenantInvitationDto(email, role)];
+        return [undefined, new CreateTenantInvitationDto(email, phone, role)];
     }
 }
 

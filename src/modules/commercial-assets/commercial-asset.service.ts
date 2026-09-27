@@ -21,6 +21,9 @@ export class CommercialAssetService {
                 SELECT 1 FROM "ProductVariant" WHERE "tenantId" = ${tenantId}::uuid AND "imageUrl" = ${url}
                 UNION ALL
                 SELECT 1 FROM "SystemSetting" WHERE "tenantId" = ${tenantId}::uuid AND "value"::text LIKE ${`%${url.replace(/[\\%_]/g, "\\$&")}%`} ESCAPE '\\'
+                UNION ALL
+                SELECT 1 FROM "MarketplaceTheme" WHERE "tenantId" = ${tenantId}::uuid
+                  AND ("draftConfig"->>'bannerUrl' = ${url} OR "publishedConfig"->>'bannerUrl' = ${url})
             ) AS referenced
         `);
         return Boolean(rows[0]?.referenced);

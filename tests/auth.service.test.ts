@@ -8,6 +8,7 @@ vi.mock('../src/data/prisma', () => {
     ownerRegistration: {
       findUnique: vi.fn(),
     },
+    $queryRaw: vi.fn(),
   };
   return { prisma: client, platformPrisma: client };
 });
@@ -27,6 +28,7 @@ vi.mock('jsonwebtoken', () => ({
 vi.mock('../src/presentation/services/permission.service', () => ({
   PermissionService: {
     resolvePermissionsForTenantRole: vi.fn(),
+    resolvePermissionsForMembership: vi.fn(),
   },
 }));
 
@@ -73,6 +75,10 @@ const tenantContext = {
 describe('AuthService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.$queryRaw).mockResolvedValue([{
+      loginEmailEnabled: true,
+      loginWhatsappEnabled: true,
+    }] as never);
     vi.mocked(prisma.ownerRegistration.findUnique).mockResolvedValue(null as never);
   });
 
@@ -157,7 +163,7 @@ describe('AuthService', () => {
     } as never);
     vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
     vi.mocked(TenantContextService.resolveForLogin).mockResolvedValueOnce(tenantContext as never);
-    vi.mocked(PermissionService.resolvePermissionsForTenantRole).mockResolvedValueOnce(['users.view'] as never);
+    vi.mocked(PermissionService.resolvePermissionsForMembership).mockResolvedValueOnce(['users.view'] as never);
     vi.mocked(jwt.sign).mockReturnValueOnce('token-123' as never);
 
     const [, loginDto] = LoginDto.create({ email: 'demo@tienda.com', password: 'secret' });
@@ -192,7 +198,7 @@ describe('AuthService', () => {
         membership: tenantContext.membership,
         plan: {
           code: 'STARTER',
-          features: ['picking.basic', 'sunat'],
+          features: ['picking.basic', 'sunat', 'tasks.operational'],
         },
       },
     });
@@ -213,11 +219,11 @@ describe('AuthService', () => {
       isActive: true,
       role: null,
     } as never);
-    vi.mocked(PermissionService.resolvePermissionsForTenantRole).mockResolvedValueOnce(['orders.view'] as never);
+    vi.mocked(PermissionService.resolvePermissionsForMembership).mockResolvedValueOnce(['orders.view'] as never);
 
     const result = await AuthService.me(7, tenantContext as never, ['orders.view']);
 
-    expect(PermissionService.resolvePermissionsForTenantRole).toHaveBeenCalledWith('ADMIN');
+    expect(PermissionService.resolvePermissionsForMembership).toHaveBeenCalledWith(expect.objectContaining({ roleName: 'ADMIN' }));
     expect(result).toEqual({
       user: {
         id: 7,
@@ -230,7 +236,7 @@ describe('AuthService', () => {
         membership: tenantContext.membership,
         plan: {
           code: 'STARTER',
-          features: ['picking.basic', 'sunat'],
+          features: ['picking.basic', 'sunat', 'tasks.operational'],
         },
       },
     });

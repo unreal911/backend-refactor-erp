@@ -193,9 +193,10 @@ export class AuthMiddleware {
                 if (!req.tenant) {
                     return res.status(403).json({ message: 'Contexto de empresa requerido' });
                 }
-                const effectivePermissions = await PermissionService.resolvePermissionsForTenantRole(
-                    req.tenant.rbacRole,
-                );
+                const effectivePermissions = await PermissionService.resolvePermissionsForMembership({
+                    membershipId: req.tenant.membership.id,
+                    roleName: req.tenant.rbacRole,
+                });
 
                 req.user.permissions = effectivePermissions;
 

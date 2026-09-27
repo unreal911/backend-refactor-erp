@@ -145,7 +145,14 @@ export class TrialProvisioningService {
         tx: Prisma.TransactionClient,
     ): Promise<ProvisionedTrial> {
         const existingUser = await tx.user.findFirst({
-            where: { email: { equals: identity.email, mode: "insensitive" } },
+            where: {
+                OR: [
+                    ...(identity.email
+                        ? [{ email: { equals: identity.email, mode: "insensitive" as const } }]
+                        : []),
+                    ...(identity.phone ? [{ phone: identity.phone }] : []),
+                ],
+            },
             select: { id: true },
         });
         if (existingUser) throw new TrialProvisioningConflictError();
@@ -162,6 +169,7 @@ export class TrialProvisioningService {
                 firstName: identity.firstName,
                 lastName: identity.lastName,
                 email: identity.email,
+                phone: identity.phone,
                 password: identity.passwordHash,
                 roleId: adminRole.id,
                 isActive: true,
@@ -176,6 +184,7 @@ export class TrialProvisioningService {
             trialEndsAt: new Date(now.getTime() + TRIAL_DURATION_MS),
             ownerUserId: user.id,
             contactEmail: identity.email,
+            contactPhone: identity.phone,
         }, tx, now);
 
         await tx.ownerRegistration.update({

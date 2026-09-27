@@ -66,7 +66,10 @@ export function createExpressApp(options: CreateAppOptions) {
     const defaultJsonParser = express.json({
         limit: requestBodyLimit,
         verify: (req, _res, buffer) => {
-            if (String(req.url || '').startsWith('/api/public/billing/webhook/')) {
+            if (
+                String(req.url || '').startsWith('/api/public/billing/webhook/')
+                || String(req.url || '').startsWith('/api/public/whatsapp/webhook')
+            ) {
                 (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
             }
         },

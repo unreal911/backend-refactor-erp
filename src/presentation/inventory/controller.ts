@@ -7,6 +7,7 @@ import { CreateStockTransferDto } from "../../domain/dtos/create-stock-transfer.
 import { CreateReservationDto } from "../../domain/dtos/create-reservation.dto";
 import { UserActivityProduct, UserActivityService } from "../services/user-activity.service";
 import { AdminEventBus } from "../admin-events/admin-event-bus";
+import { OperationalTaskService } from "../../modules/tasks";
 
 export class InventoryController {
     constructor(
@@ -212,6 +213,16 @@ export class InventoryController {
 
         try {
             const transfer = await this.inventoryService.createStockTransfer(dto, req.user?.id);
+            if (!transfer) {
+                throw CustomError.internal('No se pudo recuperar la transferencia creada');
+            }
+            const tasks = await OperationalTaskService.createForTransfer({
+                transferId: Number(transfer.id),
+                transferCode: String(transfer.code),
+                fromStoreId: Number(transfer.fromStoreId),
+                toStoreId: Number(transfer.toStoreId),
+                actorUserId: req.user?.id ?? null,
+            });
 
             const transferProducts = Array.isArray(transfer?.items)
                 ? transfer.items
@@ -237,6 +248,13 @@ export class InventoryController {
             });
 
             await this.publishTransferEvent('TRANSFER_CREATED', transfer, req.user?.id);
+            await Promise.all(tasks.map((task) => AdminEventBus.publish({
+                type: 'TASK_CREATED',
+                entity: 'TASK',
+                entityId: task.id,
+                status: task.status,
+                actorUserId: req.user?.id ?? null,
+            })));
 
             return res.status(201).json(transfer);
         } catch (err) {
@@ -252,7 +270,17 @@ export class InventoryController {
         }
 
         try {
-            const result = await this.inventoryService.receiveStockTransfer(Number(id), req.user?.id);
+            const receiptLines = Array.isArray(req.body?.items)
+                ? req.body.items.map((item: any) => ({
+                    itemId: Number(item?.itemId),
+                    receivedQuantity: Number(item?.receivedQuantity),
+                    discrepancyQuantity: Number(item?.discrepancyQuantity ?? 0),
+                }))
+                : undefined;
+            const result = await this.inventoryService.receiveStockTransfer(Number(id), req.user?.id, receiptLines);
+            if (result?.transfer?.status === 'RECEIVED') {
+                await OperationalTaskService.syncTransferStatus(Number(id), 'RECEIVED', req.user?.id ?? null);
+            }
 
             const transfer = result?.transfer;
             const transferProducts = Array.isArray(transfer?.items)
@@ -264,11 +292,11 @@ export class InventoryController {
             this.registerUserActivity(req, {
                 module: 'TRANSFERS',
                 actionType: 'TRANSFER_RECEIVED',
-                actionLabel: 'Transferencia recibida',
+                actionLabel: transfer?.status === 'RECEIVED' ? 'Transferencia recibida' : 'Recepción parcial registrada',
                 entityType: 'TRANSFER',
                 entityId: Number(transfer?.id || id) || null,
                 entityCode: transfer?.code ? String(transfer.code) : null,
-                description: `Transferencia ${transfer?.code || id} recibida`,
+                description: `Transferencia ${transfer?.code || id} ${transfer?.status === 'RECEIVED' ? 'recibida' : 'recibida parcialmente'}`,
                 products: transferProducts,
                 context: {
                     transferId: Number(id),
@@ -293,6 +321,7 @@ export class InventoryController {
 
         try {
             const transfer = await this.inventoryService.dispatchStockTransfer(id, req.user?.id);
+            await OperationalTaskService.syncTransferStatus(id, 'IN_TRANSIT', req.user?.id ?? null);
             this.registerUserActivity(req, {
                 module: 'TRANSFERS',
                 actionType: 'TRANSFER_DISPATCHED',
@@ -326,6 +355,7 @@ export class InventoryController {
                 Number(id),
                 req.user?.id,
             );
+            await OperationalTaskService.syncTransferStatus(Number(id), 'CANCELLED', req.user?.id ?? null);
             const transferProducts = Array.isArray(transfer?.items)
                 ? transfer.items
                     .map((item: any) => this.mapProductFromVariant(

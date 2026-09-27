@@ -4,6 +4,8 @@ import { UpdateStoreDto } from "../../domain/dtos/update-store.dto";
 import { ListStoreDto } from "../../domain/dtos/list-store.dto";
 import { CustomError } from "../../domain/errors/custom.error";
 import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
+import { StoreAssignmentType, TenantMembershipStatus } from "@prisma/client";
+import { TenantDataContext } from "../../modules/tenant/tenant-data-context";
 
 export class StoreService {
     constructor() { }
@@ -20,14 +22,38 @@ export class StoreService {
             throw CustomError.badRequest(`El código ${createStoreDto.code} ya está en uso`);
         }
 
-        return prisma.store.create({
-            data: {
-                name: createStoreDto.name,
-                code: createStoreDto.code,
-                type: createStoreDto.type,
-                address: createStoreDto.address ?? null,
-                isActive: createStoreDto.isActive,
-            },
+        const tenantId = TenantDataContext.requireTenantId();
+        return prisma.$transaction(async (tx) => {
+            const store = await tx.store.create({
+                data: {
+                    tenantId,
+                    name: createStoreDto.name,
+                    code: createStoreDto.code,
+                    type: createStoreDto.type,
+                    address: createStoreDto.address ?? null,
+                    isActive: createStoreDto.isActive,
+                },
+            });
+            const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { primaryStoreId: true } });
+            if (!tenant?.primaryStoreId && store.isActive) {
+                await tx.tenant.update({ where: { id: tenantId }, data: { primaryStoreId: store.id } });
+                const memberships = await tx.tenantMembership.findMany({
+                    where: { tenantId, status: TenantMembershipStatus.ACTIVE },
+                    select: { userId: true },
+                });
+                if (memberships.length > 0) {
+                    await tx.userStoreAssignment.createMany({
+                        data: memberships.map((membership) => ({
+                            tenantId,
+                            userId: membership.userId,
+                            storeId: store.id,
+                            assignmentType: StoreAssignmentType.PRIMARY,
+                        })),
+                        skipDuplicates: true,
+                    });
+                }
+            }
+            return store;
         });
     }
 

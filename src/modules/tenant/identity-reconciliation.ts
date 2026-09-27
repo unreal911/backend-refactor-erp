@@ -255,7 +255,7 @@ export async function inspectIdentityMigration(): Promise<IdentityReconciliation
 
     const normalizedEmails = new Map<string, number[]>();
     for (const user of users) {
-        const normalized = user.email.trim().toLowerCase();
+        const normalized = (user.email ?? user.phone ?? "").trim().toLowerCase();
         normalizedEmails.set(
             normalized,
             [...(normalizedEmails.get(normalized) || []), user.id],
@@ -264,7 +264,7 @@ export async function inspectIdentityMigration(): Promise<IdentityReconciliation
     const duplicates = [...normalizedEmails.values()].filter((ids) => ids.length > 1);
     if (duplicates.length > 0) {
         throw new Error(
-            `Correos duplicados requieren decisión manual; grupos=${duplicates.length}`,
+            `Identificadores duplicados requieren decisión manual; grupos=${duplicates.length}`,
         );
     }
 
@@ -361,7 +361,7 @@ export async function inspectIdentityMigration(): Promise<IdentityReconciliation
     );
     const userFingerprintRows = users.map((user) => ({
         id: user.id,
-        emailDigest: digest(user.email.trim().toLowerCase()),
+        emailDigest: digest((user.email ?? user.phone ?? "").trim().toLowerCase()),
         roleId: user.role.id,
         active: user.isActive,
     }));

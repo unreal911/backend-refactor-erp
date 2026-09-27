@@ -28,4 +28,14 @@ describe('LoginDto.create', () => {
     expect(dto?.email).toBe('demo@tienda.com');
     expect(dto?.password).toBe('secret');
   });
+
+  it('normalizes a phone identifier for login', () => {
+    const [error, dto] = LoginDto.create({
+      identifier: '999888777',
+      password: 'secret',
+    });
+
+    expect(error).toBeUndefined();
+    expect(dto?.email).toBe('+51999888777');
+  });
 });

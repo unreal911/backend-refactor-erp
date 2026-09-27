@@ -20,6 +20,7 @@ import {
 } from "../../modules/platform/product-asset-reference";
 import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
 import { sanitizeProductDescriptionHtml } from "../../domain/sanitization/product-description";
+import { randomUUID } from "node:crypto";
 import {
     normalizeProductDisplayName,
     normalizeProductNameKey,
@@ -40,11 +41,18 @@ type MarketplaceColorImageInput = {
 // Variante a persistir en el modelo unificado: color/talla opcionales (null = el
 // producto no varia por esa dimension).
 type VariantWriteInput = {
+    sku?: string | undefined;
+    barcode?: string | undefined;
     colorId: number | null;
     sizeId: number | null;
     price: number;
     isActive?: boolean;
     imageUrl?: string;
+    imageFile?: { filename: string; data: string };
+};
+
+type OrderedProductImageInput = {
+    url?: string;
     imageFile?: { filename: string; data: string };
 };
 
@@ -85,6 +93,19 @@ export class ProductService {
     private productNameConflict(error: unknown): CustomError | null {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
             return CustomError.badRequest('Ya existe un producto con el mismo nombre en esta empresa');
+        }
+        return null;
+    }
+
+    private variantIdentifierConflict(error: unknown): CustomError | null {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+            return null;
+        }
+        const target = Array.isArray(error.meta?.target)
+            ? error.meta.target.map(String).join(' ').toLowerCase()
+            : String(error.meta?.target || '').toLowerCase();
+        if (target.includes('sku')) {
+            return CustomError.badRequest('El SKU indicado ya esta siendo usado por otra variante');
         }
         return null;
     }
@@ -323,6 +344,16 @@ export class ProductService {
             isSimpleVariant,
             isSizeOnlyVariant,
         };
+    }
+
+    private normalizeRequestedSku(value: string | undefined): string | undefined {
+        const normalized = this.normalizeSkuComponent(String(value || ''));
+        return normalized || undefined;
+    }
+
+    private normalizeBarcode(value: string | undefined): string | null | undefined {
+        if (value === undefined) return undefined;
+        return String(value).trim() || null;
     }
 
     // Ejes reales (color/talla) del producto según sus variantes, sin centinelas de nombre.
@@ -654,12 +685,29 @@ export class ProductService {
 
         const urls: string[] = [];
         for (const file of imageFiles) {
-            const publicId = `product_${productId}_${file.filename.replace(/\.[^/.]+$/, '')}`;
+            const publicId = `product_${productId}_${file.filename.replace(/\.[^/.]+$/, '')}_${randomUUID()}`;
             const uploadedUrl = await this.uploadBase64Image(file.data, publicId);
             urls.push(uploadedUrl);
         }
 
         return urls;
+    }
+
+    private async materializeOrderedProductImages(
+        productId: number,
+        orderedImages: OrderedProductImageInput[],
+    ): Promise<string[]> {
+        const urls: string[] = [];
+        for (const image of orderedImages) {
+            if (image.imageFile) {
+                const [uploadedUrl] = await this.uploadProductFiles(productId, [image.imageFile]);
+                if (uploadedUrl) urls.push(uploadedUrl);
+                continue;
+            }
+            const url = String(image.url || '').trim();
+            if (url) urls.push(url);
+        }
+        return [...new Set(urls)];
     }
 
     private async uploadVariantImage(productId: number, variant: VariantWriteInput): Promise<string | null> {
@@ -718,12 +766,14 @@ export class ProductService {
             name,
             categoryId,
             description,
+            isActive,
             afectacionIgv,
             variantMode,
             colorIds = [],
             sizeIds = [],
             imageUrls = [],
             imageFiles = [],
+            orderedImages = [],
             variants = [],
             marketplaceColorImages = [],
         } = createProductDto;
@@ -767,6 +817,8 @@ export class ProductService {
                 }
 
                 const simpleVariant: VariantWriteInput = {
+                    sku: baseVariant.sku,
+                    barcode: baseVariant.barcode,
                     colorId: null,
                     sizeId: null,
                     price: Number(baseVariant.price),
@@ -788,6 +840,8 @@ export class ProductService {
 
                 variantsToCreate = variants.map((variant) => {
                     const sizeOnlyVariant: VariantWriteInput = {
+                        sku: variant.sku,
+                        barcode: variant.barcode,
                         colorId: null,
                         sizeId: Number(variant.sizeId),
                         price: Number(variant.price),
@@ -816,6 +870,8 @@ export class ProductService {
 
                 variantsToCreate = variants.map((variant) => {
                     const matrixVariant: VariantWriteInput = {
+                        sku: variant.sku,
+                        barcode: variant.barcode,
                         colorId: Number(variant.colorId),
                         sizeId: Number(variant.sizeId),
                         price: Number(variant.price),
@@ -842,7 +898,9 @@ export class ProductService {
             }
 
             const activeVariantCount = variantsToCreate.filter((variant) => variant.isActive !== false).length;
-            const requestedMainImages = new Set(imageUrls || []).size + (imageFiles || []).length;
+            const requestedMainImages = orderedImages.length > 0
+                ? orderedImages.length
+                : new Set(imageUrls || []).size + (imageFiles || []).length;
             const requestedVariantImages = variantsToCreate.filter((variant) => Boolean(variant.imageFile || variant.imageUrl)).length;
             await TenantQuotaService.assertVariantsAvailable(0, activeVariantCount, true);
             await TenantQuotaService.assertMainImagesAvailable(0, requestedMainImages, true);
@@ -862,7 +920,7 @@ export class ProductService {
                         description: description || null,
                         categoryId,
                         afectacionIgv: afectacionIgv ?? '10',
-                        isActive: true,
+                        isActive,
                         hasColor: variantMode === 'MATRIX',
                         hasSize: variantMode !== 'SIMPLE',
                         updatedAt: now,
@@ -880,8 +938,12 @@ export class ProductService {
                 : null);
 
             // Subir imágenes de producto a Cloudinary si se recibieron archivos
-            const uploadedProductImageUrls = await this.uploadProductFiles(product.id, imageFiles);
-            const allImageUrls = [...new Set([...(imageUrls || []), ...uploadedProductImageUrls])];
+            const allImageUrls = orderedImages.length > 0
+                ? await this.materializeOrderedProductImages(product.id, orderedImages)
+                : [...new Set([
+                    ...(imageUrls || []),
+                    ...await this.uploadProductFiles(product.id, imageFiles),
+                ])];
 
             // Crear las imágenes del producto
             if (allImageUrls.length > 0) {
@@ -900,7 +962,9 @@ export class ProductService {
                     const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                     return prisma.productVariant.create({
                         data: {
-                            sku: this.generateSKU(product.name, colorName, sizeName, product.id, variant.colorId, variant.sizeId),
+                            sku: this.normalizeRequestedSku(variant.sku)
+                                || this.generateSKU(product.name, colorName, sizeName, product.id, variant.colorId, variant.sizeId),
+                            barcode: this.normalizeBarcode(variant.barcode) ?? null,
                             price: new Prisma.Decimal(String(variant.price)),
                             colorId: variant.colorId,
                             sizeId: variant.sizeId,
@@ -935,6 +999,10 @@ export class ProductService {
         } catch (error) {
             if (error instanceof CustomError) {
                 throw error;
+            }
+            const identifierConflict = this.variantIdentifierConflict(error);
+            if (identifierConflict) {
+                throw identifierConflict;
             }
             console.error('Error al crear el producto:', error);
             throw CustomError.internal('Error al crear el producto');
@@ -1002,7 +1070,7 @@ export class ProductService {
                             size: true,
                         },
                     },
-                    images: true,
+                    images: { orderBy: { id: 'asc' } },
                 },
                 orderBy: {
                     createdAt: 'desc',
@@ -1083,7 +1151,7 @@ export class ProductService {
                             size: true,
                         },
                     },
-                    images: true,
+                    images: { orderBy: { id: 'asc' } },
                 },
             });
 
@@ -1157,7 +1225,7 @@ export class ProductService {
             where,
             include: {
                 category: true,
-                images: true,
+                images: { orderBy: { id: 'asc' } },
                 variants: {
                     where: { isActive: true },
                     include: {
@@ -1360,7 +1428,7 @@ export class ProductService {
             },
             include: {
                 category: true,
-                images: true,
+                images: { orderBy: { id: 'asc' } },
                 variants: {
                     where: { isActive: true },
                     include: {
@@ -1507,15 +1575,27 @@ export class ProductService {
     /**
      * Eliminar y recrear las imágenes de producto
      */
-    private async replaceProductImages(productId: number, imageUrls: string[] = [], imageFiles: Array<{ filename: string; data: string }> = []) {
+    private async replaceProductImages(
+        productId: number,
+        imageUrls: string[] = [],
+        imageFiles: Array<{ filename: string; data: string }> = [],
+        orderedImages?: OrderedProductImageInput[],
+    ) {
+        const requestedCount = orderedImages !== undefined
+            ? orderedImages.length
+            : new Set(imageUrls || []).size + (imageFiles || []).length;
         await TenantQuotaService.assertMainImagesAvailable(
             productId,
-            new Set(imageUrls || []).size + (imageFiles || []).length,
+            requestedCount,
             true,
         );
         const existingImages = await prisma.productImage.findMany({ where: { productId }, select: { url: true } });
-        const uploadedUrls = await this.uploadProductFiles(productId, imageFiles);
-        const allImageUrls = [...new Set([...(imageUrls || []), ...uploadedUrls])];
+        const allImageUrls = orderedImages !== undefined
+            ? await this.materializeOrderedProductImages(productId, orderedImages)
+            : [...new Set([
+                ...(imageUrls || []),
+                ...await this.uploadProductFiles(productId, imageFiles),
+            ])];
 
         const removedImages = existingImages
             .map((image) => image.url)
@@ -1550,7 +1630,7 @@ export class ProductService {
         const existingVariants = await prisma.productVariant.findMany({
             where: { productId },
             select: {
-                id: true, colorId: true, sizeId: true, imageUrl: true, isActive: true,
+                id: true, colorId: true, sizeId: true, sku: true, barcode: true, imageUrl: true, isActive: true,
             },
         });
 
@@ -1586,13 +1666,19 @@ export class ProductService {
                 const colorName = variant.colorId != null ? (colorById.get(variant.colorId) ?? '') : '';
                 const sizeName = variant.sizeId != null ? (sizeById.get(variant.sizeId) ?? '') : '';
                 const shouldBeActive = variant.isActive !== false;
+                const normalizedBarcode = this.normalizeBarcode(variant.barcode);
 
                 if (hasImageChanges && existing?.imageUrl && existing.imageUrl !== imageUrlToPersist) {
                     removedVariantImages.push(existing.imageUrl);
                 }
 
                 const variantData = {
-                    sku: this.generateSKU(productName, colorName, sizeName, productId, variant.colorId, variant.sizeId),
+                    sku: this.normalizeRequestedSku(variant.sku)
+                        || existing?.sku
+                        || this.generateSKU(productName, colorName, sizeName, productId, variant.colorId, variant.sizeId),
+                    barcode: normalizedBarcode === undefined
+                        ? (existing?.barcode ?? null)
+                        : normalizedBarcode,
                     price: new Prisma.Decimal(String(variant.price)),
                     colorId: variant.colorId,
                     sizeId: variant.sizeId,
@@ -1640,9 +1726,11 @@ export class ProductService {
     private async replaceSimpleVariant(
         productId: number,
         productName: string,
-        variant: { price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } },
+        variant: { sku?: string; barcode?: string; price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } },
     ) {
         const simpleVariant: VariantWriteInput = {
+            sku: variant.sku,
+            barcode: variant.barcode,
             colorId: null,
             sizeId: null,
             price: Number(variant.price),
@@ -1663,13 +1751,15 @@ export class ProductService {
     private async replaceSizeOnlyVariants(
         productId: number,
         productName: string,
-        variants: Array<{ sizeId?: number; price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } }>,
+        variants: Array<{ sku?: string; barcode?: string; sizeId?: number; price: number; isActive?: boolean; imageUrl?: string; imageFile?: { filename: string; data: string } }>,
     ) {
         const normalizedSizeIds = [...new Set(variants.map((variant) => Number(variant.sizeId || 0)).filter((id) => id > 0))];
         await this.validateSizes(normalizedSizeIds);
 
         const sizeOnlyVariants: VariantWriteInput[] = variants.map((variant) => {
             const mapped: VariantWriteInput = {
+                sku: variant.sku,
+                barcode: variant.barcode,
                 colorId: null,
                 sizeId: Number(variant.sizeId),
                 price: Number(variant.price),
@@ -1780,8 +1870,8 @@ export class ProductService {
                 }
             }
 
-            if (updateData.imageUrls || updateData.imageFiles) {
-                await this.replaceProductImages(id, updateData.imageUrls, updateData.imageFiles);
+            if (updateData.orderedImages !== undefined || updateData.imageUrls || updateData.imageFiles) {
+                await this.replaceProductImages(id, updateData.imageUrls, updateData.imageFiles, updateData.orderedImages);
             }
 
             if (updateData.variants) {
@@ -1801,6 +1891,8 @@ export class ProductService {
                         productName,
                         updateData.variants.map((variant) => {
                             const matrixVariant: VariantWriteInput = {
+                                sku: variant.sku,
+                                barcode: variant.barcode,
                                 colorId: Number(variant.colorId),
                                 sizeId: Number(variant.sizeId),
                                 price: Number(variant.price),
@@ -1849,6 +1941,10 @@ export class ProductService {
         } catch (error) {
             if (error instanceof CustomError) {
                 throw error;
+            }
+            const identifierConflict = this.variantIdentifierConflict(error);
+            if (identifierConflict) {
+                throw identifierConflict;
             }
             console.error('Error al actualizar el producto:', error);
             throw CustomError.internal('Error al actualizar el producto');

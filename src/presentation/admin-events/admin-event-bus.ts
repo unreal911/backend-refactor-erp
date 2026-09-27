@@ -8,12 +8,14 @@ export type AdminEventType =
     | "ORDER_CREATED" | "ORDER_UPDATED" | "ORDER_STATUS_UPDATED"
     | "ORDER_RESPONSIBLE_ASSIGNED" | "ORDER_RETURN_UPDATED"
     | "ORDER_PICKING_UPDATED" | "INVENTORY_UPDATED"
-    | "TRANSFER_CREATED" | "TRANSFER_UPDATED";
+    | "TRANSFER_CREATED" | "TRANSFER_UPDATED"
+    | "TASK_CREATED" | "TASK_UPDATED"
+    | "ATTENTION_CREATED" | "ATTENTION_UPDATED" | "ATTENTION_MESSAGE_RECEIVED" | "ATTENTION_MESSAGE_SENT";
 
 export interface AdminEventPayload {
     type: AdminEventType;
-    entity: "ORDER" | "INVENTORY" | "TRANSFER";
-    entityId?: number | null;
+    entity: "ORDER" | "INVENTORY" | "TRANSFER" | "TASK" | "ATTENTION";
+    entityId?: number | string | null;
     entityCode?: string | null;
     status?: string | null;
     actorUserId?: number | null;

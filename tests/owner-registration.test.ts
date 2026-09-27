@@ -33,6 +33,8 @@ class FakeEmailSender implements OwnerVerificationEmailSender {
 
 const tag = `${Date.now().toString(36)}-${process.pid}`;
 const emailPrefix = `emp001-${tag}`;
+const phoneSuffix = String(Date.now()).slice(-7);
+const testPhones = [`+5198${phoneSuffix}`, `+5197${phoneSuffix}`];
 const sender = new FakeEmailSender();
 let currentTime = new Date("2026-08-01T16:00:00.000Z");
 const service = new OwnerRegistrationService(sender, {
@@ -105,7 +107,12 @@ beforeAll(async () => {
     });
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     await platformPrisma.ownerRegistration.deleteMany({
-        where: { email: { startsWith: emailPrefix } },
+        where: {
+            OR: [
+                { email: { startsWith: emailPrefix } },
+                { phone: { in: testPhones } },
+            ],
+        },
     });
 });
 
@@ -115,7 +122,12 @@ beforeEach(() => {
 
 afterAll(async () => {
     await platformPrisma.ownerRegistration.deleteMany({
-        where: { email: { startsWith: emailPrefix } },
+        where: {
+            OR: [
+                { email: { startsWith: emailPrefix } },
+                { phone: { in: testPhones } },
+            ],
+        },
     }).catch(() => undefined);
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await platformPrisma.$disconnect().catch(() => undefined);
@@ -296,7 +308,7 @@ describe("EMP-001 registro de propietario", () => {
         const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
         sender.failNext = true;
 
-        await expect(service.signup(dto)).resolves.toBeUndefined();
+        await expect(service.signup(dto)).rejects.toThrow("No pudimos enviar el correo");
 
         const pending = await platformPrisma.ownerRegistration.findUniqueOrThrow({
             where: { email: dto.email },
@@ -305,8 +317,70 @@ describe("EMP-001 registro de propietario", () => {
         expect(pending.verificationTokenExpiresAt).toBeNull();
         expect(consoleError).toHaveBeenCalledWith(
             "[owner-signup] verification delivery failed",
-            { registrationId: pending.id },
+            { registrationId: pending.id, error: "delivery unavailable" },
         );
         consoleError.mockRestore();
+    });
+
+    it("responde 503 cuando el proveedor SMTP no entrega el primer enlace", async () => {
+        const request = signupBody("delivery-route-failure");
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        sender.failNext = true;
+
+        const response = await post("/api/public/signup", request);
+
+        expect(response).toEqual({
+            status: 503,
+            body: {
+                message: "No pudimos enviar el correo de verificación. Inténtalo nuevamente en unos minutos",
+            },
+        });
+        const pending = await platformPrisma.ownerRegistration.findUniqueOrThrow({
+            where: { email: request.email },
+        });
+        expect(pending.verificationTokenHash).toBeNull();
+        expect(pending.verificationTokenExpiresAt).toBeNull();
+        consoleError.mockRestore();
+    });
+
+    it("genera OTP ligado al teléfono, registra fallos y evita colisiones entre cuentas", async () => {
+        const otpService = new OwnerRegistrationService(sender, {
+            tokenPepper: "emp-001-test-pepper-with-at-least-32-characters",
+            verificationTtlMinutes: 30,
+            whatsappOtpTtlMinutes: 10,
+            whatsappOtpMaxAttempts: 5,
+            trialProvisioningTtlMinutes: 60,
+            termsVersion: "2026-08-01-test",
+            now: () => currentTime,
+            createWhatsappOtp: () => "428193",
+            bcryptRounds: 4,
+        });
+        const first = signupDto("otp-a", { email: null, phone: testPhones[0] });
+        const second = signupDto("otp-b", { email: null, phone: testPhones[1] });
+
+        await otpService.signup(first);
+        await otpService.signup(second);
+
+        const registrations = await platformPrisma.ownerRegistration.findMany({
+            where: { phone: { in: testPhones } },
+            orderBy: { phone: "asc" },
+        });
+        expect(registrations).toHaveLength(2);
+        expect(registrations[0]?.verificationTokenHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(registrations[1]?.verificationTokenHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(registrations[0]?.verificationTokenHash)
+            .not.toBe(registrations[1]?.verificationTokenHash);
+
+        await expect(otpService.verifyEmail("111111", testPhones[0]))
+            .rejects.toBeInstanceOf(OwnerRegistrationTokenError);
+        const afterFailure = await platformPrisma.ownerRegistration.findUniqueOrThrow({
+            where: { phone: testPhones[0] },
+        });
+        expect(afterFailure.verificationFailedAttempts).toBe(1);
+
+        await expect(otpService.verifyEmail("428193", testPhones[0]))
+            .resolves.toMatchObject({ trialToken: expect.any(String) });
+        await expect(otpService.verifyEmail("428193", testPhones[1]))
+            .resolves.toMatchObject({ trialToken: expect.any(String) });
     });
 });

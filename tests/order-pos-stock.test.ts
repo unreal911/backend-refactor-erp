@@ -27,6 +27,11 @@ vi.mock('../src/data/prisma', () => {
     },
     reservation: {
       create: vi.fn(),
+      findMany: vi.fn(),
+    },
+    stockTransfer: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
     },
     $executeRaw: vi.fn(),
   };
@@ -39,6 +44,13 @@ vi.mock('../src/modules/lifecycle/tenant-lifecycle.service', () => ({
   TenantQuotaService: {
     assertAvailable: vi.fn().mockResolvedValue(undefined),
     assertPosSaleAllowed: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+vi.mock('../src/modules/tasks/operational-task.service', () => ({
+  OperationalTaskService: {
+    createForTransfer: vi.fn().mockResolvedValue([]),
+    createPickingTasksForOrder: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -109,6 +121,20 @@ describe('OrderService POS stock fulfillment', () => {
         },
       ],
     } as never);
+    vi.mocked(prisma.reservation.findMany).mockResolvedValueOnce([{
+      id: 700,
+      quantity: 3,
+      variantId: 10,
+      orderItemId: 900,
+      inventory: remoteInventory,
+    }] as never);
+    vi.mocked(prisma.stockTransfer.findFirst).mockResolvedValueOnce(null as never);
+    vi.mocked(prisma.stockTransfer.create).mockResolvedValueOnce({
+      id: 800,
+      code: 'TRF-500-2-TEST',
+      fromStoreId: 2,
+      toStoreId: 1,
+    } as never);
 
     const [, dto] = CreateOrderDto.create({
       sourceStoreId: 1,
@@ -160,6 +186,9 @@ describe('OrderService POS stock fulfillment', () => {
       }),
     });
     expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    expect(prisma.stockTransfer.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ orderId: 500, fromStoreId: 2, toStoreId: 1 }),
+    }));
     expect(prisma.inventory.update).not.toHaveBeenCalledWith({
       where: { id: 22 },
       data: { stock: { decrement: 3 } },

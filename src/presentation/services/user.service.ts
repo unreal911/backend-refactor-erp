@@ -4,6 +4,7 @@ import { tenantPrisma } from '../../data/tenant-prisma';
 import bcrypt from 'bcryptjs';
 import { CreateUserDto, UpdateUserDto } from '../../domain/dtos/user.dto';
 import {
+    StoreAssignmentType,
     TenantMembershipRole,
     TenantMembershipStatus,
 } from '@prisma/client';
@@ -14,6 +15,40 @@ export type TenantUserMutationActor = {
 };
 
 export class UserService {
+    private static async ensurePrimaryStoreAssignment(
+        prisma: any,
+        tenantId: string,
+        userId: number,
+        grantedByUserId?: number | null,
+    ): Promise<void> {
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { primaryStoreId: true },
+        });
+        const store = tenant?.primaryStoreId
+            ? await prisma.store.findFirst({ where: { id: tenant.primaryStoreId, isActive: true }, select: { id: true } })
+            : await prisma.store.findFirst({ where: { tenantId, isActive: true }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+        if (!store) return;
+        await prisma.userStoreAssignment.upsert({
+            where: {
+                tenantId_userId_storeId_assignmentType: {
+                    tenantId,
+                    userId,
+                    storeId: store.id,
+                    assignmentType: StoreAssignmentType.PRIMARY,
+                },
+            },
+            update: { isActive: true, endsAt: null, grantedByUserId: grantedByUserId ?? null },
+            create: {
+                tenantId,
+                userId,
+                storeId: store.id,
+                assignmentType: StoreAssignmentType.PRIMARY,
+                grantedByUserId: grantedByUserId ?? null,
+            },
+        });
+    }
+
     private static readonly membershipRoleRank: Record<TenantMembershipRole, number> = {
         [TenantMembershipRole.OWNER]: 50,
         [TenantMembershipRole.ADMIN]: 40,
@@ -136,6 +171,9 @@ export class UserService {
                     deactivatedAt: isActive ? null : new Date(),
                 },
             });
+            if (isActive) {
+                await this.ensurePrimaryStoreAssignment(prisma, tenantId, existingUser.id);
+            }
             return this.findById(existingUser.id, tenantId);
         }
 
@@ -173,6 +211,9 @@ export class UserService {
                         deactivatedAt: isActive ? null : new Date(),
                     },
                 });
+                if (isActive) {
+                    await this.ensurePrimaryStoreAssignment(tx, tenantId, user.id);
+                }
 
                 const { password: _, ...userWithoutPassword } = user;
                 return userWithoutPassword;

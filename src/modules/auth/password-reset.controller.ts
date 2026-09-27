@@ -3,7 +3,7 @@ import { PasswordResetConfirmDto, PasswordResetRequestDto } from "./password-res
 import { PasswordResetService, PasswordResetTokenError } from "./password-reset.service";
 
 const GENERIC_REQUEST_RESPONSE =
-    "Si existe una cuenta activa con ese correo, recibirás un enlace para crear una nueva contraseña.";
+    "Si existe una cuenta activa con ese identificador, recibirás un enlace por correo o un código por WhatsApp para crear una nueva contraseña.";
 
 export class PasswordResetController {
     constructor(private readonly service: PasswordResetService | null) {}
@@ -15,7 +15,7 @@ export class PasswordResetController {
             return res.status(503).json({ message: "La recuperación de contraseña no está disponible." });
         }
 
-        await this.service.request(dto!.email);
+        await this.service.request(dto!.identifier, dto!.channel);
         return res.status(202).json({ message: GENERIC_REQUEST_RESPONSE });
     };
 
@@ -27,7 +27,7 @@ export class PasswordResetController {
         }
 
         try {
-            await this.service.confirm(dto!.token, dto!.password);
+            await this.service.confirm(dto!.token, dto!.password, dto!.identifier);
             return res.json({ message: "Contraseña actualizada. Ya puedes iniciar sesión." });
         } catch (caught) {
             if (caught instanceof PasswordResetTokenError) {

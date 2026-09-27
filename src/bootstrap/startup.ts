@@ -10,8 +10,14 @@ import {
 } from "../modules/sunat/infrastructure/sunat-infrastructure.config";
 
 const RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal";
-export const REQUIRED_SCHEMA_MIGRATION = "20260813200000_cloudinary_usage_snapshot";
+export const REQUIRED_SCHEMA_MIGRATION = "20260905124500_align_operational_plan_snapshots";
 export const REQUIRED_SCHEMA_TABLES = [
+    "AttentionConversation",
+    "AttentionMessage",
+    "AttentionTemplate",
+    "WhatsAppConnection",
+    "AttentionOrderCase",
+    "AttentionFollowUp",
     "AuditLog",
     "BillingWebhookEvent",
     "Category",
@@ -30,10 +36,13 @@ export const REQUIRED_SCHEMA_TABLES = [
     "ManualPaymentRequest",
     "ManualPaymentProof",
     "MarketplaceCustomer",
+    "MarketplaceTheme",
     "Order",
     "OrderItem",
     "OrderReturn",
     "OrderReturnItem",
+    "OperationalTask",
+    "OperationalTaskEvent",
     "OwnerRegistration",
     "PasswordResetToken",
     "PaymentMethod",
@@ -45,6 +54,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "PlatformRole",
     "PlatformRolePermission",
     "PlatformAuditEvent",
+    "PlatformAuthPolicy",
     "PickingItem",
     "PickingItemContribution",
     "PickingOrderItemDetail",
@@ -66,6 +76,7 @@ export const REQUIRED_SCHEMA_TABLES = [
     "StockTransfer",
     "StockTransferItem",
     "Store",
+    "UserStoreAssignment",
     "SunatDispatch",
     "SunatEmisorConfig",
     "SunatArtifact",
@@ -75,6 +86,9 @@ export const REQUIRED_SCHEMA_TABLES = [
     "TenantInvitation",
     "TenantLifecycleEvent",
     "TenantMembership",
+    "TenantFeatureOverride",
+    "TenantLimitOverride",
+    "TenantMembershipPermissionOverride",
     "TenantMigrationCheckpoint",
     "TenantMigrationQuarantine",
     "TenantPlanAssignment",

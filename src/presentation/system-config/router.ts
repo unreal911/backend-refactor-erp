@@ -11,6 +11,9 @@ export class systemConfigRoute {
 
         router.get('/order-workflow', AuthMiddleware.requirePermission(['orders.view', 'picking.view', 'settings.manage']), controller.getOrderWorkflowSettings);
         router.patch('/order-workflow', AuthMiddleware.requirePermission('settings.manage'), controller.updateOrderWorkflowSettings);
+        router.get('/marketplace-theme', AuthMiddleware.requirePermission('settings.manage'), controller.getMarketplaceTheme);
+        router.put('/marketplace-theme/draft', AuthMiddleware.requirePermission('settings.manage'), controller.saveMarketplaceThemeDraft);
+        router.post('/marketplace-theme/publish', AuthMiddleware.requirePermission('settings.manage'), controller.publishMarketplaceTheme);
 
         return router;
     }

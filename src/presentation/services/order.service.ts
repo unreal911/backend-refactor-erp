@@ -22,6 +22,7 @@ import {
 import { ComprobanteService } from "../../modules/sunat/services/comprobante.service";
 import { TenantQuotaService } from "../../modules/lifecycle/tenant-lifecycle.service";
 import { PlanAccessService } from "../../modules/plans/plan-access.service";
+import { OperationalTaskService } from "../../modules/tasks/operational-task.service";
 import {
     MarketplaceGuideItem,
     MarketplacePaymentMethod,
@@ -125,6 +126,65 @@ export class OrderService {
 
     private currentTenantId(): string {
         return TenantDataContext.currentTenantId() ?? LEGACY_TENANT_ID;
+    }
+
+    private async ensureRemoteTransfersForOrder(
+        order: { id: number; code: string; sourceStoreId: number },
+        actorUserId: number | null,
+        tx: Prisma.TransactionClient,
+    ): Promise<number> {
+        const activeReservations = await tx.reservation.findMany({
+            where: { orderId: order.id, status: 'ACTIVE' },
+            include: { inventory: true },
+        });
+        const reservationsByStore = new Map<number, typeof activeReservations>();
+        for (const reservation of activeReservations) {
+            const fromStoreId = Number(reservation.inventory.storeId);
+            if (fromStoreId === Number(order.sourceStoreId)) continue;
+            const rows = reservationsByStore.get(fromStoreId) ?? [];
+            rows.push(reservation);
+            reservationsByStore.set(fromStoreId, rows);
+        }
+        let created = 0;
+        for (const [fromStoreId, reservations] of reservationsByStore) {
+            const existing = await tx.stockTransfer.findFirst({
+                where: {
+                    orderId: order.id,
+                    fromStoreId,
+                    toStoreId: order.sourceStoreId,
+                    status: { not: 'CANCELLED' },
+                },
+            });
+            if (existing) continue;
+            const transfer = await tx.stockTransfer.create({
+                data: {
+                    code: `TRF-${order.id}-${fromStoreId}-${Date.now().toString(36).toUpperCase()}`,
+                    status: 'PENDING',
+                    note: `Traslado automático para pedido ${order.code}`,
+                    createdById: actorUserId,
+                    fromStoreId,
+                    toStoreId: order.sourceStoreId,
+                    orderId: order.id,
+                    items: {
+                        create: reservations.map((reservation) => ({
+                            variantId: reservation.variantId,
+                            orderItemId: reservation.orderItemId,
+                            reservationId: reservation.id,
+                            quantity: reservation.quantity,
+                        })),
+                    },
+                },
+            });
+            await OperationalTaskService.createForTransfer({
+                transferId: transfer.id,
+                transferCode: transfer.code,
+                fromStoreId,
+                toStoreId: order.sourceStoreId,
+                actorUserId,
+            }, tx);
+            created += 1;
+        }
+        return created;
     }
 
     private async syncPickingOrderItemDetailsForOrder(
@@ -297,7 +357,13 @@ export class OrderService {
                 },
             },
         },
-        transfer: true,
+        transfers: {
+            include: {
+                fromStore: true,
+                toStore: true,
+                items: true,
+            },
+        },
         reservations: {
             include: {
                 reservedBy: true,
@@ -657,6 +723,7 @@ export class OrderService {
                         inventoryId: inventory.id,
                         variantId: item.variantId,
                         orderId: createdOrder.id,
+                        orderItemId: item.id,
                         reservedById: actorUserId ?? null,
                     },
                 });
@@ -664,6 +731,18 @@ export class OrderService {
                     where: { id: inventory.id },
                     data: { reservedStock: { increment: item.quantity } },
                 });
+            }
+
+            if (hasRemoteFulfillment) {
+                await this.ensureRemoteTransfersForOrder(createdOrder, actorUserId ?? null, tx);
+                await OperationalTaskService.createPickingTasksForOrder({
+                    orderId: createdOrder.id,
+                    orderCode: createdOrder.code,
+                    sourceStoreId: createdOrder.sourceStoreId,
+                    items: createdOrder.items,
+                    primaryPickerUserId: null,
+                    actorUserId: actorUserId ?? null,
+                }, tx);
             }
 
             return createdOrder;
@@ -1019,6 +1098,13 @@ export class OrderService {
             }
             throw error;
         }
+
+        await OperationalTaskService.createOrderReview({
+            orderId: Number(summary.order.id),
+            orderCode: String(summary.order.code),
+            storeId: Number(summary.order.sourceStoreId),
+            salesChannel: "ECOMMERCE",
+        });
 
         return {
             ...mapOrderWithPresentationData(summary.order),
@@ -1566,7 +1652,12 @@ export class OrderService {
     /**
      * Actualizar estado del pedido
      */
-    async updateOrderStatus(orderId: number, dto: UpdateOrderStatusDto, responsibleUserId?: number) {
+    async updateOrderStatus(
+        orderId: number,
+        dto: UpdateOrderStatusDto,
+        responsibleUserId?: number,
+        deliveryMetadata?: Prisma.InputJsonObject,
+    ) {
         const order: any = await prisma.order.findUnique({
             where: { id: orderId },
             include: {
@@ -1651,6 +1742,15 @@ export class OrderService {
 
             let nextOrderStatus = targetStatus;
             const orderUpdateData: any = { updatedAt: new Date() };
+
+            if (targetStatus === OrderStatusEnum.CONFIRMED) {
+                const remoteTransfers = await this.ensureRemoteTransfersForOrder(
+                    order,
+                    responsibleUserId ?? null,
+                    tx,
+                );
+                if (remoteTransfers > 0) nextOrderStatus = OrderStatusEnum.WAITING_TRANSFER;
+            }
 
             if (pickingResponsibilityFlowEnabled && targetStatus === OrderStatusEnum.CONFIRMED) {
                 const confirmedByUserId = resolvePreferredResponsibleUserId(responsibleUserId);
@@ -1882,6 +1982,27 @@ export class OrderService {
                 where: { id: orderId },
                 data: orderUpdateData,
             });
+
+            if (targetStatus === OrderStatusEnum.CONFIRMED) {
+                await OperationalTaskService.createPickingTasksForOrder({
+                    orderId: order.id,
+                    orderCode: order.code,
+                    sourceStoreId: order.sourceStoreId,
+                    items: order.items,
+                    primaryPickerUserId: orderUpdateData.pickerUserId ?? order.pickerUserId,
+                    actorUserId: responsibleUserId ?? null,
+                }, tx);
+            }
+
+            if (nextOrderStatus === OrderStatusEnum.DELIVERED || nextOrderStatus === OrderStatusEnum.CANCELLED) {
+                await OperationalTaskService.closeDeliveryTasksForOrder(
+                    orderId,
+                    nextOrderStatus === OrderStatusEnum.DELIVERED ? "DELIVERED" : "CANCELLED",
+                    responsibleUserId ?? null,
+                    nextOrderStatus === OrderStatusEnum.DELIVERED ? deliveryMetadata : undefined,
+                    tx,
+                );
+            }
 
             if (nextOrderStatus === OrderStatusEnum.CANCELLED || nextOrderStatus === OrderStatusEnum.DELIVERED) {
                 await cancelPickingArtifactsOnOrderClose(
@@ -2802,6 +2923,10 @@ export class OrderService {
             throw CustomError.badRequest('Solo pedidos CONFIRMED, PREPARING o WAITING_TRANSFER pueden iniciar picking');
         }
 
+        if (String(order.pickingSession?.status || '').toUpperCase() === 'COMPLETED') {
+            throw CustomError.conflict('El picking ya fue finalizado y no se puede reabrir');
+        }
+
         const activeReservations = (order.reservations || []).filter((reservation: any) => reservation.status === 'ACTIVE');
         if (activeReservations.length === 0) {
             throw CustomError.badRequest('La orden no tiene reservas activas para iniciar picking');
@@ -2964,6 +3089,8 @@ export class OrderService {
             },
         });
 
+        await OperationalTaskService.linkPickingSession(orderId, session.id);
+
         return this.getOrderPicking(orderId);
     }
 
@@ -2999,7 +3126,6 @@ export class OrderService {
             OrderStatusEnum.CONFIRMED,
             OrderStatusEnum.PREPARING,
             OrderStatusEnum.WAITING_TRANSFER,
-            OrderStatusEnum.READY,
         ];
         if (!validStatuses.includes(order.status as OrderStatusEnum)) {
             throw CustomError.badRequest('La orden no permite actualizar picking en su estado actual');
@@ -3226,7 +3352,6 @@ export class OrderService {
             OrderStatusEnum.CONFIRMED,
             OrderStatusEnum.PREPARING,
             OrderStatusEnum.WAITING_TRANSFER,
-            OrderStatusEnum.READY,
         ];
         if (!validStatuses.includes(order.status as OrderStatusEnum)) {
             throw CustomError.badRequest('La orden no permite actualizar picking en su estado actual');
@@ -3401,9 +3526,19 @@ export class OrderService {
             throw CustomError.badRequest('No se puede finalizar: existen items pendientes o parciales');
         }
 
+        const transfersInProgress = await prisma.stockTransfer.count({
+            where: {
+                orderId,
+                status: { notIn: ['RECEIVED', 'CANCELLED'] },
+            },
+        });
+        if (transfersInProgress > 0) {
+            throw CustomError.conflict('No se puede finalizar picking mientras existan traslados pendientes o en tránsito');
+        }
+
         const currentOrder = await prisma.order.findUnique({
             where: { id: orderId },
-            select: { pickerUserId: true },
+            select: { pickerUserId: true, dispenserUserId: true, sourceStoreId: true, code: true },
         });
 
         const pickingResponsibilityFlowEnabled = await isPickingResponsibilityFlowEnabled();
@@ -3464,6 +3599,21 @@ export class OrderService {
                     pickerUserId: assignedUserId,
                 },
             });
+
+            await OperationalTaskService.completePickingTasksForOrder(
+                orderId,
+                responsibleUserId ?? null,
+                tx,
+            );
+            if (currentOrder) {
+                await OperationalTaskService.createPackingTaskForOrder({
+                    orderId,
+                    orderCode: currentOrder.code,
+                    storeId: currentOrder.sourceStoreId,
+                    assignedUserId: currentOrder.dispenserUserId ?? currentOrder.pickerUserId,
+                    actorUserId: responsibleUserId ?? null,
+                }, tx);
+            }
         });
 
         return this.getOrderById(orderId);

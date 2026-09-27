@@ -7,6 +7,12 @@ import { tenantPrisma } from "../../data/tenant-prisma";
 import { envs } from "../../config/envs";
 
 export const RLS_TABLES = [
+    "AttentionConversation",
+    "AttentionMessage",
+    "AttentionTemplate",
+    "WhatsAppConnection",
+    "AttentionOrderCase",
+    "AttentionFollowUp",
     "AuditLog",
     "Category",
     "Color",
@@ -24,6 +30,7 @@ export const RLS_TABLES = [
     "ManualPaymentRequest",
     "ManualPaymentProof",
     "MarketplaceCustomer",
+    "MarketplaceTheme",
     "Order",
     "OrderItem",
     "OrderReturn",

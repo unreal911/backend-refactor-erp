@@ -25,6 +25,10 @@ import { registerReportModuleRoutes } from "../modules/reports/routes";
 import { PublicTenantMiddleware } from "./public/tenant.middleware";
 import { customerRoute } from "./customer/router";
 import { registerSaasBillingRoutes } from "../modules/saas-billing";
+import { registerOperationalTaskRoutes } from "../modules/tasks";
+import { PublicAuthPolicyController } from "./auth/public-auth-policy.controller";
+import { registerWhatsAppRoutes } from "../modules/whatsapp/routes";
+import { registerAttentionRoutes } from "../modules/attention/routes";
 
 export class AppRouter {
     static get router(): Router {
@@ -35,8 +39,14 @@ export class AppRouter {
         registerOwnerRegistrationRoutes(router);
         registerTenantInvitationRoutes(router);
         registerTenantLifecycleRoutes(router);
+        registerWhatsAppRoutes(router);
         registerSaasBillingRoutes(router);
         registerReportModuleRoutes(router);
+        registerOperationalTaskRoutes(router);
+        registerAttentionRoutes(router);
+
+        // Política pública de autenticación definida por el superadmin.
+        router.get("/api/public/auth/policy", PublicAuthPolicyController.get);
 
         if (envs.SEED_ENDPOINT_ENABLED) {
             router.use("/api/seed", SeedRoute.router);

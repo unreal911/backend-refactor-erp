@@ -283,6 +283,48 @@ describe('Transferencias entre tiendas — sin deuda de stock', () => {
     // Doble recepcion rechazada.
     await expect(svc().receiveStockTransfer(transfer!.id, userId)).rejects.toThrow(/ya fue recibida/i);
   }, 30_000);
+
+  it('admite recepciones parciales acumuladas y conserva las unidades en tránsito', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const variantId = await seedVariant();
+    await seedInventory(storeAId, variantId, 7);
+
+    const [, dto] = CreateStockTransferDto.create({
+      fromStoreId: storeAId, toStoreId: storeBId, items: [{ variantId, quantity: 5 }],
+    });
+    const transfer = await svc().createStockTransfer(dto!, userId);
+    createdTransferIds.push(transfer!.id);
+    const itemId = transfer!.items[0].id;
+    await svc().dispatchStockTransfer(transfer!.id, userId);
+
+    const partial = await svc().receiveStockTransfer(transfer!.id, userId, [
+      { itemId, receivedQuantity: 2 },
+    ]);
+    expect(partial.transfer!.status).toBe('PARTIALLY_RECEIVED');
+    let dst = await prisma.inventory.findUnique({
+      where: { storeId_variantId: { storeId: storeBId, variantId } },
+    });
+    expect(dst?.stock).toBe(2);
+    let item = await prisma.stockTransferItem.findUnique({ where: { id: itemId } });
+    expect(item?.receivedQuantity).toBe(2);
+    expect(item?.discrepancyQuantity).toBe(0);
+
+    const completed = await svc().receiveStockTransfer(transfer!.id, userId, [
+      { itemId, receivedQuantity: 3 },
+    ]);
+    expect(completed.transfer!.status).toBe('RECEIVED');
+    dst = await prisma.inventory.findUnique({
+      where: { storeId_variantId: { storeId: storeBId, variantId } },
+    });
+    expect(dst?.stock).toBe(5);
+    item = await prisma.stockTransferItem.findUnique({ where: { id: itemId } });
+    expect(item?.receivedQuantity).toBe(5);
+
+    const src = await prisma.inventory.findUnique({
+      where: { storeId_variantId: { storeId: storeAId, variantId } },
+    });
+    expect(Number(src?.stock) + Number(dst?.stock)).toBe(7);
+  }, 30_000);
 });
 
 describe('Reservas de inventario (InventoryService.createReservation)', () => {

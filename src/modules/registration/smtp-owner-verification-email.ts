@@ -3,6 +3,11 @@ import {
     OwnerVerificationEmail,
     OwnerVerificationEmailSender,
 } from "./ports/owner-verification-email.port";
+import {
+    formatEmailExpiration,
+    getEmailHeroAttachment,
+    renderBrandedEmail,
+} from "../email/branded-email-template";
 
 export type SmtpOwnerVerificationConfig = {
     host: string;
@@ -13,15 +18,6 @@ export type SmtpOwnerVerificationConfig = {
     from: string;
     verificationUrl: string;
 };
-
-function escapeHtml(value: string): string {
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
 
 export class SmtpOwnerVerificationEmailSender implements OwnerVerificationEmailSender {
     private readonly transporter: Transporter;
@@ -38,31 +34,47 @@ export class SmtpOwnerVerificationEmailSender implements OwnerVerificationEmailS
     }
 
     async sendVerificationEmail(message: OwnerVerificationEmail): Promise<void> {
+        if (message.channel === "whatsapp") {
+            throw new Error("El emisor SMTP no puede entregar una verificación de WhatsApp");
+        }
         const verificationUrl = new URL(this.config.verificationUrl);
         verificationUrl.searchParams.set("token", message.token);
-        const ownerName = escapeHtml(message.ownerName);
-        const safeUrl = escapeHtml(verificationUrl.toString());
-        const expiration = message.expiresAt.toISOString();
+        const expiration = formatEmailExpiration(message.expiresAt);
+        const url = verificationUrl.toString();
 
         await this.transporter.sendMail({
             from: this.config.from,
             to: message.to,
-            subject: "Verifica tu correo para iniciar la prueba",
+            subject: "Activa tu cuenta y comienza en Tienda SaaS",
             text: [
                 `Hola ${message.ownerName},`,
                 "",
-                "Verifica tu correo usando el siguiente enlace:",
-                verificationUrl.toString(),
+                "Tu tienda está a un paso de comenzar. Confirma tu correo para activar la cuenta y continuar con la creación de tu prueba.",
+                url,
                 "",
-                `El enlace vence en ${expiration}. Si no solicitaste el registro, ignora este mensaje.`,
+                `El enlace vence el ${expiration}.`,
+                "Si no solicitaste este registro, puedes ignorar el mensaje con seguridad.",
             ].join("\n"),
-            html: [
-                `<p>Hola ${ownerName},</p>`,
-                "<p>Verifica tu correo para continuar con la creación de tu prueba:</p>",
-                `<p><a href="${safeUrl}">Verificar correo</a></p>`,
-                `<p>El enlace vence en ${escapeHtml(expiration)}.</p>`,
-                "<p>Si no solicitaste el registro, ignora este mensaje.</p>",
-            ].join(""),
+            html: renderBrandedEmail({
+                preheader: "Confirma tu correo y activa tu cuenta de Tienda SaaS.",
+                eyebrow: "Bienvenido a Tienda SaaS",
+                title: "Tu negocio está listo para dar el siguiente paso",
+                greeting: `Hola, ${message.ownerName}.`,
+                introduction: "Confirma tu correo para activar la cuenta y continuar con la configuración de tu prueba.",
+                actionLabel: "Activar mi cuenta",
+                actionUrl: url,
+                hero: "account-activation",
+                heroAlt: "Emprendedora organizando su tienda de moda con herramientas digitales",
+                expiration,
+                detailTitle: "Al activar tu cuenta podrás:",
+                details: [
+                    "Configurar los datos iniciales de tu negocio.",
+                    "Organizar productos, inventario y ventas.",
+                    "Invitar a tu equipo cuando estés listo.",
+                ],
+                securityNotice: "Si no solicitaste este registro, puedes ignorar el mensaje con seguridad.",
+            }),
+            attachments: [getEmailHeroAttachment("account-activation")],
         });
     }
 }

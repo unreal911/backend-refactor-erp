@@ -1,8 +1,8 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomInt } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { OwnerRegistrationStatus, Prisma } from "@prisma/client";
 import { platformPrisma } from "../../data/platform-prisma";
-import { OwnerSignupDto } from "./owner-registration.dto";
+import { normalizeOwnerPhone, OwnerSignupDto } from "./owner-registration.dto";
 import { OwnerVerificationEmailSender } from "./ports/owner-verification-email.port";
 import type { OwnerSignupAbuseIdentity } from "./owner-signup-abuse.service";
 
@@ -27,8 +27,10 @@ export class OwnerRegistrationTrialLimitError extends Error {
 export class OwnerRegistrationEmailDeliveryError extends Error {
     readonly statusCode = 503;
 
-    constructor() {
-        super("No pudimos enviar el correo de verificación. Inténtalo nuevamente en unos minutos");
+    constructor(channel: "email" | "whatsapp" = "email") {
+        super(channel === "whatsapp"
+            ? "No pudimos enviar el código por WhatsApp. Inténtalo nuevamente en unos minutos"
+            : "No pudimos enviar el correo de verificación. Inténtalo nuevamente en unos minutos");
     }
 }
 
@@ -36,7 +38,8 @@ export type VerifiedOwnerIdentity = {
     id: string;
     firstName: string;
     lastName: string;
-    email: string;
+    email: string | null;
+    phone: string | null;
     passwordHash: string;
     businessName: string;
     termsAcceptedAt: Date;
@@ -56,17 +59,23 @@ export type ConsumedOwnerIdentity = {
 export type OwnerRegistrationServiceOptions = {
     tokenPepper: string;
     verificationTtlMinutes: number;
+    whatsappOtpTtlMinutes?: number;
+    whatsappOtpMaxAttempts?: number;
     trialProvisioningTtlMinutes: number;
     termsVersion: string;
     now?: () => Date;
     createToken?: () => string;
+    createWhatsappOtp?: () => string;
     bcryptRounds?: number;
 };
 
 export class OwnerRegistrationService {
     private readonly now: () => Date;
     private readonly createToken: () => string;
+    private readonly createWhatsappOtp: () => string;
     private readonly bcryptRounds: number;
+    private readonly whatsappOtpTtlMinutes: number;
+    private readonly whatsappOtpMaxAttempts: number;
 
     constructor(
         private readonly emailSender: OwnerVerificationEmailSender,
@@ -75,13 +84,21 @@ export class OwnerRegistrationService {
         this.now = options.now ?? (() => new Date());
         this.createToken = options.createToken
             ?? (() => randomBytes(32).toString("base64url"));
+        this.createWhatsappOtp = options.createWhatsappOtp
+            ?? (() => randomInt(100_000, 1_000_000).toString());
         this.bcryptRounds = options.bcryptRounds ?? DEFAULT_BCRYPT_ROUNDS;
+        this.whatsappOtpTtlMinutes = options.whatsappOtpTtlMinutes ?? 10;
+        this.whatsappOtpMaxAttempts = options.whatsappOtpMaxAttempts ?? 5;
     }
 
     private hashToken(token: string): string {
         return createHmac("sha256", this.options.tokenPepper)
             .update(token, "utf8")
             .digest("hex");
+    }
+
+    private hashVerificationCredential(token: string, phone?: string | null): string {
+        return this.hashToken(phone ? `whatsapp:${phone}:${token}` : token);
     }
 
     private expiresAt(now: Date, minutes: number): Date {
@@ -95,18 +112,24 @@ export class OwnerRegistrationService {
         // Se calcula siempre, incluso si el correo ya existe, para reducir la
         // diferencia observable entre respuestas y no enumerar identidades.
         const passwordHash = await bcrypt.hash(dto.password, this.bcryptRounds);
-        const token = this.createToken();
-        const verificationTokenHash = this.hashToken(token);
+        const channel = dto.email ? "email" as const : "whatsapp" as const;
+        const token = channel === "whatsapp" ? this.createWhatsappOtp() : this.createToken();
+        const verificationTokenHash = this.hashVerificationCredential(token, dto.phone);
         const now = this.now();
         const verificationTokenExpiresAt = this.expiresAt(
             now,
-            this.options.verificationTtlMinutes,
+            channel === "whatsapp"
+                ? this.whatsappOtpTtlMinutes
+                : this.options.verificationTtlMinutes,
         );
 
         const delivery = await platformPrisma.$transaction(async (tx) => {
             const existingUser = await tx.user.findFirst({
                 where: {
-                    email: { equals: dto.email, mode: "insensitive" },
+                    OR: [
+                        ...(dto.email ? [{ email: { equals: dto.email, mode: "insensitive" as const } }] : []),
+                        ...(dto.phone ? [{ phone: dto.phone }] : []),
+                    ],
                 },
                 select: { id: true },
             });
@@ -117,6 +140,7 @@ export class OwnerRegistrationService {
                     firstName: dto.firstName,
                     lastName: dto.lastName,
                     email: dto.email,
+                    phone: dto.phone,
                     passwordHash,
                     businessName: dto.businessName,
                     signupEmailFingerprint: abuseIdentity?.emailFingerprint ?? null,
@@ -128,11 +152,12 @@ export class OwnerRegistrationService {
                     verificationTokenHash,
                     verificationTokenExpiresAt,
                     verificationRequestedAt: now,
+                    verificationFailedAttempts: 0,
                 },
                 skipDuplicates: true,
             });
-            const registration = await tx.ownerRegistration.findUniqueOrThrow({
-                where: { email: dto.email },
+            const registration = await tx.ownerRegistration.findFirstOrThrow({
+                where: dto.email ? { email: dto.email } : { phone: dto.phone! },
             });
             if (registration.status !== OwnerRegistrationStatus.EMAIL_PENDING) {
                 return null;
@@ -156,6 +181,7 @@ export class OwnerRegistrationService {
                         verificationTokenHash,
                         verificationTokenExpiresAt,
                         verificationRequestedAt: now,
+                        verificationFailedAttempts: 0,
                     },
                 });
                 if (renewed.count !== 1) return null;
@@ -163,8 +189,9 @@ export class OwnerRegistrationService {
 
             return {
                 registrationId: registration.id,
-                to: registration.email,
+                to: dto.email ?? dto.phone!,
                 ownerName: registration.firstName,
+                channel,
             };
         });
 
@@ -174,10 +201,11 @@ export class OwnerRegistrationService {
             await this.emailSender.sendVerificationEmail({
                 to: delivery.to,
                 ownerName: delivery.ownerName,
+                channel: delivery.channel,
                 token,
                 expiresAt: verificationTokenExpiresAt,
             });
-        } catch {
+        } catch (caught) {
             await platformPrisma.ownerRegistration.updateMany({
                 where: {
                     id: delivery.registrationId,
@@ -190,17 +218,25 @@ export class OwnerRegistrationService {
             });
             console.error("[owner-signup] verification delivery failed", {
                 registrationId: delivery.registrationId,
+                error: caught instanceof Error ? caught.message : String(caught),
             });
+            throw new OwnerRegistrationEmailDeliveryError(delivery.channel);
         }
     }
 
-    async resendVerification(email: string, password: string): Promise<void> {
-        const normalizedEmail = String(email || "").trim().toLowerCase();
-        const registration = await platformPrisma.ownerRegistration.findUnique({
-            where: { email: normalizedEmail },
+    async resendVerification(identifier: string, password: string): Promise<void> {
+        const normalizedIdentifier = String(identifier || "").trim();
+        const normalizedEmail = normalizedIdentifier.includes("@")
+            ? normalizedIdentifier.toLowerCase()
+            : null;
+        const normalizedPhone = normalizedEmail ? null : normalizeOwnerPhone(normalizedIdentifier);
+        if (!normalizedEmail && !normalizedPhone) return;
+        const registration = await platformPrisma.ownerRegistration.findFirst({
+            where: normalizedEmail ? { email: normalizedEmail } : { phone: normalizedPhone! },
             select: {
                 id: true,
                 email: true,
+                phone: true,
                 firstName: true,
                 passwordHash: true,
                 status: true,
@@ -215,12 +251,15 @@ export class OwnerRegistrationService {
             && registration.status !== OwnerRegistrationStatus.EMAIL_VERIFIED
         ) return;
 
-        const token = this.createToken();
-        const verificationTokenHash = this.hashToken(token);
+        const channel = registration.email ? "email" as const : "whatsapp" as const;
+        const token = channel === "whatsapp" ? this.createWhatsappOtp() : this.createToken();
+        const verificationTokenHash = this.hashVerificationCredential(token, registration.phone);
         const now = this.now();
         const verificationTokenExpiresAt = this.expiresAt(
             now,
-            this.options.verificationTtlMinutes,
+            channel === "whatsapp"
+                ? this.whatsappOtpTtlMinutes
+                : this.options.verificationTtlMinutes,
         );
         const renewed = await platformPrisma.ownerRegistration.updateMany({
             where: {
@@ -236,18 +275,20 @@ export class OwnerRegistrationService {
                 verificationTokenHash,
                 verificationTokenExpiresAt,
                 verificationRequestedAt: now,
+                verificationFailedAttempts: 0,
             },
         });
         if (renewed.count !== 1) return;
 
         try {
             await this.emailSender.sendVerificationEmail({
-                to: registration.email,
+                to: registration.email ?? registration.phone!,
                 ownerName: registration.firstName,
+                channel,
                 token,
                 expiresAt: verificationTokenExpiresAt,
             });
-        } catch {
+        } catch (caught) {
             await platformPrisma.ownerRegistration.updateMany({
                 where: { id: registration.id, verificationTokenHash },
                 data: {
@@ -255,15 +296,22 @@ export class OwnerRegistrationService {
                     verificationTokenExpiresAt: null,
                 },
             });
-            throw new OwnerRegistrationEmailDeliveryError();
+            console.error("[owner-signup] verification resend failed", {
+                registrationId: registration.id,
+                error: caught instanceof Error ? caught.message : String(caught),
+            });
+            throw new OwnerRegistrationEmailDeliveryError(registration.email ? "email" : "whatsapp");
         }
     }
 
-    async verifyEmail(token: string): Promise<{
+    async verifyEmail(token: string, identifier?: string | null): Promise<{
         trialToken: string;
         expiresAt: Date;
     }> {
-        const verificationTokenHash = this.hashToken(token);
+        const isWhatsappOtp = /^\d{6}$/.test(token);
+        const phone = isWhatsappOtp ? normalizeOwnerPhone(identifier) : null;
+        if (isWhatsappOtp && !phone) throw new OwnerRegistrationTokenError();
+        const verificationTokenHash = this.hashVerificationCredential(token, phone);
         const trialToken = this.createToken();
         const trialProvisioningTokenHash = this.hashToken(trialToken);
         const now = this.now();
@@ -272,10 +320,48 @@ export class OwnerRegistrationService {
             this.options.trialProvisioningTtlMinutes,
         );
 
+        if (isWhatsappOtp) {
+            const registration = await platformPrisma.ownerRegistration.findUnique({
+                where: { phone: phone! },
+                select: {
+                    id: true,
+                    status: true,
+                    verificationTokenHash: true,
+                    verificationTokenExpiresAt: true,
+                    verificationFailedAttempts: true,
+                },
+            });
+            const statusAcceptsVerification = registration
+                && (
+                    registration.status === OwnerRegistrationStatus.EMAIL_PENDING
+                    || registration.status === OwnerRegistrationStatus.EMAIL_VERIFIED
+                );
+            const credentialIsActive = statusAcceptsVerification
+                && registration.verificationTokenExpiresAt
+                && registration.verificationTokenExpiresAt > now
+                && registration.verificationFailedAttempts < this.whatsappOtpMaxAttempts;
+            if (!credentialIsActive || registration.verificationTokenHash !== verificationTokenHash) {
+                if (credentialIsActive) {
+                    await platformPrisma.ownerRegistration.updateMany({
+                        where: {
+                            id: registration.id,
+                            verificationFailedAttempts: { lt: this.whatsappOtpMaxAttempts },
+                        },
+                        data: { verificationFailedAttempts: { increment: 1 } },
+                    });
+                }
+                throw new OwnerRegistrationTokenError();
+            }
+        }
+
         const accepted = await platformPrisma.ownerRegistration.updateMany({
             where: {
                 verificationTokenHash,
                 verificationTokenExpiresAt: { gt: now },
+                ...(isWhatsappOtp ? {
+                    phone: phone!,
+                    verificationFailedAttempts: { lt: this.whatsappOtpMaxAttempts },
+                } : {}),
                 status: {
                     in: [
                         OwnerRegistrationStatus.EMAIL_PENDING,
@@ -288,6 +374,7 @@ export class OwnerRegistrationService {
                 emailVerifiedAt: now,
                 verificationTokenHash: null,
                 verificationTokenExpiresAt: null,
+                verificationFailedAttempts: 0,
                 trialProvisioningTokenHash,
                 trialProvisioningTokenExpiresAt,
             },
@@ -350,9 +437,9 @@ export class OwnerRegistrationService {
             const activeTrial = await tx.tenantMembership.findFirst({
                 where: {
                     status: "ACTIVE",
-                    user: {
-                        email: { equals: registration.email, mode: "insensitive" },
-                    },
+                    user: registration.email
+                        ? { email: { equals: registration.email, mode: "insensitive" } }
+                        : { phone: registration.phone! },
                     tenant: {
                         status: "TRIAL",
                         OR: [
@@ -409,6 +496,7 @@ export class OwnerRegistrationService {
                 firstName: registration.firstName,
                 lastName: registration.lastName,
                 email: registration.email,
+                phone: registration.phone,
                 passwordHash: registration.passwordHash,
                 businessName: registration.businessName,
                 termsAcceptedAt: registration.termsAcceptedAt,

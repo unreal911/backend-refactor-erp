@@ -24,6 +24,7 @@ import {
 } from '../../data/system-config-keys';
 import { CustomError } from '../../domain/errors/custom.error';
 import { TenantDataContext } from '../../modules/tenant/tenant-data-context';
+import { DEFAULT_MARKETPLACE_THEME, MarketplaceThemeService } from './marketplace-theme.service';
 
 type SystemSettingRow = {
     value: string;
@@ -230,12 +231,18 @@ export class SystemConfigService {
 
     async getPublicBranding() {
         const settings = await this.getOrderWorkflowSettings();
+        const publishedTheme = await new MarketplaceThemeService().getPublishedTheme();
+        const theme = publishedTheme ?? {
+            ...DEFAULT_MARKETPLACE_THEME,
+            heroTitle: settings.marketplaceHeroHeading,
+        };
         return {
             brandName: settings.companyName,
             logoUrl: settings.companyLogoUrl,
-            heroHeading: settings.marketplaceHeroHeading,
+            heroHeading: theme.heroTitle || settings.marketplaceHeroHeading,
             brandDisplay: settings.brandDisplay,
             marketplaceSlug: settings.marketplaceSlug,
+            theme,
         };
     }
 

@@ -10,12 +10,14 @@ import {
 } from '../../modules/tenant/tenant-context.service';
 import { PlanAccessService } from '../../modules/plans/plan-access.service';
 import { TenantPlanCode } from '@prisma/client';
+import { getAuthChannelPolicy } from '../../modules/auth/auth-channel-policy';
 
 type AuthUserPayload = {
     id: number;
     firstName: string;
     lastName: string;
     email: string;
+    phone: string | null;
     isActive: boolean;
     authVersion: number;
     role: {
@@ -29,9 +31,20 @@ export class AccountActivationRequiredError extends Error {
 
     constructor(code: AccountActivationRequiredError["code"]) {
         super(code === "EMAIL_VERIFICATION_REQUIRED"
-            ? "Tu correo todavía no está verificado. Reenvía el enlace de activación y revisa también la carpeta de spam."
-            : "Tu correo ya está verificado, pero falta terminar de crear la prueba. Solicita un nuevo enlace para continuar.");
+            ? "Tu cuenta todavía no está activada. Solicita otra verificación y revisa tu WhatsApp o correo."
+            : "Tu cuenta ya está verificada, pero falta terminar de crear la prueba. Solicita un nuevo enlace para continuar.");
         this.code = code;
+    }
+}
+
+export class AuthChannelDisabledError extends Error {
+    readonly statusCode = 403;
+
+    constructor(channel: "email" | "whatsapp") {
+        super(channel === "email"
+            ? "El inicio de sesión por correo está deshabilitado"
+            : "El inicio de sesión por WhatsApp está deshabilitado");
+        this.name = "AuthChannelDisabledError";
     }
 }
 
@@ -40,9 +53,10 @@ export class AuthService {
         user: AuthUserPayload,
         tenantContext: TenantRequestContext,
     ) {
-        const permissions = await PermissionService.resolvePermissionsForTenantRole(
-            tenantContext.rbacRole,
-        );
+        const permissions = await PermissionService.resolvePermissionsForMembership({
+            membershipId: tenantContext.membership.id,
+            roleName: tenantContext.rbacRole,
+        });
         const planSnapshot = {
             planCode: tenantContext.tenant.planCode ?? TenantPlanCode.STARTER,
             planFeatures: tenantContext.tenant.planFeatures ?? [],
@@ -78,15 +92,21 @@ export class AuthService {
     }
 
     static async login(loginDto: LoginDto) {
-        const { email, password } = loginDto;
+        const identifier = loginDto.email.trim();
+        const isEmail = identifier.includes("@");
+        const { password } = loginDto;
+        const policy = await getAuthChannelPolicy();
+        if (isEmail && !policy.loginEmailEnabled) throw new AuthChannelDisabledError("email");
+        if (!isEmail && !policy.loginWhatsappEnabled) throw new AuthChannelDisabledError("whatsapp");
 
         const user = await prisma.user.findUnique({
-            where: { email },
+            where: isEmail ? { email: identifier.toLowerCase() } : { phone: identifier },
             select: {
                 id: true,
                 firstName: true,
                 lastName: true,
                 email: true,
+                phone: true,
                 password: true,
                 isActive: true,
                 authVersion: true,
@@ -100,7 +120,7 @@ export class AuthService {
 
         if (!user) {
             const pendingRegistration = await prisma.ownerRegistration.findUnique({
-                where: { email },
+                where: isEmail ? { email: identifier.toLowerCase() } : { phone: identifier },
                 select: { passwordHash: true, status: true },
             });
             if (pendingRegistration) {
@@ -132,7 +152,10 @@ export class AuthService {
             loginDto.tenantSlug,
         );
         const authUser = await this.buildAuthUserContext(
-            user as AuthUserPayload,
+            {
+                ...user,
+                email: user.email ?? user.phone ?? "",
+            } as AuthUserPayload,
             tenantContext,
         );
 
@@ -140,7 +163,8 @@ export class AuthService {
             {
                 scope: 'tenant',
                 id: user.id,
-                email: user.email,
+                email: user.email ?? user.phone ?? "",
+                phone: user.phone,
                 role: tenantContext.rbacRole,
                 permissions: authUser.permissions,
                 tenantId: tenantContext.tenant.id,
@@ -171,6 +195,7 @@ export class AuthService {
                 firstName: true,
                 lastName: true,
                 email: true,
+                phone: true,
                 isActive: true,
             }
         });
@@ -183,9 +208,10 @@ export class AuthService {
             throw new Error('Usuario inactivo');
         }
 
-        const permissions = await PermissionService.resolvePermissionsForTenantRole(
-            tenantContext.rbacRole,
-        );
+        const permissions = await PermissionService.resolvePermissionsForMembership({
+            membershipId: tenantContext.membership.id,
+            roleName: tenantContext.rbacRole,
+        });
         const planSnapshot = {
             planCode: tenantContext.tenant.planCode ?? TenantPlanCode.STARTER,
             planFeatures: tenantContext.tenant.planFeatures ?? [],
@@ -198,7 +224,7 @@ export class AuthService {
                 id: user.id,
                 firstName: user.firstName,
                 lastName: user.lastName,
-                email: user.email,
+                email: user.email ?? user.phone ?? "",
                 role: tenantContext.rbacRole,
                 permissions: permissions.length > 0 ? permissions : tokenPermissions ?? [],
                 tenant: tenantContext.tenant,

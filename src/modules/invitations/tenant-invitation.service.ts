@@ -16,6 +16,7 @@ import {
     strongInvitationPasswordError,
 } from "./tenant-invitation.dto";
 import { TenantInvitationEmailSender } from "./ports/tenant-invitation-email.port";
+import { getAuthChannelPolicy } from "../auth/auth-channel-policy";
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
 
@@ -107,17 +108,25 @@ export class TenantInvitationService {
     async invite(dto: CreateTenantInvitationDto, actor: InvitationActor) {
         this.assertCanInvite(actor.tenant.membership.role);
         this.assertCanAssignInvitationRole(actor.tenant.membership.role, dto.role);
+        const policy = await getAuthChannelPolicy();
+        if (dto.email && !policy.invitationEmailEnabled) {
+            throw new TenantInvitationError("Las invitaciones por correo están deshabilitadas", 403);
+        }
+        if (dto.phone && !policy.invitationWhatsappEnabled) {
+            throw new TenantInvitationError("Las invitaciones por WhatsApp están deshabilitadas", 403);
+        }
         const tenantId = actor.tenant.tenant.id;
         const now = this.now();
         const expiresAt = this.expiration(now);
         const token = this.createToken();
         const tokenHash = this.hashToken(token);
+        const recipient = dto.email ?? dto.phone!;
 
         await tenantPrisma.$queryRaw(
             Prisma.sql`
                 SELECT 1 AS "locked"
                 FROM pg_advisory_xact_lock(
-                    hashtextextended(${`${tenantId}|${dto.email}`}, 0)
+                    hashtextextended(${`${tenantId}|${recipient}`}, 0)
                 )
             `,
         );
@@ -135,6 +144,7 @@ export class TenantInvitationService {
                         firstName: true,
                         lastName: true,
                         email: true,
+                        phone: true,
                     },
                 },
             },
@@ -146,7 +156,10 @@ export class TenantInvitationService {
         await tenantPrisma.tenantInvitation.updateMany({
             where: {
                 tenantId,
-                email: dto.email,
+                OR: [
+                    ...(dto.email ? [{ email: dto.email }] : []),
+                    ...(dto.phone ? [{ phone: dto.phone }] : []),
+                ],
                 status: TenantInvitationStatus.PENDING,
                 expiresAt: { lte: now },
             },
@@ -156,9 +169,9 @@ export class TenantInvitationService {
         const membership = await tenantPrisma.tenantMembership.findFirst({
             where: {
                 tenantId,
-                user: {
-                    email: { equals: dto.email, mode: "insensitive" },
-                },
+                user: dto.email
+                    ? { email: { equals: dto.email, mode: "insensitive" } }
+                    : { phone: dto.phone! },
             },
             select: { id: true, status: true },
         });
@@ -169,7 +182,10 @@ export class TenantInvitationService {
         const pending = await tenantPrisma.tenantInvitation.findFirst({
             where: {
                 tenantId,
-                email: dto.email,
+                OR: [
+                    ...(dto.email ? [{ email: dto.email }] : []),
+                    ...(dto.phone ? [{ phone: dto.phone }] : []),
+                ],
                 status: TenantInvitationStatus.PENDING,
             },
             select: { id: true },
@@ -193,6 +209,7 @@ export class TenantInvitationService {
                 data: {
                     tenantId,
                     email: dto.email,
+                    phone: dto.phone,
                     role: dto.role,
                     tokenHash,
                     expiresAt,
@@ -201,19 +218,23 @@ export class TenantInvitationService {
             });
 
         const inviterName = `${inviter.user.firstName} ${inviter.user.lastName}`.trim()
-            || inviter.user.email;
+            || inviter.user.email
+            || inviter.user.phone
+            || "Propietario";
         await this.emailSender.sendInvitation({
-            to: dto.email,
+            to: recipient,
             tenantName: actor.tenant.tenant.name,
             inviterName,
             role: dto.role,
             token,
             expiresAt,
+            channel: dto.email ? "email" : "whatsapp",
         });
 
         return {
             id: invitation.id,
             email: invitation.email,
+            phone: invitation.phone,
             role: invitation.role,
             status: invitation.status,
             expiresAt: invitation.expiresAt,
@@ -235,6 +256,7 @@ export class TenantInvitationService {
             select: {
                 id: true,
                 email: true,
+                phone: true,
                 role: true,
                 status: true,
                 expiresAt: true,
@@ -299,12 +321,15 @@ export class TenantInvitationService {
 
         const existingAccount = await platformPrisma.user.findFirst({
             where: {
-                email: { equals: invitation.email, mode: "insensitive" },
+                ...(invitation.email
+                    ? { email: { equals: invitation.email, mode: "insensitive" } }
+                    : { phone: invitation.phone! }),
             },
             select: { id: true },
         });
         return {
             email: invitation.email,
+            phone: invitation.phone,
             role: invitation.role,
             status: invitation.status,
             expiresAt: invitation.expiresAt,
@@ -332,7 +357,7 @@ export class TenantInvitationService {
                     },
                     acceptedMembership: {
                         include: {
-                            user: { select: { id: true, email: true } },
+                            user: { select: { id: true, email: true, phone: true } },
                         },
                     },
                 },
@@ -352,6 +377,7 @@ export class TenantInvitationService {
                         status: invitation.acceptedMembership.status,
                     },
                     email: invitation.acceptedMembership.user.email,
+                    phone: invitation.acceptedMembership.user.phone,
                     accountCreated: false,
                     idempotentReplay: true,
                 };
@@ -374,11 +400,14 @@ export class TenantInvitationService {
 
             let user = await tx.user.findFirst({
                 where: {
-                    email: { equals: invitation.email, mode: "insensitive" },
+                    ...(invitation.email
+                        ? { email: { equals: invitation.email, mode: "insensitive" } }
+                        : { phone: invitation.phone! }),
                 },
                 select: {
                     id: true,
                     email: true,
+                    phone: true,
                     password: true,
                     isActive: true,
                 },
@@ -412,6 +441,7 @@ export class TenantInvitationService {
                         firstName: dto.firstName,
                         lastName: dto.lastName,
                         email: invitation.email,
+                        phone: invitation.phone,
                         password: await bcrypt.hash(dto.password, this.bcryptRounds),
                         roleId: globalRole.id,
                         isActive: true,
@@ -419,6 +449,7 @@ export class TenantInvitationService {
                     select: {
                         id: true,
                         email: true,
+                        phone: true,
                         password: true,
                         isActive: true,
                     },
@@ -451,6 +482,33 @@ export class TenantInvitationService {
                 throw new TenantInvitationError("La membres\u00eda existente est\u00e1 inactiva", 409);
             }
 
+            const invitedTenant = await tx.tenant.findUnique({
+                where: { id: invitation.tenantId },
+                select: { primaryStoreId: true },
+            });
+            const primaryStore = invitedTenant?.primaryStoreId
+                ? await tx.store.findFirst({ where: { id: invitedTenant.primaryStoreId, tenantId: invitation.tenantId, isActive: true }, select: { id: true } })
+                : await tx.store.findFirst({ where: { tenantId: invitation.tenantId, isActive: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
+            if (primaryStore) {
+                await tx.userStoreAssignment.upsert({
+                    where: {
+                        tenantId_userId_storeId_assignmentType: {
+                            tenantId: invitation.tenantId,
+                            userId: user.id,
+                            storeId: primaryStore.id,
+                            assignmentType: "PRIMARY",
+                        },
+                    },
+                    update: { isActive: true, endsAt: null },
+                    create: {
+                        tenantId: invitation.tenantId,
+                        userId: user.id,
+                        storeId: primaryStore.id,
+                        assignmentType: "PRIMARY",
+                    },
+                });
+            }
+
             const accepted = await tx.tenantInvitation.updateMany({
                 where: {
                     id: invitation.id,
@@ -476,6 +534,7 @@ export class TenantInvitationService {
                     status: membership.status,
                 },
                 email: user.email,
+                phone: user.phone,
                 accountCreated,
                 idempotentReplay: false,
             };

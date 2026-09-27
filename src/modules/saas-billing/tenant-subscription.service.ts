@@ -78,7 +78,7 @@ export class TenantSubscriptionService {
             ...invitations.map((invitation: any) => ({
                 id: `invitation:${invitation.id}`,
                 kind: "INVITATION",
-                label: invitation.email,
+                label: invitation.email || invitation.phone,
                 detail: `Invitación pendiente · ${invitation.role}`,
                 required: false,
             })),

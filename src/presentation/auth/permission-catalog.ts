@@ -55,6 +55,14 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
     { code: 'transfers.receive', name: 'Recibir transferencias', module: 'transfers', description: 'Permite recibir transferencias' },
     { code: 'transfers.cancel', name: 'Cancelar transferencias', module: 'transfers', description: 'Permite cancelar transferencias' },
 
+    { code: 'tasks.view.own', name: 'Ver tareas propias', module: 'tasks', description: 'Permite consultar las tareas operativas asignadas al usuario' },
+    { code: 'tasks.view.all', name: 'Ver todas las tareas', module: 'tasks', description: 'Permite supervisar las tareas operativas de la empresa' },
+    { code: 'tasks.assign', name: 'Asignar tareas', module: 'tasks', description: 'Permite asignar tareas operativas a usuarios' },
+    { code: 'tasks.reassign', name: 'Reasignar tareas', module: 'tasks', description: 'Permite cambiar al responsable de una tarea operativa' },
+    { code: 'tasks.override_store', name: 'Asignar fuera de sede', module: 'tasks', description: 'Permite confirmar excepcionalmente una tarea para un usuario sin asignación vigente en la sede' },
+    { code: 'store_assignments.view', name: 'Ver asignaciones de sede', module: 'stores', description: 'Permite consultar las sedes habilitadas para cada usuario' },
+    { code: 'store_assignments.manage', name: 'Gestionar asignaciones de sede', module: 'stores', description: 'Permite crear y finalizar asignaciones principales, temporales o de apoyo' },
+
     { code: 'orders.view', name: 'Ver ordenes', module: 'orders', description: 'Permite listar ordenes' },
     { code: 'orders.detail.view', name: 'Ver detalle de ordenes', module: 'orders', description: 'Permite ver detalle de ordenes' },
     { code: 'orders.create', name: 'Crear ordenes', module: 'orders', description: 'Permite registrar pedidos fuera del POS' },
@@ -67,6 +75,8 @@ export const PERMISSION_CATALOG: PermissionCatalogItemDefinition[] = [
 
     { code: 'customers.view', name: 'Ver clientes', module: 'customers', description: 'Permite buscar y consultar clientes' },
     { code: 'customers.manage', name: 'Gestionar clientes', module: 'customers', description: 'Permite crear y editar clientes' },
+    { code: 'attention.view', name: 'Ver bandeja de atención', module: 'attention', description: 'Permite consultar conversaciones y mensajes de atención' },
+    { code: 'attention.manage', name: 'Gestionar atención', module: 'attention', description: 'Permite responder, asignar y resolver conversaciones' },
 
     { code: 'pos.view', name: 'Ver POS', module: 'pos', description: 'Permite abrir POS' },
     { code: 'pos.sell', name: 'Vender en POS', module: 'pos', description: 'Permite registrar ventas' },
@@ -122,6 +132,13 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'transfers.dispatch',
         'transfers.receive',
         'transfers.cancel',
+        'tasks.view.own',
+        'tasks.view.all',
+        'tasks.assign',
+        'tasks.reassign',
+        'tasks.override_store',
+        'store_assignments.view',
+        'store_assignments.manage',
         'orders.view',
         'orders.detail.view',
         'orders.create',
@@ -133,6 +150,8 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'orders.print',
         'customers.view',
         'customers.manage',
+        'attention.view',
+        'attention.manage',
         'pos.view',
         'pos.sell',
         'pos.charge',
@@ -160,11 +179,14 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'orders.print',
         'customers.view',
         'customers.manage',
+        'attention.view',
+        'attention.manage',
         'pos.view',
         'pos.sell',
         'pos.charge',
         'pos.cancel_sale',
-        'pos.discount.apply'
+        'pos.discount.apply',
+        'tasks.view.own'
     ],
     WAREHOUSE: [
         'dashboard.view',
@@ -182,6 +204,8 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'transfers.dispatch',
         'transfers.receive',
         'transfers.cancel',
+        'tasks.view.own',
+        'store_assignments.view',
         'orders.view',
         'orders.detail.view',
         'orders.fulfillment.manage',
@@ -197,9 +221,10 @@ export const ROLE_PERMISSION_MATRIX: Record<string, PermissionCode[]> = {
         'picking.view',
         'picking.start',
         'picking.update',
-        'picking.complete'
+        'picking.complete',
+        'tasks.view.own'
     ],
-    USER: ['dashboard.view']
+    USER: ['dashboard.view', 'tasks.view.own']
 };
 
 export function normalizePermissionCode(permission: string | null | undefined): string {

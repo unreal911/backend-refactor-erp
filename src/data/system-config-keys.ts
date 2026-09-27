@@ -17,4 +17,4 @@ export const POS_FACTURA_ENABLED_KEY = 'pos_factura_enabled';
 export const BRAND_DISPLAY_MODE_KEY = 'brand_display_mode';
 
 export const MARKETPLACE_HERO_HEADING_MAX_LENGTH = 60;
-export const DEFAULT_MARKETPLACE_HERO_HEADING = 'Encuentra polos por color y talla';
+export const DEFAULT_MARKETPLACE_HERO_HEADING = 'Descubre nuestro catalogo';

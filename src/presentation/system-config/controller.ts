@@ -2,10 +2,13 @@ import { Request, Response } from 'express';
 import { CustomError } from '../../domain/errors/custom.error';
 import { SystemConfigService } from '../services/system-config.service';
 import { UpdateOrderWorkflowSettingsDto } from '../../domain/dtos/update-order-workflow-settings.dto';
+import { UpdateMarketplaceThemeDto } from '../../domain/dtos/update-marketplace-theme.dto';
+import { MarketplaceThemeService } from '../services/marketplace-theme.service';
 
 export class SystemConfigController {
     constructor(
         private readonly systemConfigService: SystemConfigService,
+        private readonly marketplaceThemeService = new MarketplaceThemeService(),
     ) {}
 
     private handleError(error: unknown, res: Response) {
@@ -19,6 +22,35 @@ export class SystemConfigController {
     getOrderWorkflowSettings = async (_req: Request, res: Response) => {
         try {
             const result = await this.systemConfigService.getOrderWorkflowSettings();
+            return res.status(200).json({ data: result });
+        } catch (error) {
+            return this.handleError(error, res);
+        }
+    };
+
+    getMarketplaceTheme = async (_req: Request, res: Response) => {
+        try {
+            const result = await this.marketplaceThemeService.getEditorTheme();
+            return res.status(200).json({ data: result });
+        } catch (error) {
+            return this.handleError(error, res);
+        }
+    };
+
+    saveMarketplaceThemeDraft = async (req: Request, res: Response) => {
+        const [error, dto] = UpdateMarketplaceThemeDto.create(req.body as { [key: string]: unknown });
+        if (error) return res.status(400).json({ message: error });
+        try {
+            const result = await this.marketplaceThemeService.saveDraft(dto!.config, dto!.bannerFile);
+            return res.status(200).json({ data: result });
+        } catch (caught) {
+            return this.handleError(caught, res);
+        }
+    };
+
+    publishMarketplaceTheme = async (_req: Request, res: Response) => {
+        try {
+            const result = await this.marketplaceThemeService.publish();
             return res.status(200).json({ data: result });
         } catch (error) {
             return this.handleError(error, res);

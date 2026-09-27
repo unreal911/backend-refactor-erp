@@ -23,6 +23,14 @@ export class PlanAccessService {
         if (tenant.planCode === TenantPlanCode.TRIAL) {
             result.delete("sunat");
         }
+        // Capacidades base del flujo de ventas. Una versión dinámica del plan no
+        // puede dejar pedidos confirmados sin cola operativa ni picking.
+        result.add("tasks.operational");
+        result.add("picking.basic");
+        if (tenant.planCode === TenantPlanCode.STARTER) {
+            result.delete("picking.collaborative");
+            result.delete("picking.advanced");
+        }
         if (
             tenant.planCode === TenantPlanCode.STARTER
             && tenant.welcomeStorePromotionEndsAt

@@ -1,0 +1,5 @@
+ALTER TABLE "OwnerRegistration"
+ADD COLUMN IF NOT EXISTS "verificationFailedAttempts" INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE "PasswordResetToken"
+ADD COLUMN IF NOT EXISTS "failedAttempts" INTEGER NOT NULL DEFAULT 0;

@@ -145,6 +145,36 @@ export class PermissionService {
         }
     }
 
+    static async resolvePermissionsForMembership(params: {
+        membershipId: string;
+        roleName: string;
+        now?: Date;
+    }): Promise<string[]> {
+        const permissions = new Set(await this.resolvePermissionsForTenantRole(params.roleName));
+        const now = params.now ?? new Date();
+        try {
+            const overrides = await prisma.tenantMembershipPermissionOverride.findMany({
+                where: {
+                    membershipId: params.membershipId,
+                    revokedAt: null,
+                    startsAt: { lte: now },
+                    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                },
+                orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }],
+                select: { permissionCode: true, effect: true },
+            });
+            for (const override of overrides) {
+                const code = normalizePermissionCode(override.permissionCode);
+                if (!code || isWildcardPermission(code)) continue;
+                if (override.effect === 'ALLOW') permissions.add(code);
+                if (override.effect === 'DENY') permissions.delete(code);
+            }
+        } catch (error) {
+            if (!this.isMissingRbacTables(error)) throw error;
+        }
+        return Array.from(permissions).sort();
+    }
+
     static async listPermissionsCatalog(): Promise<PermissionCatalogItem[]> {
         try {
             const records = await prisma.permission.findMany({

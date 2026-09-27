@@ -7,6 +7,7 @@ export type TenantInvitationEmail = {
     role: TenantMembershipRole;
     token: string;
     expiresAt: Date;
+    channel?: "email" | "whatsapp";
 };
 
 export interface TenantInvitationEmailSender {

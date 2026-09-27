@@ -68,21 +68,24 @@ describe("catálogo comercial vigente", () => {
             maxUsers: 2,
             maxProducts: 10,
             maxVariantsPerProduct: 20,
-            maxStores: 5,
+            maxStores: 2,
             maxPosSalesPerMonth: 70,
             maxMainImagesPerProduct: 3,
         });
         const trial = getPlanDefinition(TenantPlanCode.TRIAL);
         expect(trial.limits.maxProducts * trial.limits.maxMainImagesPerProduct).toBe(30);
         expect(trial.features.has("marketplace")).toBe(true);
-        expect(getPlanDefinition(TenantPlanCode.STARTER).limits.maxProducts).toBe(25);
-        expect(getPlanDefinition(TenantPlanCode.GROWTH).limits.maxProducts).toBe(50);
-        expect(getPlanDefinition(TenantPlanCode.PREMIUM).limits.maxProducts).toBe(200);
+        expect(getPlanDefinition(TenantPlanCode.STARTER).limits.maxProducts).toBe(100);
+        expect(getPlanDefinition(TenantPlanCode.GROWTH).limits.maxProducts).toBe(500);
+        expect(getPlanDefinition(TenantPlanCode.PREMIUM).limits.maxProducts).toBe(2_000);
+        expect(getPlanDefinition(TenantPlanCode.TRIAL).features.has("roles.custom")).toBe(false);
+        expect(getPlanDefinition(TenantPlanCode.TRIAL).features.has("reports.advanced")).toBe(false);
         expect(getPlanDefinition(TenantPlanCode.TRIAL).features.has("sunat")).toBe(false);
-        expect(getPlanDefinition(TenantPlanCode.TRIAL).features.has("picking.advanced")).toBe(true);
+        expect(getPlanDefinition(TenantPlanCode.TRIAL).features.has("picking.advanced")).toBe(false);
+        expect(getPlanDefinition(TenantPlanCode.PREMIUM).features.has("picking.advanced")).toBe(false);
     });
 
-    it("habilita transferencias Económico solo durante la promoción", () => {
+    it("habilita transferencias Básico solo durante la promoción", () => {
         const now = new Date("2026-08-11T12:00:00.000Z");
         expect(PlanAccessService.effectiveFeatures({
             planCode: TenantPlanCode.STARTER,
@@ -94,13 +97,46 @@ describe("catálogo comercial vigente", () => {
         }, now).has("transfers")).toBe(false);
     });
 
-    it("rechaza SUNAT y permite funciones avanzadas dentro del trial", async () => {
+    it("preserva picking y tareas base y bloquea colaboración dinámica en Básico", () => {
+        const effective = PlanAccessService.effectiveFeatures({
+            planCode: TenantPlanCode.STARTER,
+            planFeatures: ["picking.collaborative"],
+            welcomeStorePromotionEndsAt: null,
+        });
+        expect(effective.has("picking.basic")).toBe(true);
+        expect(effective.has("tasks.operational")).toBe(true);
+        expect(effective.has("picking.collaborative")).toBe(false);
+    });
+
+    it.each([
+        [TenantPlanCode.TRIAL, true],
+        [TenantPlanCode.STARTER, false],
+        [TenantPlanCode.GROWTH, true],
+        [TenantPlanCode.PREMIUM, true],
+    ])("aplica la matriz operativa del plan %s", (planCode, collaborativeExpected) => {
+        const effective = PlanAccessService.effectiveFeatures({
+            planCode,
+            welcomeStorePromotionEndsAt: null,
+        });
+        expect(effective.has("picking.basic")).toBe(true);
+        expect(effective.has("tasks.operational")).toBe(true);
+        expect(effective.has("picking.collaborative")).toBe(collaborativeExpected);
+        expect(effective.has("picking.advanced")).toBe(false);
+    });
+
+    it("rechaza SUNAT y picking avanzado, pero permite operación colaborativa en el trial", async () => {
         const tenant = await createTenant(TenantPlanCode.TRIAL, "feature-gates");
         await expect(runTenantDatabaseTransaction(tenant.id, () => (
             PlanAccessService.assert("sunat")
         ))).rejects.toMatchObject({ statusCode: 403 });
         await expect(runTenantDatabaseTransaction(tenant.id, () => (
             PlanAccessService.assert("picking.advanced")
+        ))).rejects.toMatchObject({ statusCode: 403 });
+        await expect(runTenantDatabaseTransaction(tenant.id, () => (
+            PlanAccessService.assert("tasks.operational")
+        ))).resolves.toBeUndefined();
+        await expect(runTenantDatabaseTransaction(tenant.id, () => (
+            PlanAccessService.assert("fulfillment.remote")
         ))).resolves.toBeUndefined();
     });
 });
@@ -163,15 +199,16 @@ describe("cuotas activas y gracia POS", () => {
 
     it("cuenta productos activos y tiendas activas", async () => {
         const tenant = await createTenant(TenantPlanCode.STARTER, "active-resources");
+        const productLimit = getPlanDefinition(TenantPlanCode.STARTER).limits.maxProducts;
         const category = await platformPrisma.category.create({
             data: { tenantId: tenant.id, name: `Categoría ${tag}` },
         });
         await platformPrisma.product.createMany({
-            data: Array.from({ length: 26 }, (_, index) => ({
+            data: Array.from({ length: productLimit + 1 }, (_, index) => ({
                 tenantId: tenant.id,
                 categoryId: category.id,
                 name: `Producto ${index} ${tag}`,
-                isActive: index < 25,
+                isActive: index < productLimit,
             })),
         });
         await platformPrisma.store.createMany({
@@ -200,11 +237,12 @@ describe("cuotas activas y gracia POS", () => {
 
     it("permite gracia el día del límite y bloquea al día siguiente", async () => {
         const tenant = await createTenant(TenantPlanCode.STARTER, "pos-grace");
+        const posLimit = getPlanDefinition(TenantPlanCode.STARTER).limits.maxPosSalesPerMonth;
         const store = await platformPrisma.store.create({
             data: { tenantId: tenant.id, name: "Caja", code: `C-${tag}` },
         });
         await platformPrisma.order.createMany({
-            data: Array.from({ length: 70 }, (_, index) => ({
+            data: Array.from({ length: posLimit }, (_, index) => ({
                 tenantId: tenant.id,
                 code: `POS-${tag}-${index}`,
                 sourceStoreId: store.id,

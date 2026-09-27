@@ -52,6 +52,35 @@ export const envs = {
     SMTP_PASSWORD: env.get("SMTP_PASSWORD").default("").asString(),
     SMTP_FROM: env.get("SMTP_FROM").default("").asString(),
 
+    // Verificación del registro por WhatsApp Cloud API (HTTPS, puerto 443).
+    WHATSAPP_API_VERSION: env.get("WHATSAPP_API_VERSION").default("v25.0").asString(),
+    WHATSAPP_ACCESS_TOKEN: env.get("WHATSAPP_ACCESS_TOKEN").default("").asString(),
+    WHATSAPP_PHONE_NUMBER_ID: env.get("WHATSAPP_PHONE_NUMBER_ID").default("").asString(),
+    WHATSAPP_VERIFICATION_TEMPLATE_NAME: env.get("WHATSAPP_VERIFICATION_TEMPLATE_NAME")
+        .default("owner_signup_verification").asString(),
+    WHATSAPP_VERIFICATION_TEMPLATE_LANGUAGE: env.get("WHATSAPP_VERIFICATION_TEMPLATE_LANGUAGE")
+        .default("es").asString(),
+    WHATSAPP_TIMEOUT_MS: env.get("WHATSAPP_TIMEOUT_MS").default("10000").asIntPositive(),
+    WHATSAPP_INVITATION_TEMPLATE_NAME: env.get("WHATSAPP_INVITATION_TEMPLATE_NAME")
+        .default("tenant_invitation").asString(),
+    WHATSAPP_INVITATION_TEMPLATE_LANGUAGE: env.get("WHATSAPP_INVITATION_TEMPLATE_LANGUAGE")
+        .default("es").asString(),
+    WHATSAPP_PASSWORD_RESET_TEMPLATE_NAME: env.get("WHATSAPP_PASSWORD_RESET_TEMPLATE_NAME")
+        .default("password_reset").asString(),
+    WHATSAPP_PASSWORD_RESET_TEMPLATE_LANGUAGE: env.get("WHATSAPP_PASSWORD_RESET_TEMPLATE_LANGUAGE")
+        .default("es").asString(),
+    WHATSAPP_WEBHOOK_ENABLED: env.get("WHATSAPP_WEBHOOK_ENABLED").default("false").asBool(),
+    WHATSAPP_AUTH_CODE_TTL_MINUTES: env.get("WHATSAPP_AUTH_CODE_TTL_MINUTES").default("10").asIntPositive(),
+    WHATSAPP_AUTH_CODE_MAX_ATTEMPTS: env.get("WHATSAPP_AUTH_CODE_MAX_ATTEMPTS").default("5").asIntPositive(),
+    WHATSAPP_WEBHOOK_VERIFY_TOKEN: env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN").default("").asString(),
+    WHATSAPP_APP_SECRET: env.get("WHATSAPP_APP_SECRET").default("").asString(),
+    WHATSAPP_ATTENTION_ENABLED: env.get("WHATSAPP_ATTENTION_ENABLED").default("false").asBool(),
+    WHATSAPP_ATTENTION_TENANT_ID: env.get("WHATSAPP_ATTENTION_TENANT_ID").default("").asString(),
+    META_APP_ID: env.get("META_APP_ID").default("").asString(),
+    META_APP_SECRET: env.get("META_APP_SECRET").default("").asString(),
+    META_WHATSAPP_CONFIG_ID: env.get("META_WHATSAPP_CONFIG_ID").default("").asString(),
+    WHATSAPP_CONNECTION_ENC_KEY: env.get("WHATSAPP_CONNECTION_ENC_KEY").default("").asString(),
+
     // Recuperación de contraseña del panel administrativo.
     PASSWORD_RESET_ENABLED: env.get("PASSWORD_RESET_ENABLED").default("false").asBool(),
     PASSWORD_RESET_TOKEN_PEPPER: env.get("PASSWORD_RESET_TOKEN_PEPPER").default("").asString(),

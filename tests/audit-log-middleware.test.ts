@@ -31,6 +31,7 @@ describe('AuditLogMiddleware.sanitizeValue', () => {
             lastName: 'Propietaria',
             businessName: 'Tienda Secreta',
             deviceId: 'device-secret',
+            messageBody: 'contenido privado del cliente',
             nested: {
                 solPassword: 'CLAVESOL',
                 certP12Password: 'p12pass',
@@ -46,6 +47,7 @@ describe('AuditLogMiddleware.sanitizeValue', () => {
         expect(out.lastName).toBe('[redacted]');
         expect(out.businessName).toBe('[redacted]');
         expect(out.deviceId).toBe('[redacted]');
+        expect(out.messageBody).toBe('[redacted]');
         expect(out.nested.solPassword).toBe('[redacted]');
         expect(out.nested.certP12Password).toBe('[redacted]');
         expect(out.nested.authorization).toBe('[redacted]');

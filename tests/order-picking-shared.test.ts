@@ -20,6 +20,7 @@ import { RequestPickingResponsibilityDto } from '../src/domain/dtos/request-pick
 import { ResolvePickingResponsibilityRequestDto } from '../src/domain/dtos/resolve-picking-responsibility-request.dto';
 import { RequestPickingUnpickActionDto } from '../src/domain/dtos/request-picking-unpick-action.dto';
 import { ResolvePickingUnpickActionDto } from '../src/domain/dtos/resolve-picking-unpick-action.dto';
+import { UpdateOrderStatusDto } from '../src/domain/dtos/update-order-status.dto';
 import { PICKING_RESPONSIBILITY_FLOW_ENABLED_KEY } from '../src/data/system-config-keys';
 import { ensurePickingResponsibilitySchema } from '../src/data/picking-responsibility-bootstrap';
 import { tenantService } from './helpers/tenant-service';
@@ -115,7 +116,7 @@ async function seedPickingOrder(primaryUserId: number, quantity: number) {
     },
   });
   createdPickingSessionIds.push(session.id);
-  return { order, itemId: order.items[0].id };
+  return { order, itemId: order.items[0].id, inventory };
 }
 
 const pickedOf = async (itemId: number) =>
@@ -239,6 +240,8 @@ afterAll(async () => {
     try { if (createdOrderIds.length) await prisma.$executeRawUnsafe(`DELETE FROM "PickingResponsibilityRequest" WHERE "orderId" = ANY($1::int[])`, createdOrderIds); } catch { /* noop */ }
     try { if (createdOrderIds.length) await prisma.$executeRawUnsafe(`DELETE FROM "PickingSharedResponsibility" WHERE "orderId" = ANY($1::int[])`, createdOrderIds); } catch { /* noop */ }
     try { if (createdOrderIds.length) await prisma.$executeRawUnsafe(`DELETE FROM "PickingOrderItemDetail" WHERE "orderId" = ANY($1::int[])`, createdOrderIds); } catch { /* noop */ }
+    try { if (createdOrderIds.length) await prisma.operationalTaskEvent.deleteMany({ where: { task: { orderId: { in: createdOrderIds } } } }); } catch { /* noop */ }
+    try { if (createdOrderIds.length) await prisma.operationalTask.deleteMany({ where: { orderId: { in: createdOrderIds } } }); } catch { /* noop */ }
     try { if (createdPickingSessionIds.length) await prisma.pickingItem.deleteMany({ where: { sessionId: { in: createdPickingSessionIds } } }); } catch { /* noop */ }
     try { if (createdOrderIds.length) await prisma.pickingSession.deleteMany({ where: { orderId: { in: createdOrderIds } } }); } catch { /* noop */ }
     try { await prisma.inventoryMovement.deleteMany({ where: { inventory: { variantId: { in: createdVariantIds } } } }); } catch { /* noop */ }
@@ -256,6 +259,14 @@ afterAll(async () => {
 });
 
 describe('Picking compartido: autorizacion basica', () => {
+  it('no permite reabrir una sesion de picking completada', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order } = await seedPickingOrder(userAId, 1);
+    await prisma.pickingSession.update({ where: { orderId: order.id }, data: { status: 'COMPLETED' } });
+    const svc = tenantService(new OrderService());
+    await expect(svc.startOrderPicking(order.id, userAId)).rejects.toThrow(/finalizado|reabrir/i);
+  });
+
   it('el responsable principal puede separar', async (ctx) => {
     if (!dbReady) return ctx.skip();
     const { order, itemId } = await seedPickingOrder(userAId, 5);
@@ -270,6 +281,95 @@ describe('Picking compartido: autorizacion basica', () => {
       tenantService(new OrderService()).updatePickingOrderItem(order.id, itemId, 1, userBId),
     ).rejects.toThrow(/responsabilidad/i);
     expect(await pickedOf(itemId)).toBe(0);
+  }, 30_000);
+});
+
+describe('Preparacion basica: reservas, limites y cierre', () => {
+  it('rechaza iniciar picking cuando no existe una reserva activa', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order } = await seedPickingOrder(userAId, 2);
+    await prisma.pickingItem.deleteMany({ where: { session: { orderId: order.id } } });
+    await prisma.pickingSession.delete({ where: { orderId: order.id } });
+    await prisma.reservation.updateMany({ where: { orderId: order.id }, data: { status: 'RELEASED' } });
+
+    await expect(tenantService(new OrderService()).startOrderPicking(order.id, userAId))
+      .rejects.toThrow(/reservas activas/i);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('CONFIRMED');
+  });
+
+  it('inicia una sesion limpia y mueve el pedido de CONFIRMED a PREPARING', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order } = await seedPickingOrder(userAId, 3);
+    await prisma.pickingItem.deleteMany({ where: { session: { orderId: order.id } } });
+    await prisma.pickingSession.delete({ where: { orderId: order.id } });
+
+    const picking = await tenantService(new OrderService()).startOrderPicking(order.id, userAId);
+    expect(picking.pickingSession?.status).toBe('IN_PROGRESS');
+    expect(picking.items).toHaveLength(1);
+    expect(picking.items[0].pickedQuantity).toBe(0);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('PREPARING');
+  });
+
+  it('rechaza cantidades negativas, decimales y superiores a lo reservado', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order, itemId } = await seedPickingOrder(userAId, 3);
+    const svc = tenantService(new OrderService());
+
+    await expect(svc.updatePickingOrderItem(order.id, itemId, -1, userAId)).rejects.toThrow(/mayor o igual a 0/i);
+    await expect(svc.updatePickingOrderItem(order.id, itemId, 1.5, userAId)).rejects.toThrow(/entero/i);
+    await expect(svc.updatePickingOrderItem(order.id, itemId, 4, userAId)).rejects.toThrow(/no puede superar 3/i);
+    expect(await pickedOf(itemId)).toBe(0);
+  });
+
+  it('no finaliza con lineas parciales y conserva el pedido en preparacion', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order, itemId } = await seedPickingOrder(userAId, 4);
+    const svc = tenantService(new OrderService());
+    await svc.updatePickingOrderItem(order.id, itemId, 2, userAId);
+
+    await expect(svc.completeOrderPicking(order.id, userAId)).rejects.toThrow(/pendientes o parciales/i);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('PREPARING');
+    expect((await prisma.pickingSession.findUniqueOrThrow({ where: { orderId: order.id } })).status).toBe('IN_PROGRESS');
+  });
+
+  it('separa de una vez solo hasta el limite reservado', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order, itemId, } = await seedPickingOrder(userAId, 5);
+    const reservation = await prisma.reservation.findFirstOrThrow({ where: { orderId: order.id } });
+    await prisma.reservation.update({ where: { id: reservation.id }, data: { quantity: 3 } });
+    await prisma.orderItem.update({ where: { id: itemId }, data: { reserved: 3 } });
+    await prisma.inventory.update({ where: { id: reservation.inventoryId }, data: { reservedStock: 3 } });
+
+    await tenantService(new OrderService()).pickAllAvailableForOrder(order.id, userAId);
+    expect(await pickedOf(itemId)).toBe(3);
+    await expect(tenantService(new OrderService()).completeOrderPicking(order.id, userAId))
+      .rejects.toThrow(/pendientes o parciales/i);
+  });
+
+  it('finaliza a READY, crea empaque y consume la reserva solamente al entregar', async (ctx) => {
+    if (!dbReady) return ctx.skip();
+    const { order, itemId, inventory } = await seedPickingOrder(userAId, 3);
+    const svc = tenantService(new OrderService());
+    await svc.updatePickingOrderItem(order.id, itemId, 3, userAId);
+
+    const ready = await svc.completeOrderPicking(order.id, userAId);
+    expect(ready.status).toBe('READY');
+    expect((await prisma.pickingSession.findUniqueOrThrow({ where: { orderId: order.id } })).status).toBe('COMPLETED');
+    expect((await prisma.reservation.findFirstOrThrow({ where: { orderId: order.id } })).status).toBe('ACTIVE');
+    expect((await prisma.inventory.findUniqueOrThrow({ where: { id: inventory.id } })).stock).toBe(3);
+    expect(await prisma.operationalTask.count({ where: { orderId: order.id, type: 'PACKING' } })).toBe(1);
+
+    await expect(svc.completeOrderPicking(order.id, userAId)).rejects.toThrow(/no permite finalizar|cambio de estado/i);
+
+    const [dtoError, deliveredDto] = UpdateOrderStatusDto.create({ status: 'DELIVERED' });
+    expect(dtoError).toBeUndefined();
+    await svc.updateOrderStatus(order.id, deliveredDto!, userAId);
+    const deliveredInventory = await prisma.inventory.findUniqueOrThrow({ where: { id: inventory.id } });
+    expect(deliveredInventory.stock).toBe(0);
+    expect(deliveredInventory.reservedStock).toBe(0);
+    expect((await prisma.reservation.findFirstOrThrow({ where: { orderId: order.id } })).status).toBe('COMPLETED');
+    expect((await prisma.operationalTask.findFirstOrThrow({ where: { orderId: order.id, type: 'PACKING' } })).status)
+      .toBe('COMPLETED');
   }, 30_000);
 });
 

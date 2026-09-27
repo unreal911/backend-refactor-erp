@@ -3,6 +3,8 @@ import { sanitizeProductDescriptionHtml } from '../sanitization/product-descript
 type ProductVariantMode = 'MATRIX' | 'SIMPLE' | 'SIZE_ONLY';
 
 type UpdateVariantInput = {
+    sku?: string;
+    barcode?: string;
     colorId?: number;
     sizeId?: number;
     price: number;
@@ -14,6 +16,11 @@ type UpdateVariantInput = {
 type MarketplaceColorImageInput = {
     colorId: number;
     imageUrl?: string;
+    imageFile?: { filename: string; data: string };
+};
+
+type OrderedProductImageInput = {
+    url?: string;
     imageFile?: { filename: string; data: string };
 };
 
@@ -29,6 +36,7 @@ export class UpdateProductDto {
         public readonly sizeIds?: number[],
         public readonly imageUrls?: string[],
         public readonly imageFiles?: Array<{ filename: string; data: string }>,
+        public readonly orderedImages?: OrderedProductImageInput[],
         public readonly variants?: UpdateVariantInput[],
         public readonly marketplaceColorImages?: MarketplaceColorImageInput[],
     ) { }
@@ -44,6 +52,7 @@ export class UpdateProductDto {
             sizeIds,
             imageUrls,
             imageFiles,
+            orderedImages,
             variants,
             marketplaceColorImages,
         } = object;
@@ -187,6 +196,14 @@ export class UpdateProductDto {
                     return ['Cada variante debe tener un precio mayor a 0', undefined];
                 }
 
+                if (variant.sku !== undefined && (typeof variant.sku !== 'string' || variant.sku.trim().length > 64)) {
+                    return ['El SKU de cada variante debe ser texto de hasta 64 caracteres', undefined];
+                }
+
+                if (variant.barcode !== undefined && (typeof variant.barcode !== 'string' || variant.barcode.trim().length > 128)) {
+                    return ['El codigo de barras de cada variante debe ser texto de hasta 128 caracteres', undefined];
+                }
+
                 if (variant.isActive !== undefined && typeof variant.isActive !== 'boolean') {
                     return ['isActive de la variante debe ser booleano', undefined];
                 }
@@ -219,6 +236,39 @@ export class UpdateProductDto {
                     }
                 }
             }
+
+
+            const requestedSkus = (variants as UpdateVariantInput[])
+                .map((variant) => String(variant.sku || '').trim().toUpperCase())
+                .filter(Boolean);
+            if (new Set(requestedSkus).size !== requestedSkus.length) {
+                return ['No puede haber variantes con el mismo SKU', undefined];
+            }
+
+            const requestedBarcodes = (variants as UpdateVariantInput[])
+                .map((variant) => String(variant.barcode || '').trim())
+                .filter(Boolean);
+            if (new Set(requestedBarcodes).size !== requestedBarcodes.length) {
+                return ['No puede haber variantes con el mismo codigo de barras', undefined];
+            }
+        }
+
+
+        if (orderedImages !== undefined) {
+            if (!Array.isArray(orderedImages)) {
+                return ['orderedImages debe ser un array', undefined];
+            }
+            for (const image of orderedImages as OrderedProductImageInput[]) {
+                const hasUrl = typeof image?.url === 'string' && image.url.trim().length > 0;
+                const hasFile = Boolean(
+                    image?.imageFile
+                    && typeof image.imageFile.filename === 'string'
+                    && typeof image.imageFile.data === 'string',
+                );
+                if (!hasUrl && !hasFile) {
+                    return ['Cada imagen ordenada debe incluir una URL o un archivo valido', undefined];
+                }
+            }
         }
 
         return [undefined, new UpdateProductDto(
@@ -232,6 +282,7 @@ export class UpdateProductDto {
             sizeIds,
             imageUrls,
             imageFiles,
+            orderedImages as OrderedProductImageInput[] | undefined,
             variants as UpdateVariantInput[] | undefined,
             marketplaceColorImages as MarketplaceColorImageInput[] | undefined,
         )];

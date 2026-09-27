@@ -3,6 +3,7 @@ export type PasswordResetEmail = {
     userName: string;
     token: string;
     expiresAt: Date;
+    channel?: "email" | "whatsapp";
 };
 
 export interface PasswordResetEmailSender {

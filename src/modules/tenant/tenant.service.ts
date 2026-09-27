@@ -22,6 +22,7 @@ export type CreateTenantInput = {
     trialEndsAt?: Date | null;
     ownerUserId: number;
     contactEmail?: string | null;
+    contactPhone?: string | null;
 };
 
 export class TenantService {
@@ -80,6 +81,7 @@ export class TenantService {
 
         const legalName = input.legalName?.trim() || null;
         const contactEmail = input.contactEmail?.trim().toLowerCase() || null;
+        const contactPhone = input.contactPhone?.trim() || null;
         const planCode = isTrial ? "TRIAL" : "STARTER";
         const planLimits = planLimitsAsTenantFields(planCode);
         const activePlanVersion = await tx.planVersion.findFirst({
@@ -102,6 +104,7 @@ export class TenantService {
                 ruc,
                 rucConfirmedAt: isTrial || !ruc ? null : now,
                 contactEmail,
+                contactPhone,
                 status: input.status,
                 databaseMode: "SHARED",
                 planCode,

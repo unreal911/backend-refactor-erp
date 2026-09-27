@@ -6,13 +6,14 @@ export class LoginDto {
     ) { }
 
     static create(object: { [key: string]: any }): [string | undefined, LoginDto | undefined] {
-        const { email, password, tenantSlug } = object;
+        const email = object.identifier ?? object.email ?? object.phone;
+        const { password, tenantSlug } = object;
 
         if (!email) {
-            return ['El correo electrónico es obligatorio', undefined];
+            return ['El correo o número de teléfono es obligatorio', undefined];
         }
         if (typeof email !== 'string') {
-            return ['El correo electrónico debe ser una cadena de texto', undefined];
+            return ['El correo o número de teléfono debe ser una cadena de texto', undefined];
         }
         if (!password) {
             return ['La contraseña es obligatoria', undefined];
@@ -34,8 +35,17 @@ export class LoginDto {
             return ['La empresa seleccionada no es válida', undefined];
         }
 
+        const normalizedIdentifier = email.includes('@')
+            ? email.trim().toLowerCase()
+            : (() => {
+                let phone = email.normalize('NFKC').trim().replace(/[\s().-]/g, '').replace(/^00/, '+');
+                if (/^9\d{8}$/.test(phone)) phone = `+51${phone}`;
+                if (/^51\d{9}$/.test(phone)) phone = `+${phone}`;
+                return phone;
+            })();
+
         return [undefined, new LoginDto(
-            email,
+            normalizedIdentifier,
             password,
             normalizedTenantSlug || undefined,
         )];

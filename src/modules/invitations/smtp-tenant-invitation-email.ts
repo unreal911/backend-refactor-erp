@@ -3,6 +3,12 @@ import {
     TenantInvitationEmail,
     TenantInvitationEmailSender,
 } from "./ports/tenant-invitation-email.port";
+import {
+    formatEmailExpiration,
+    getEmailHeroAttachment,
+    renderBrandedEmail,
+} from "../email/branded-email-template";
+import { tenantInvitationRoleLabel } from "./tenant-invitation-role";
 
 export type SmtpTenantInvitationConfig = {
     host: string;
@@ -13,15 +19,6 @@ export type SmtpTenantInvitationConfig = {
     from: string;
     acceptanceUrl: string;
 };
-
-function escapeHtml(value: string): string {
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
 
 export class SmtpTenantInvitationEmailSender implements TenantInvitationEmailSender {
     private readonly transporter: Transporter;
@@ -38,29 +35,47 @@ export class SmtpTenantInvitationEmailSender implements TenantInvitationEmailSen
     }
 
     async sendInvitation(message: TenantInvitationEmail): Promise<void> {
+        if (message.channel === "whatsapp") {
+            throw new Error("El emisor SMTP requiere una invitación con canal email");
+        }
         const acceptanceUrl = new URL(this.config.acceptanceUrl);
         acceptanceUrl.searchParams.set("token", message.token);
-        const expiration = message.expiresAt.toISOString();
+        const expiration = formatEmailExpiration(message.expiresAt);
+        const url = acceptanceUrl.toString();
+        const assignedRole = tenantInvitationRoleLabel(message.role);
 
         await this.transporter.sendMail({
             from: this.config.from,
             to: message.to,
-            subject: `Invitaci\u00f3n a ${message.tenantName}`,
+            subject: `${message.inviterName} te invitó a ${message.tenantName}`,
             text: [
-                `${message.inviterName} te invit\u00f3 a ${message.tenantName} con el rol ${message.role}.`,
+                `${message.inviterName} te invitó a formar parte de ${message.tenantName} con el rol ${assignedRole}.`,
                 "",
-                "Acepta la invitaci\u00f3n usando el siguiente enlace:",
-                acceptanceUrl.toString(),
+                "Acepta la invitación usando el siguiente enlace:",
+                url,
                 "",
-                `El enlace vence en ${expiration}. Si no esperabas esta invitaci\u00f3n, ignora este mensaje.`,
+                `El enlace vence el ${expiration}.`,
+                "Si no esperabas esta invitación, ignora el mensaje y no se realizará ningún cambio.",
             ].join("\n"),
-            html: [
-                `<p><strong>${escapeHtml(message.inviterName)}</strong> te invit\u00f3 a <strong>${escapeHtml(message.tenantName)}</strong>.</p>`,
-                `<p>Rol asignado: <strong>${escapeHtml(message.role)}</strong>.</p>`,
-                `<p><a href="${escapeHtml(acceptanceUrl.toString())}">Aceptar invitaci\u00f3n</a></p>`,
-                `<p>El enlace vence en ${escapeHtml(expiration)}.</p>`,
-                "<p>Si no esperabas esta invitaci\u00f3n, ignora este mensaje.</p>",
-            ].join(""),
+            html: renderBrandedEmail({
+                preheader: `${message.inviterName} te invitó a colaborar en ${message.tenantName}.`,
+                eyebrow: "Una invitación para ti",
+                title: `Únete al equipo de ${message.tenantName}`,
+                greeting: "Hola.",
+                introduction: `${message.inviterName} quiere que formes parte de su equipo en Tienda SaaS.`,
+                actionLabel: "Aceptar invitación",
+                actionUrl: url,
+                hero: "team-invitation",
+                heroAlt: "Equipo de una tienda de moda dando la bienvenida a una nueva integrante",
+                expiration,
+                detailTitle: "Detalles de tu acceso:",
+                details: [
+                    `Negocio: ${message.tenantName}`,
+                    `Rol asignado: ${assignedRole}`,
+                ],
+                securityNotice: "Si no esperabas esta invitación, ignora el mensaje y no se realizará ningún cambio.",
+            }),
+            attachments: [getEmailHeroAttachment("team-invitation")],
         });
     }
 }

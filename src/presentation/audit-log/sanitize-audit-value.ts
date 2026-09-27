@@ -30,6 +30,9 @@ const REDACTED_KEY_PATTERNS = [
     "lastname",
     "businessname",
     "deviceid",
+    "message",
+    "body",
+    "content",
 ];
 
 function isRedactedKey(key: string): boolean {

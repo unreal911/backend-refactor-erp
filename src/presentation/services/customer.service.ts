@@ -47,6 +47,39 @@ export class CustomerService {
         return { data: rows, total: Number(totals[0]?.total ?? 0), page: dto.page, limit: dto.limit };
     }
 
+    async getById(id: number) {
+        const tenantId = TenantDataContext.requireTenantId();
+        const customer = await prisma.customer.findFirst({
+            where: { id, tenantId },
+        });
+        if (!customer) throw CustomError.notFound('Cliente no encontrado');
+
+        const [summary, recentOrders] = await Promise.all([
+            prisma.order.aggregate({
+                where: { customerId: id, tenantId, status: { not: 'CANCELLED' } },
+                _count: { id: true },
+                _sum: { total: true },
+                _max: { createdAt: true },
+            }),
+            prisma.order.findMany({
+                where: { customerId: id, tenantId },
+                orderBy: { createdAt: 'desc' },
+                take: 10,
+                select: { id: true, code: true, status: true, salesChannel: true, total: true, createdAt: true },
+            }),
+        ]);
+
+        return {
+            ...customer,
+            summary: {
+                orderCount: summary._count.id,
+                totalPurchased: Number(summary._sum.total ?? 0),
+                lastPurchaseAt: summary._max.createdAt,
+            },
+            recentOrders: recentOrders.map((order) => ({ ...order, total: Number(order.total) })),
+        };
+    }
+
     async create(dto: SaveCustomerDto) {
         const tenantId = TenantDataContext.requireTenantId();
         await this.assertDocumentAvailable(tenantId, dto.documentNumber);

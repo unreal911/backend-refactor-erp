@@ -22,6 +22,15 @@ const TENANT_MODELS = new Set([
     "StockTransfer",
     "StockTransferItem",
     "Reservation",
+    "UserStoreAssignment",
+    "OperationalTask",
+    "OperationalTaskEvent",
+    "AttentionConversation",
+    "AttentionMessage",
+    "AttentionTemplate",
+    "WhatsAppConnection",
+    "AttentionOrderCase",
+    "AttentionFollowUp",
     "PickingSession",
     "PickingItem",
     "Order",
@@ -48,6 +57,7 @@ const TENANT_MODELS = new Set([
     "CommercialAlert",
     "AdminEventOutbox",
     "TrialBenefitClaim",
+    "MarketplaceTheme",
 ]);
 
 const READ_OPERATIONS = new Set([

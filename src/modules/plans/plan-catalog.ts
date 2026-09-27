@@ -2,10 +2,15 @@ import { TenantPlanCode } from "@prisma/client";
 
 export type PlanFeature =
     | "marketplace"
+    | "attention.inbox"
+    | "tasks.operational"
+    | "fulfillment.remote"
     | "picking.basic"
     | "picking.collaborative"
     | "picking.advanced"
     | "transfers"
+    | "transfers.partial_receipt"
+    | "transfers.evidence"
     | "roles.partial"
     | "roles.custom"
     | "reports.advanced"
@@ -14,10 +19,15 @@ export type PlanFeature =
 
 export const PLAN_FEATURE_CODES: readonly PlanFeature[] = [
     "marketplace",
+    "attention.inbox",
+    "tasks.operational",
+    "fulfillment.remote",
     "picking.basic",
     "picking.collaborative",
     "picking.advanced",
     "transfers",
+    "transfers.partial_receipt",
+    "transfers.evidence",
     "roles.partial",
     "roles.custom",
     "reports.advanced",
@@ -67,7 +77,7 @@ export const PLAN_CATALOG: Readonly<Record<TenantPlanCode, PlanDefinition>> = {
             maxUsers: 2,
             maxProducts: 10,
             maxVariantsPerProduct: 20,
-            maxStores: 5,
+            maxStores: 2,
             maxPosSalesPerMonth: 70,
             maxStorageBytes: 5n * GB,
             maxMainImagesPerProduct: 3,
@@ -75,32 +85,32 @@ export const PLAN_CATALOG: Readonly<Record<TenantPlanCode, PlanDefinition>> = {
         },
         features: features(
             "marketplace",
+            "attention.inbox",
+            "tasks.operational",
+            "fulfillment.remote",
             "picking.basic",
             "picking.collaborative",
-            "picking.advanced",
             "transfers",
             "roles.partial",
-            "roles.custom",
-            "reports.advanced",
             "images.variant",
         ),
     },
     STARTER: {
         code: TenantPlanCode.STARTER,
-        publicName: "Económico",
+        publicName: "Básico",
         monthlyPricePen: 30,
         trialDays: null,
         limits: {
             maxUsers: 2,
-            maxProducts: 25,
+            maxProducts: 100,
             maxVariantsPerProduct: 20,
             maxStores: 1,
-            maxPosSalesPerMonth: 70,
+            maxPosSalesPerMonth: 300,
             maxStorageBytes: 5n * GB,
             maxMainImagesPerProduct: 3,
             maxImagesPerVariant: 0,
         },
-        features: features("picking.basic", "sunat"),
+        features: features("tasks.operational", "picking.basic", "sunat"),
     },
     GROWTH: {
         code: TenantPlanCode.GROWTH,
@@ -109,16 +119,19 @@ export const PLAN_CATALOG: Readonly<Record<TenantPlanCode, PlanDefinition>> = {
         trialDays: null,
         limits: {
             maxUsers: 5,
-            maxProducts: 50,
+            maxProducts: 500,
             maxVariantsPerProduct: 100,
             maxStores: 2,
-            maxPosSalesPerMonth: 300,
+            maxPosSalesPerMonth: 1_000,
             maxStorageBytes: 20n * GB,
             maxMainImagesPerProduct: 5,
             maxImagesPerVariant: 1,
         },
         features: features(
             "marketplace",
+            "attention.inbox",
+            "tasks.operational",
+            "fulfillment.remote",
             "picking.basic",
             "picking.collaborative",
             "transfers",
@@ -134,19 +147,21 @@ export const PLAN_CATALOG: Readonly<Record<TenantPlanCode, PlanDefinition>> = {
         trialDays: null,
         limits: {
             maxUsers: 15,
-            maxProducts: 200,
+            maxProducts: 2_000,
             maxVariantsPerProduct: 300,
             maxStores: 5,
-            maxPosSalesPerMonth: 1_500,
+            maxPosSalesPerMonth: 5_000,
             maxStorageBytes: 50n * GB,
             maxMainImagesPerProduct: 8,
             maxImagesPerVariant: 1,
         },
         features: features(
             "marketplace",
+            "attention.inbox",
+            "tasks.operational",
+            "fulfillment.remote",
             "picking.basic",
             "picking.collaborative",
-            "picking.advanced",
             "transfers",
             "roles.partial",
             "roles.custom",

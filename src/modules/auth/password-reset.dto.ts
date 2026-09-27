@@ -1,3 +1,5 @@
+import { normalizePeruPhone } from "../../shared/phone";
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,128}$/;
 
@@ -18,14 +20,27 @@ export function validateStrongPassword(password: unknown): string | undefined {
 }
 
 export class PasswordResetRequestDto {
-    private constructor(public readonly email: string) {}
+    private constructor(
+        public readonly identifier: string,
+        public readonly channel: "email" | "whatsapp",
+    ) {}
 
     static create(body: Record<string, unknown>): [string | undefined, PasswordResetRequestDto | undefined] {
-        const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-        if (!email || email.length > 320 || !EMAIL_PATTERN.test(email)) {
-            return ["Ingresa un correo válido", undefined];
+        const identifier = typeof body?.identifier === "string"
+            ? body.identifier
+            : typeof body?.email === "string" ? body.email : "";
+        const normalized = identifier.normalize("NFKC").trim();
+        if (!normalized) return ["Ingresa un correo o número de WhatsApp válido", undefined];
+        if (normalized.includes("@")) {
+            const email = normalized.toLowerCase();
+            if (email.length > 320 || !EMAIL_PATTERN.test(email)) {
+                return ["Ingresa un correo válido", undefined];
+            }
+            return [undefined, new PasswordResetRequestDto(email, "email")];
         }
-        return [undefined, new PasswordResetRequestDto(email)];
+        const phone = normalizePeruPhone(normalized);
+        if (!phone) return ["Ingresa un correo o número de WhatsApp válido", undefined];
+        return [undefined, new PasswordResetRequestDto(phone, "whatsapp")];
     }
 }
 
@@ -33,15 +48,22 @@ export class PasswordResetConfirmDto {
     private constructor(
         public readonly token: string,
         public readonly password: string,
+        public readonly identifier: string | null,
     ) {}
 
     static create(body: Record<string, unknown>): [string | undefined, PasswordResetConfirmDto | undefined] {
         const token = typeof body?.token === "string" ? body.token.trim() : "";
-        if (!TOKEN_PATTERN.test(token)) {
-            return ["El enlace de recuperación no es válido", undefined];
+        let identifier: string | null = null;
+        if (/^\d{6}$/.test(token)) {
+            identifier = normalizePeruPhone(body?.identifier);
+            if (!identifier) {
+                return ["Ingresa el número de WhatsApp que recibió el código", undefined];
+            }
+        } else if (!TOKEN_PATTERN.test(token)) {
+            return ["La credencial de recuperación no es válida", undefined];
         }
         const passwordError = validateStrongPassword(body?.password);
         if (passwordError) return [passwordError, undefined];
-        return [undefined, new PasswordResetConfirmDto(token, body.password as string)];
+        return [undefined, new PasswordResetConfirmDto(token, body.password as string, identifier)];
     }
 }

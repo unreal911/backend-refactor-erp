@@ -19,6 +19,13 @@ export class CustomerController {
         catch (caught) { return this.error(caught, res); }
     };
 
+    getById = async (req: Request, res: Response) => {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id < 1) return res.status(400).json({ message: 'Id de cliente invalido' });
+        try { return res.status(200).json(await this.service.getById(id)); }
+        catch (caught) { return this.error(caught, res); }
+    };
+
     create = async (req: Request, res: Response) => {
         const [error, dto] = SaveCustomerDto.create(req.body as Record<string, unknown>);
         if (error) return res.status(400).json({ message: error });

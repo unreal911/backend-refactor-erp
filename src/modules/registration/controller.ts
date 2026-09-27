@@ -18,13 +18,14 @@ import {
     TrialProvisioningConflictError,
     TrialProvisioningService,
 } from "./trial-provisioning.service";
+import { getAuthChannelPolicy } from "../auth/auth-channel-policy";
 
 export const GENERIC_SIGNUP_RESPONSE = {
-    message: "Si el correo es nuevo o tiene una activación pendiente, recibirás instrucciones. Si ya tienes una cuenta activa, puedes iniciar sesión.",
+    message: "Si el identificador es nuevo o tiene una activación pendiente, recibirás instrucciones. Si ya tienes una cuenta activa, puedes iniciar sesión.",
 };
 
 export const GENERIC_RESEND_RESPONSE = {
-    message: "Si la cuenta está pendiente y las credenciales coinciden, recibirás un nuevo enlace de activación.",
+    message: "Si la cuenta está pendiente y las credenciales coinciden, recibirás nuevas instrucciones de activación.",
 };
 
 export class OwnerRegistrationController {
@@ -44,7 +45,14 @@ export class OwnerRegistrationController {
         if (!this.service || !this.abuseService) {
             return res.status(503).json({ message: "El registro no está disponible temporalmente" });
         }
-        const [error, dto] = OwnerSignupDto.create(req.body as { [key: string]: unknown });
+        const policy = await getAuthChannelPolicy();
+        const [error, dto] = OwnerSignupDto.create(
+            req.body as { [key: string]: unknown },
+            {
+                emailEnabled: policy.signupEmailEnabled,
+                whatsappEnabled: policy.signupWhatsappEnabled,
+            },
+        );
         if (error) return res.status(400).json({ message: error });
         const [abuseError, abuseDto] = OwnerSignupAbuseRequestDto.create(
             req.body,
@@ -57,7 +65,7 @@ export class OwnerRegistrationController {
 
         try {
             const decision = await this.abuseService.assess({
-                email: dto!.email,
+                email: dto!.email ?? dto!.phone!,
                 ipAddress: String(req.ip || "unknown").slice(0, 120),
                 deviceId: abuseDto!.deviceId,
                 captchaToken: abuseDto!.captchaToken,
@@ -73,7 +81,10 @@ export class OwnerRegistrationController {
             }
             await this.service.signup(dto!, decision.identity);
             return res.status(202).json(GENERIC_SIGNUP_RESPONSE);
-        } catch {
+        } catch (caught) {
+            if (caught instanceof OwnerRegistrationEmailDeliveryError) {
+                return res.status(caught.statusCode).json({ message: caught.message });
+            }
             return res.status(500).json({ message: "No se pudo procesar el registro" });
         }
     };
@@ -88,9 +99,9 @@ export class OwnerRegistrationController {
         if (error) return res.status(400).json({ message: error });
 
         try {
-            const result = await this.service.verifyEmail(dto!.token);
+            const result = await this.service.verifyEmail(dto!.token, dto!.identifier);
             return res.status(200).json({
-                message: "Correo verificado correctamente",
+                message: "Cuenta verificada correctamente",
                 trialToken: result.trialToken,
                 expiresAt: result.expiresAt.toISOString(),
             });
@@ -98,7 +109,7 @@ export class OwnerRegistrationController {
             if (caught instanceof OwnerRegistrationTokenError) {
                 return res.status(caught.statusCode).json({ message: caught.message });
             }
-            return res.status(500).json({ message: "No se pudo verificar el correo" });
+            return res.status(500).json({ message: "No se pudo verificar la cuenta" });
         }
     };
 
@@ -108,6 +119,11 @@ export class OwnerRegistrationController {
         }
         const [error, dto] = LoginDto.create(req.body as { [key: string]: unknown });
         if (error) return res.status(400).json({ message: error });
+        const policy = await getAuthChannelPolicy();
+        const isEmail = dto!.email.includes("@");
+        if (isEmail ? !policy.signupEmailEnabled : !policy.signupWhatsappEnabled) {
+            return res.status(403).json({ message: "El canal de verificación seleccionado está deshabilitado" });
+        }
 
         try {
             await this.service.resendVerification(dto!.email, dto!.password);
