@@ -14,6 +14,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
+COPY --from=build /app/scripts/require-direct-database-url.mjs ./scripts/require-direct-database-url.mjs
 RUN npm ci --omit=dev --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 \
     && npm run db:generate \
     && npm cache clean --force

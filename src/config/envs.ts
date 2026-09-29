@@ -20,9 +20,14 @@ export const envs = {
     IS_PRODUCTION: isProduction,
     PORT: env.get("PORT").default("3000").asPortNumber(),
     DATABASE_URL: env.get("DATABASE_URL").required().asString(),
-    CLOUDINARY_CLOUD_NAME: env.get("CLOUDINARY_CLOUD_NAME").required().asString(),
-    CLOUDINARY_API_KEY: env.get("CLOUDINARY_API_KEY").required().asString(),
-    CLOUDINARY_API_SECRET: env.get("CLOUDINARY_API_SECRET").required().asString(),
+    CLOUDINARY_CLOUD_NAME: env.get("CLOUDINARY_CLOUD_NAME").default("").asString(),
+    CLOUDINARY_API_KEY: env.get("CLOUDINARY_API_KEY").default("").asString(),
+    CLOUDINARY_API_SECRET: env.get("CLOUDINARY_API_SECRET").default("").asString(),
+    CLOUDINARY_CONFIGURED: Boolean(
+        env.get("CLOUDINARY_CLOUD_NAME").default("").asString()
+        && env.get("CLOUDINARY_API_KEY").default("").asString()
+        && env.get("CLOUDINARY_API_SECRET").default("").asString(),
+    ),
     JWT_SECRET,
     PAYMENT_PROOF_ENC_KEY: env.get("PAYMENT_PROOF_ENC_KEY").default("").asString(),
     PUBLIC_PATH: env.get("PUBLIC_PATH").required().asString(),

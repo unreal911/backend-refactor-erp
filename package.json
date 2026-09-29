@@ -22,7 +22,7 @@
     "start:legacy": "npm run db:migrate:deploy && npm run bootstrap:admin:prod && node dist/app.js",
     "start:rebuild": "npm run build && npm run start:legacy",
     "db:migrate:dev": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:deploy": "node scripts/require-direct-database-url.mjs && prisma migrate deploy",
     "db:generate": "prisma generate",
     "seed": "tsx src/data/seed/index.ts",
     "seed:prod": "node dist/data/seed/index.js",

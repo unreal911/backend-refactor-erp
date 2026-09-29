@@ -72,6 +72,30 @@ describe("contrato de esquema al arrancar", () => {
         expect(mocks.queryRawUnsafe).toHaveBeenCalledTimes(3);
     });
 
+    it("permite iniciar la API de producción sin DIRECT_DATABASE_URL", async () => {
+        mocks.queryRawUnsafe
+            .mockResolvedValueOnce([{ connected: true }])
+            .mockResolvedValueOnce(
+                REQUIRED_SCHEMA_TABLES.map((tableName) => ({ table_name: tableName })),
+            )
+            .mockResolvedValueOnce([{ migration_name: REQUIRED_SCHEMA_MIGRATION }]);
+
+        await expect(
+            runStartupBootstraps(
+                "postgresql://runtime:test@127.0.0.1:5432/test",
+                {
+                    NODE_ENV: "production",
+                    CORS_ORIGINS: "https://admin.example.com",
+                    CLOUD_MODE: "aws",
+                    SUNAT_DOCUMENT_STORAGE_ENABLED: "false",
+                },
+            ),
+        ).resolves.toBeUndefined();
+
+        expect(mocks.seedRbacDefaults).toHaveBeenCalledOnce();
+        expect(mocks.queryRawUnsafe).toHaveBeenCalledTimes(3);
+    });
+
     it("aborta antes de los seeds si falta una tabla", async () => {
         mocks.queryRawUnsafe
             .mockResolvedValueOnce([{ connected: true }])

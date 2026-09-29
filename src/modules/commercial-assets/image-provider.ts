@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import { ImageProviderProfile, ImageProviderType, Prisma } from "@prisma/client";
-import { cloudinary } from "../../config/cloudinary";
+import { assertCloudinaryConfigured, cloudinary } from "../../config/cloudinary";
 
 export type ProviderConfig = Record<string, unknown>;
 export type ImageUploadInput = { buffer: Buffer; contentType: string; key: string };
@@ -43,6 +43,7 @@ export class CloudinaryImageAdapter implements ImageProviderAdapter {
     constructor(profile: ImageProviderProfile) { this.config = profileConfig(profile); }
 
     async upload(input: ImageUploadInput): Promise<StoredImage> {
+        assertCloudinaryConfigured();
         const folder = safeKey(String(this.config.folder || "product_images"));
         const payload = `data:${input.contentType};base64,${input.buffer.toString("base64")}`;
         const result = await cloudinary.uploader.upload(payload, {
@@ -78,6 +79,7 @@ export class CloudinaryImageAdapter implements ImageProviderAdapter {
     }
 
     async head(externalId: string): Promise<ObjectInfo> {
+        assertCloudinaryConfigured();
         try {
             const result = await cloudinary.api.resource(externalId, { resource_type: "image" });
             return { exists: true, bytes: Number(result.bytes || 0), ...(result.format ? { contentType: `image/${result.format}` } : {}) };
@@ -85,6 +87,7 @@ export class CloudinaryImageAdapter implements ImageProviderAdapter {
     }
 
     async delete(externalId: string): Promise<void> {
+        assertCloudinaryConfigured();
         await cloudinary.uploader.destroy(externalId, { resource_type: "image", invalidate: true });
     }
 }
@@ -102,6 +105,7 @@ export class S3ImageAdapter implements ImageProviderAdapter {
         const endpoint = String(process.env.AWS_ENDPOINT_URL || "").trim() || undefined;
         this.folder = safeKey(String(config.folder || "commercial-images"));
         this.publicBaseUrl = String(config.cdnBaseUrl || process.env.PRODUCT_IMAGE_S3_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+        if (!this.publicBaseUrl) throw new Error("PRODUCT_IMAGE_S3_PUBLIC_BASE_URL debe apuntar a CloudFront; el bucket debe seguir privado");
         this.client = new S3Client({
             region,
             ...(endpoint ? { endpoint } : {}),
@@ -132,9 +136,7 @@ export class S3ImageAdapter implements ImageProviderAdapter {
                 Metadata: { sha256: createHash("sha256").update(buffer).digest("hex") },
             }));
             const encodedKey = key.split("/").map(encodeURIComponent).join("/");
-            const url = this.publicBaseUrl
-                ? `${this.publicBaseUrl}/${encodedKey}`
-                : `https://${this.bucket}.s3.${process.env.AWS_REGION || "us-east-1"}.amazonaws.com/${encodedKey}`;
+            const url = `${this.publicBaseUrl}/${encodedKey}`;
             return { name: size.name, url, bytes: buffer.byteLength };
         }));
         const detail = rendered.find((item) => item.name === "detail")!;

@@ -9,4 +9,10 @@ cloudinary.config({
     hide_sensitive: true,
 });
 
+export function assertCloudinaryConfigured(): void {
+    if (!envs.CLOUDINARY_CONFIGURED) {
+        throw new Error("Cloudinary no está configurado; activa un perfil S3 para cargar imágenes en AWS");
+    }
+}
+
 export { cloudinary };

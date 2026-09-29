@@ -3,6 +3,7 @@ import { seedDefaultPaymentMethods } from "../data/payment-method-bootstrap";
 import { seedDefaultSystemSettings } from "../data/system-config-bootstrap";
 import { seedLegacyTenantMemberships } from "../data/tenant-bootstrap";
 import { prisma } from "../data/prisma";
+import { seedAwsS3ImageProvider } from "../modules/commercial-assets/aws-image-provider-bootstrap";
 import {
     EnvironmentSource,
     isSunatDocumentStorageEnabled,
@@ -119,9 +120,6 @@ export function validateProductionRuntime(
     if (corsOrigins.length === 0 || corsOrigins.some((origin) => !origin.startsWith("https://"))) {
         throw new Error("Producción exige CORS_ORIGINS con orígenes HTTPS explícitos");
     }
-    if (!String(source.DIRECT_DATABASE_URL ?? "").trim()) {
-        throw new Error("Producción exige DIRECT_DATABASE_URL separada para migraciones");
-    }
     if (String(source.CLOUD_MODE ?? "").toLowerCase() !== "aws") {
         throw new Error("Producción exige CLOUD_MODE=aws");
     }
@@ -233,4 +231,5 @@ export async function runStartupBootstraps(
     // El arranque no ejecuta DDL. Los únicos cambios permitidos aquí son seeds
     // de catálogo idempotentes sobre un esquema ya versionado.
     await runDataSeeds();
+    await seedAwsS3ImageProvider(source);
 }
