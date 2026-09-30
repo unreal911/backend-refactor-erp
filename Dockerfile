@@ -6,11 +6,15 @@ COPY prisma.config.ts tsconfig.json ./
 COPY prisma ./prisma
 COPY scripts ./scripts
 COPY src ./src
+RUN apk add --no-cache ca-certificates curl \
+    && curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o /tmp/rds-global-bundle.pem
 RUN npm run build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
+ENV NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem
 WORKDIR /app
+COPY --from=build /tmp/rds-global-bundle.pem /app/certs/rds-global-bundle.pem
 COPY package.json package-lock.json ./
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
