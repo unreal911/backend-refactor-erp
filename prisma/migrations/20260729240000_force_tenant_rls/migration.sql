@@ -19,13 +19,9 @@ BEGIN
     END IF;
 END $$;
 
-ALTER ROLE "tienda_tenant_app"
-    NOLOGIN
-    NOSUPERUSER
-    NOCREATEDB
-    NOCREATEROLE
-    NOINHERIT
-    NOBYPASSRLS;
+-- Los atributos seguros se fijan al crear el rol arriba. Evitamos ALTER ROLE
+-- sobre un rol preexistente: en RDS la tarea de migración no tiene autoridad
+-- para cambiar CREATEROLE ni otros atributos administrados del rol.
 
 -- El propietario de migraciones puede asumir el rol efectivo para ejecutar la
 -- aplicacion local y las verificaciones. En produccion el login se provisiona
